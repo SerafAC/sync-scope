@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import {lstat, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -169,5 +176,67 @@ test('exposes bounded owned service and serial validator entry points', async ()
   assert.doesNotMatch(
     source,
     /\bpkill\b|\bkillall\b|docker\s+(?:system|container|network)\s+prune|adb\s+kill-server/,
+  );
+});
+
+test('protocol launcher completes pinned version checks before preflight', async t => {
+  const bin = await mkdtemp(
+    join(tmpdir(), 'cloud-sync-checker-launcher-test-'),
+  );
+  t.after(() => rm(bin, {recursive: true, force: true}));
+
+  const docker = join(bin, 'docker');
+  await writeFile(
+    docker,
+    `#!/bin/sh
+case "$*" in
+  "version --format {{.Client.Version}} {{.Server.Version}}")
+    printf '%s\\n' '29.7.2 29.7.2'
+    ;;
+  "compose version --short")
+    printf '%s\\n' '5.5.1'
+    ;;
+  *)
+    exit 70
+    ;;
+esac
+`,
+  );
+  await chmod(docker, 0o755);
+
+  const ss = join(bin, 'ss');
+  await writeFile(
+    ss,
+    "#!/bin/sh\nprintf '%s\\n' 'LISTEN 0 1 127.0.0.1:32122'\n",
+  );
+  await chmod(ss, 0o755);
+
+  const launch = spawnSync(
+    'sh',
+    [
+      new URL('protocol-service.sh', import.meta.url).pathname,
+      'start',
+      'sftp',
+      '--compose',
+      new URL('../../validation/services/compose.yaml', import.meta.url)
+        .pathname,
+      '--project',
+      'syncscope-sftp',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '32122',
+    ],
+    {
+      encoding: 'utf8',
+      env: {...process.env, PATH: `${bin}:${process.env.PATH}`},
+    },
+  );
+
+  assert.equal(launch.status, 1);
+  assert.match(launch.stderr, /Approved service port is occupied/);
+  assert.doesNotMatch(
+    launch.stderr,
+    /Docker 29\.7\.2 is required|Compose 5\.5\.1 is required|unexpected/,
   );
 });
