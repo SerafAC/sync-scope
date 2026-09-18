@@ -1,0 +1,56 @@
+{
+  "name": "syncscope",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "android": "react-native run-android",
+    "assemble:debug": "cd android && ./gradlew :app:assembleDebug",
+    "assemble:release": "cd android && ./gradlew :app:assembleRelease",
+    "build": "pnpm assemble:debug",
+    "lint": "eslint . --max-warnings=0",
+    "start": "react-native start",
+    "test": "jest",
+    "test:ci": "pnpm test:foundation && jest --ci --runInBand",
+    "test:foundation": "node --test scripts/validation/foundation-config.test.mjs",
+    "test:android:unit": "cd android && ./gradlew :app:testDebugUnitTest",
+    "test:android:connected": "cd android && ./gradlew :app:connectedDebugAndroidTest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-navigation/bottom-tabs": "7.18.0",
+    "@react-navigation/native": "7.4.1",
+    "react": "19.2.3",
+    "react-native": "0.87.0",
+    "react-native-paper": "5.15.3",
+    "react-native-safe-area-context": "5.10.0",
+    "react-native-screens": "4.28.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.28.4",
+    "@babel/preset-env": "7.28.3",
+    "@babel/runtime": "7.28.4",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/codegen": "0.87.0",
+    "@react-native/eslint-config": "0.87.0",
+    "@react-native/gradle-plugin": "0.87.0",
+    "@react-native/jest-preset": "0.87.0",
+    "@react-native/metro-config": "0.87.0",
+    "@react-native/typescript-config": "0.87.0",
+    "@testing-library/react-native": "13.3.3",
+    "@types/jest": "29.5.14",
+    "@types/react": "19.2.2",
+    "@types/react-test-renderer": "19.1.0",
+    "eslint": "8.57.1",
+    "jest": "29.7.0",
+    "prettier": "2.8.8",
+    "react-test-renderer": "19.2.3",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": "24.11.1",
+    "pnpm": "11.3.0"
+  }
+}

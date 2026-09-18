@@ -1,0 +1,43 @@
+# Dependencies and package-manager state
+node_modules/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+
+# Android and IDE generated state
+**/build/
+.gradle/
+.idea/
+*.iml
+*.hprof
+.cxx/
+.kotlin/
+local.properties
+android/local.properties
+
+# Generated bundles and install artifacts
+*.jsbundle
+*.apk
+*.aab
+coverage/
+.metro-health-check*
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+credentials.properties
+key.properties
+*.keystore
+*.jks
+*.p12
+
+# Readiness and local validation output
+.readiness/
+readiness/
+validation/evidence/
+.factory/readiness/
+
+# Editor and operating-system files
+.DS_Store
+*.swp
