@@ -1,0 +1,15 @@
+Port 22
+ListenAddress 0.0.0.0
+HostKey /run/syncscope-hostkeys/ssh_host_ed25519_key
+PasswordAuthentication yes
+PermitEmptyPasswords no
+PermitRootLogin no
+UsePAM no
+Subsystem sftp internal-sftp
+PidFile /run/sshd.pid
+LogLevel VERBOSE
+
+Match Group syncscope_fixture
+    ForceCommand internal-sftp -R -l INFO
+    DisableForwarding yes
+    PermitTTY no

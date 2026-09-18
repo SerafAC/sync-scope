@@ -1,0 +1,52 @@
+services:
+  sftp:
+    image: cloud-sync-checker/sftp-validation@sha256:04907991d1417618fbe8dadc349e5db305cc19a7af66cb4c7198c7be769e31ac
+    entrypoint: ["/opt/syncscope/runtime-entrypoint.sh", "sftp"]
+    ports:
+      - "127.0.0.1:32122:22"
+    volumes:
+      - "${SYNCSCOPE_STATE_ROOT}/fixtures:/srv/fixtures:ro"
+      - "${SYNCSCOPE_STATE_ROOT}/host-keys:/run/syncscope-hostkeys"
+      - "./runtime-entrypoint.sh:/opt/syncscope/runtime-entrypoint.sh:ro"
+      - "./sshd_config:/etc/ssh/sshd_config:ro"
+    secrets:
+      - fixture_credentials
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  ftp:
+    image: cloud-sync-checker/ftp-validation@sha256:2da5459eb4585bfae30c1bd38a139b21fe3fa09c065368a0654456fac91ca4d0
+    entrypoint: ["/opt/syncscope/runtime-entrypoint.sh", "ftp"]
+    ports:
+      - "127.0.0.1:32120:21"
+      - "127.0.0.1:32200-32209:32200-32209"
+    volumes:
+      - "${SYNCSCOPE_STATE_ROOT}/fixtures:/srv/fixtures:ro"
+      - "${SYNCSCOPE_STATE_ROOT}/audit:/var/log/syncscope"
+      - "./runtime-entrypoint.sh:/opt/syncscope/runtime-entrypoint.sh:ro"
+      - "./vsftpd.conf:/opt/syncscope/vsftpd.conf:ro"
+    secrets:
+      - fixture_credentials
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  webdav:
+    image: cloud-sync-checker/webdav-validation@sha256:cb1f1889e8ad8bdcce860c6c368c5ff7a627805bbc02e2c25fdb192d28838ee5
+    entrypoint: ["/opt/syncscope/runtime-entrypoint.sh", "webdav"]
+    ports:
+      - "127.0.0.1:32180:80"
+    volumes:
+      - "${SYNCSCOPE_STATE_ROOT}/fixtures:/usr/local/apache2/htdocs/webdav:ro"
+      - "./runtime-entrypoint.sh:/opt/syncscope/runtime-entrypoint.sh:ro"
+      - "./webdav.conf:/usr/local/apache2/conf/extra/webdav-probe.conf:ro"
+    secrets:
+      - fixture_credentials
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+secrets:
+  fixture_credentials:
+    file: "${SYNCSCOPE_CREDENTIALS_FILE}"

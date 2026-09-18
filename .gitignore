@@ -36,6 +36,7 @@ key.properties
 .readiness/
 readiness/
 validation/evidence/
+validation/runtime/
 .factory/readiness/
 
 # Editor and operating-system files
