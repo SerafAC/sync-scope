@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "gsd-workflow": {
+      "command": "/home/adi/.nvm/versions/node/v24.11.1/bin/node",
+      "args": [
+        "/home/adi/.nvm/versions/node/v24.11.1/lib/node_modules/@opengsd/gsd-pi/packages/mcp-server/dist/cli.js"
+      ],
+      "cwd": "/home/adi/projects/sync-scope",
+      "env": {
+        "GSD_CLI_PATH": "/home/adi/.nvm/versions/node/v24.11.1/bin/gsd",
+        "GSD_BIN_PATH": "/home/adi/.nvm/versions/node/v24.11.1/bin/gsd",
+        "GSD_WORKFLOW_EXECUTORS_MODULE": "/home/adi/.gsd/agent/extensions/gsd/tools/workflow-tool-executors.js",
+        "GSD_WORKFLOW_WRITE_GATE_MODULE": "/home/adi/.gsd/agent/extensions/gsd/bootstrap/write-gate.js",
+        "GSD_PERSIST_WRITE_GATE_STATE": "1",
+        "GSD_WORKFLOW_PROJECT_ROOT": "/home/adi/projects/sync-scope"
+      }
+    },
+    "gsd-browser": {
+      "command": "gsd-browser",
+      "args": [
+        "mcp",
+        "--session",
+        "gsd-sync-scope-b29cd791",
+        "--identity-scope",
+        "project",
+        "--identity-key",
+        "gsd-sync-scope-b29cd791",
+        "--identity-project",
+        "gsd-sync-scope-b29cd791"
+      ],
+      "cwd": "/home/adi/projects/sync-scope"
+    }
+  }
+}

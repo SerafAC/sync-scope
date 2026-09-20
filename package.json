@@ -51,6 +51,7 @@
     "@react-native/typescript-config": "0.87.0",
     "@testing-library/react-native": "13.3.3",
     "@types/jest": "29.5.14",
+    "@types/node": "^24.13.5",
     "@types/react": "19.2.2",
     "@types/react-test-renderer": "19.1.0",
     "eslint": "8.57.1",
@@ -62,5 +63,13 @@
   "engines": {
     "node": "24.11.1",
     "pnpm": "11.3.0"
+  },
+  "codegenConfig": {
+    "name": "NativeCloudSyncSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/native/specs",
+    "android": {
+      "javaPackageName": "com.syncscope.codegen"
+    }
   }
 }

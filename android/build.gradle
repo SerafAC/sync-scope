@@ -19,4 +19,9 @@ buildscript {
     }
 }
 
+plugins {
+    // KSP matches the pinned Kotlin version; required for Room codegen.
+    id("com.google.devtools.ksp") version "2.2.0-2.0.2" apply false
+}
+
 apply plugin: "com.facebook.react.rootproject"
