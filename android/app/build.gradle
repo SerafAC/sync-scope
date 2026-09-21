@@ -86,6 +86,8 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Deny cleartext unless a build type explicitly opts in.
+        manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
     externalNativeBuild {
         cmake {
@@ -93,7 +95,13 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // FTP control and WebDAV Basic to the local test containers (10.0.2.2) are plaintext.
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
         release {
+            // The shipped APK carries no blanket cleartext permit.
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
