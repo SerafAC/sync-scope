@@ -1,0 +1,20 @@
+{
+  "id": "5f477a6b-6ee8-4ab9-a306-45c884c5127f",
+  "runtime": "bash",
+  "purpose": "T01 verification round 5: :app:testDebugUnitTest with plain Application",
+  "script_chars": 265,
+  "started_at": "2026-09-21T06:15:20.159Z",
+  "finished_at": "2026-09-21T06:15:48.656Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 28497,
+  "stdout_bytes": 2404,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/5f477a6b-6ee8-4ab9-a306-45c884c5127f.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/5f477a6b-6ee8-4ab9-a306-45c884c5127f.stderr"
+}

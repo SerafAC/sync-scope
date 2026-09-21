@@ -112,6 +112,10 @@ ksp {
 }
 
 tasks.withType(Test).configureEach {
+    // Robolectric sandboxes for compileSdk 36 refuse to start on Java 17.
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
     // Robolectric runtime artifacts come from the approved toolchain cache;
     // the network resolver remains a fallback for uncached artifacts.
     systemProperty "robolectric.dependency.repo.url",

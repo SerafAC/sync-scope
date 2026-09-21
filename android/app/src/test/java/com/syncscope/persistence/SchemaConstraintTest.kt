@@ -34,7 +34,7 @@ class SchemaConstraintTest {
   }
 
   @Test
-  fun foreignKeysAreEnforced() = runBlocking {
+  fun foreignKeysAreEnforced(): Unit = runBlocking {
     db.scanRunDao().insert(scanRun("run-1", generation = 1))
     db.snapshotDao().insert(stagingSnapshot("snap-1", "run-1"))
 
@@ -57,7 +57,7 @@ class SchemaConstraintTest {
   }
 
   @Test
-  fun remoteMatchKeyFullKeyIsUnique() = runBlocking {
+  fun remoteMatchKeyFullKeyIsUnique(): Unit = runBlocking {
     seedSnapshot()
     val key =
       RemoteMatchKeyEntity(

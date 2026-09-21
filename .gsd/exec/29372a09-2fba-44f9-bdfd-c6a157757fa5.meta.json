@@ -1,0 +1,20 @@
+{
+  "id": "29372a09-2fba-44f9-bdfd-c6a157757fa5",
+  "runtime": "bash",
+  "purpose": "T01 verification retry: :app:testDebugUnitTest with local SDK",
+  "script_chars": 208,
+  "started_at": "2026-09-21T06:05:15.579Z",
+  "finished_at": "2026-09-21T06:08:55.630Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 220051,
+  "stdout_bytes": 2034,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/29372a09-2fba-44f9-bdfd-c6a157757fa5.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/29372a09-2fba-44f9-bdfd-c6a157757fa5.stderr"
+}

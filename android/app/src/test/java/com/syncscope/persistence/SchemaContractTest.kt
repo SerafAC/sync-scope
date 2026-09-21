@@ -75,9 +75,9 @@ class SchemaContractTest {
   @Test
   fun foreignKeysAreDeclared() {
     val localNode = sectionFor("local_node")
-    assertTrue(localNode.contains("\"referenceTable\": \"snapshot\""))
-    assertTrue(localNode.contains("\"referenceTable\": \"source_root\""))
-    assertTrue(sectionFor("snapshot").contains("\"referenceTable\": \"scan_run\""))
+    assertTrue(localNode.contains("\"table\": \"snapshot\""))
+    assertTrue(localNode.contains("\"table\": \"source_root\""))
+    assertTrue(sectionFor("snapshot").contains("\"table\": \"scan_run\""))
   }
 
   private fun sectionFor(tableName: String): String {

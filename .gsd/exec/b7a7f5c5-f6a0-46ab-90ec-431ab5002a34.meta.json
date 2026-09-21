@@ -1,0 +1,20 @@
+{
+  "id": "b7a7f5c5-f6a0-46ab-90ec-431ab5002a34",
+  "runtime": "bash",
+  "purpose": "T01 verification round 2: :app:testDebugUnitTest after codec/toolchain/test fixes",
+  "script_chars": 208,
+  "started_at": "2026-09-21T06:11:10.098Z",
+  "finished_at": "2026-09-21T06:11:26.501Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 16403,
+  "stdout_bytes": 2317,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b7a7f5c5-f6a0-46ab-90ec-431ab5002a34.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b7a7f5c5-f6a0-46ab-90ec-431ab5002a34.stderr"
+}

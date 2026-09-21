@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "lastWriter": "gsd-pi",
+  "lastProjectedAt": "2026-09-21T15:14:48.550Z",
+  "projections": {
+    "phases/01-syncscope-v1/01-ROADMAP.md": {
+      "sha": "7ba74886c8ae9aa2",
+      "entities": [
+        "M001"
+      ]
+    },
+    "phases/01-syncscope-v1/01-01-PLAN.md": {
+      "sha": "6e43549088d9134e",
+      "entities": [
+        "M001",
+        "M001/S01"
+      ]
+    }
+  },
+  "planning": {
+    "active": false,
+    "layout": null,
+    "projections": {},
+    "passthrough": {}
+  },
+  "piVersion": ""
+}

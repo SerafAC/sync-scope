@@ -1,0 +1,8 @@
+ANDROID_HOME= ANDROID_SDK_ROOT=
+FOUND /opt/android-sdk
+build-tools
+---worktree local.properties---
+absent
+---which sdkmanager---
+none
+END

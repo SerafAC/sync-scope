@@ -1,0 +1,20 @@
+{
+  "id": "826960be-3779-4083-ae04-67a82a68a9c3",
+  "runtime": "bash",
+  "purpose": "Inspect Robolectric dependency cache and exact resolver error",
+  "script_chars": 496,
+  "started_at": "2026-09-21T06:13:39.199Z",
+  "finished_at": "2026-09-21T06:13:39.249Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 50,
+  "stdout_bytes": 1820,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/826960be-3779-4083-ae04-67a82a68a9c3.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/826960be-3779-4083-ae04-67a82a68a9c3.stderr"
+}
