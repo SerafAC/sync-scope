@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "lastWriter": "gsd-pi",
-  "lastProjectedAt": "2026-09-21T20:32:03.235Z",
+  "lastProjectedAt": "2026-09-21T20:41:24.907Z",
   "projections": {
     "phases/01-syncscope-v1/01-ROADMAP.md": {
       "sha": "7ba74886c8ae9aa2",
@@ -10,7 +10,7 @@
       ]
     },
     "phases/01-syncscope-v1/01-01-PLAN.md": {
-      "sha": "9bf9b9b3bba50be0",
+      "sha": "d4ce38e5c558797c",
       "entities": [
         "M001",
         "M001/S01"
@@ -54,6 +54,22 @@
         "M001",
         "M001/S01",
         "M001/S01/T05"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T06-SUMMARY.md": {
+      "sha": "4fee8d6e914bf270",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T06"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T07-SUMMARY.md": {
+      "sha": "13371535c2726eb8",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T07"
       ]
     }
   },

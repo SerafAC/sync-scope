@@ -1,0 +1,20 @@
+{
+  "id": "d1ab99b2-0c07-4cb6-9a02-6d7708c56dfa",
+  "runtime": "bash",
+  "purpose": "T06 unit tests",
+  "script_chars": 317,
+  "started_at": "2026-09-21T20:36:01.395Z",
+  "finished_at": "2026-09-21T20:37:12.643Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 71248,
+  "stdout_bytes": 7,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d1ab99b2-0c07-4cb6-9a02-6d7708c56dfa.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d1ab99b2-0c07-4cb6-9a02-6d7708c56dfa.stderr"
+}

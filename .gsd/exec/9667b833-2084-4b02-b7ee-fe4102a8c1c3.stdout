@@ -1,0 +1,6 @@
+RUNNER_ARG_KEYS=[]
+unset rc=0
+RUNNER_ARG_KEYS=[sftpPassword, sftpUser]
+set rc=0
+no password in output
+ms=19695

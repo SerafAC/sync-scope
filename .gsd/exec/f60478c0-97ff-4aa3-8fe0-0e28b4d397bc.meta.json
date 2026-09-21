@@ -1,0 +1,20 @@
+{
+  "id": "f60478c0-97ff-4aa3-8fe0-0e28b4d397bc",
+  "runtime": "bash",
+  "purpose": "T07 live services start/health/stop inspection",
+  "script_chars": 711,
+  "started_at": "2026-09-21T20:40:39.376Z",
+  "finished_at": "2026-09-21T20:40:44.406Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 5030,
+  "stdout_bytes": 384,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/f60478c0-97ff-4aa3-8fe0-0e28b4d397bc.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/f60478c0-97ff-4aa3-8fe0-0e28b4d397bc.stderr"
+}

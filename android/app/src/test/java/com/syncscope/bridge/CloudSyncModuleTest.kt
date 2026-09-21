@@ -46,9 +46,7 @@ class CloudSyncModuleTest {
   fun unbuiltOperationsResolveNotImplementedWithoutRejecting() {
     val calls: List<(Promise) -> Unit> =
       listOf(
-        { module.getRepositorySummary(it) },
-        { module.saveRepository(JavaOnlyMap(), "secret", it) },
-        { module.testRepository(it) },
+        { module.listSources(it) },
         { module.startScan(it) },
         { module.executeLocalDeletion("plan", it) },
       )

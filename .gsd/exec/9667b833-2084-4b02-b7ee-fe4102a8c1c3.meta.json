@@ -1,0 +1,20 @@
+{
+  "id": "9667b833-2084-4b02-b7ee-fe4102a8c1c3",
+  "runtime": "bash",
+  "purpose": "T07 gradle configuration check with and without credential files",
+  "script_chars": 1154,
+  "started_at": "2026-09-21T20:40:12.431Z",
+  "finished_at": "2026-09-21T20:40:32.154Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 19723,
+  "stdout_bytes": 111,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/9667b833-2084-4b02-b7ee-fe4102a8c1c3.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/9667b833-2084-4b02-b7ee-fe4102a8c1c3.stderr"
+}

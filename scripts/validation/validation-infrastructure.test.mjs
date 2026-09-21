@@ -179,7 +179,7 @@ test('exposes bounded owned service and serial validator entry points', async ()
   );
 });
 
-test('protocol launcher completes pinned version checks before preflight', async t => {
+async function launchWithStubbedDocker(t, dockerVersion) {
   const bin = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-launcher-test-'),
   );
@@ -191,7 +191,7 @@ test('protocol launcher completes pinned version checks before preflight', async
     `#!/bin/sh
 case "$*" in
   "version --format {{.Client.Version}} {{.Server.Version}}")
-    printf '%s\\n' '29.7.2 29.7.2'
+    printf '%s\\n' '${dockerVersion}'
     ;;
   "compose version --short")
     printf '%s\\n' '5.5.1'
@@ -211,7 +211,7 @@ esac
   );
   await chmod(ss, 0o755);
 
-  const launch = spawnSync(
+  return spawnSync(
     'sh',
     [
       new URL('protocol-service.sh', import.meta.url).pathname,
@@ -232,11 +232,25 @@ esac
       env: {...process.env, PATH: `${bin}:${process.env.PATH}`},
     },
   );
+}
+
+test('protocol launcher accepts any Docker 29 release before preflight', async t => {
+  const launch = await launchWithStubbedDocker(t, '29.8.1 29.8.1');
 
   assert.equal(launch.status, 1);
   assert.match(launch.stderr, /Approved service port is occupied/);
   assert.doesNotMatch(
     launch.stderr,
-    /Docker 29\.7\.2 is required|Compose 5\.5\.1 is required|unexpected/,
+    /Docker 29\.x is required|Compose 5\.5\.1 is required|unexpected/,
   );
+});
+
+test('protocol launcher rejects a Docker major other than 29', async t => {
+  for (const version of ['30.0.0 30.0.0', '29.8.1 30.0.0', '28.5.2 29.8.1']) {
+    const launch = await launchWithStubbedDocker(t, version);
+
+    assert.equal(launch.status, 1, version);
+    assert.match(launch.stderr, /Docker 29\.x is required/, version);
+    assert.doesNotMatch(launch.stderr, /Approved service port/, version);
+  }
 });
