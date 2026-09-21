@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-09-20T09:55:12Z | Files: 64 | Described: 0/64
-<!-- gsd:codebase-meta {"generatedAt":"2026-09-20T09:55:12Z","fingerprint":"40cc37f4388a24092608286f22ed30edf6543626","fileCount":64,"truncated":false} -->
+Generated: 2026-09-21T21:10:34Z | Files: 65 | Described: 0/65
+<!-- gsd:codebase-meta {"generatedAt":"2026-09-21T21:10:34Z","fingerprint":"9a072dc02c28f51a02acba25b482b852f699fb5f","fileCount":65,"truncated":false} -->
 
 ### (root)/
 - `.eslintignore`
@@ -20,6 +20,7 @@ Generated: 2026-09-20T09:55:12Z | Files: 64 | Described: 0/64
 - `metro.config.js`
 - `package.json`
 - `pnpm-lock.yaml`
+- `skills-lock.json`
 - `tsconfig.json`
 
 ### __tests__/
