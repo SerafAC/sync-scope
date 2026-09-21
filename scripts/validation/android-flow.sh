@@ -16,7 +16,7 @@ done
 case "$mode" in connected|e2e) ;; *) exit 64 ;; esac
 [ -n "$apis" ] || apis=" 31"
 
-repo=/home/adi/projects/cloud-sync-checker
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 compose="$repo/validation/services/compose.yaml"
 protocols_started=
 active_api=

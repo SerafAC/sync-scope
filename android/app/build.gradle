@@ -71,6 +71,33 @@ def enableProguardInReleaseBuilds = false
  * give correct results when using with locales other than en-US. Note that
  * this variant is about 6MiB larger per architecture than default.
  */
+/**
+ * Reads the per-start protocol credentials written by scripts/validation/protocol-service.sh
+ * (SYNCSCOPE_{SFTP,FTP,WEBDAV}_CREDENTIAL_FILE, lines `username=` and `password=`) and maps them
+ * to instrumentation runner arguments such as sftpUser / sftpPassword. Unset, unreadable, or
+ * incomplete files contribute nothing, so builds without running containers configure cleanly.
+ * Values are never logged.
+ */
+def syncScopeContainerCredentials() {
+    def arguments = [:]
+    ["sftp", "ftp", "webdav"].each { protocol ->
+        def path = System.getenv("SYNCSCOPE_${protocol.toUpperCase()}_CREDENTIAL_FILE")
+        if (!path) return
+        def file = new File(path)
+        if (!file.isFile() || !file.canRead()) return
+        def fields = [:]
+        file.readLines("UTF-8").each { line ->
+            def separator = line.indexOf('=')
+            if (separator > 0) fields[line.substring(0, separator).trim()] = line.substring(separator + 1)
+        }
+        if (fields.username && fields.password) {
+            arguments["${protocol}User".toString()] = fields.username
+            arguments["${protocol}Password".toString()] = fields.password
+        }
+    }
+    return arguments
+}
+
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
@@ -88,6 +115,8 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Deny cleartext unless a build type explicitly opts in.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
+        // Container credentials live on the host; instrumentation reads them as runner arguments.
+        testInstrumentationRunnerArguments.putAll(syncScopeContainerCredentials())
     }
     externalNativeBuild {
         cmake {

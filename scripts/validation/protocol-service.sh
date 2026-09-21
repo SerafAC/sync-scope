@@ -29,7 +29,7 @@ esac
 case "$project" in syncscope-sftp|syncscope-webdav|syncscope-ftp) ;; *) exit 64 ;; esac
 [ -f "$compose" ] || exit 1
 
-repo=/home/adi/projects/cloud-sync-checker
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 state="/tmp/cloud-sync-checker-$project"
 credentials="$state/credentials"
 owner="$state/owner"
