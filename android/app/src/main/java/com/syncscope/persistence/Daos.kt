@@ -228,4 +228,11 @@ interface RepositoryConfigDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun put(config: RepositoryConfigEntity)
 
   @Query("SELECT * FROM repository_config WHERE id = 0") suspend fun get(): RepositoryConfigEntity?
+
+  /**
+   * Records discovered precision only if the row is still the [revision] that was tested,
+   * so a save that lands mid-test is never overwritten. Returns the rows updated (0 or 1).
+   */
+  @Query("UPDATE repository_config SET precisionMillis = :precisionMillis WHERE id = 0 AND revision = :revision")
+  suspend fun updatePrecision(revision: Long, precisionMillis: Long): Int
 }

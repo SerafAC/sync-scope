@@ -6,7 +6,11 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
+import com.syncscope.credential.CredentialStore
+import com.syncscope.persistence.RepositoryConfigDao
+import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
+import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -28,12 +32,26 @@ class CloudSyncModule(
   dispatcher: CoroutineDispatcher = Dispatchers.IO,
   private val envelope: CloudSyncEnvelope = CloudSyncEnvelope(),
   hostKeyTrust: () -> HostKeyTrustStore = { HostKeyTrustStore.shared(reactContext) },
+  repositoryConfig: () -> RepositoryConfigDao = { SyncScopeDatabase.get(reactContext).repositoryConfigDao() },
+  credentialStore: () -> CredentialStore = { CredentialStore.shared(reactContext) },
+  remoteClients: RemoteClientFactory? = null,
 ) : NativeCloudSyncSpec(reactContext) {
 
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
   /** Resolved on first use, on the background dispatcher, so the database never opens on the UI thread. */
   private val hostKeys by lazy(hostKeyTrust)
+
+  private val repositories =
+    RepositoryOperations(
+      repositories = memoize(repositoryConfig),
+      credentials = memoize(credentialStore),
+      hostKeys = { hostKeys },
+      clients = { remoteClients ?: defaultClients },
+      envelope = envelope,
+    )
+
+  private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
   override fun getName(): String = NAME
 
@@ -62,12 +80,14 @@ class CloudSyncModule(
     promise: Promise,
   ) = runPage("queryTreeChildren", promise) { envelope.pageNotImplemented("queryTreeChildren") }
 
-  override fun getRepositorySummary(promise: Promise) = notImplemented("getRepositorySummary", promise)
+  override fun getRepositorySummary(promise: Promise) =
+    runOperation("getRepositorySummary", promise) { repositories.summary() }
 
   override fun saveRepository(config: ReadableMap, transientPassword: String?, promise: Promise) =
-    notImplemented("saveRepository", promise)
+    runOperation("saveRepository", promise) { repositories.save(config, transientPassword) }
 
-  override fun testRepository(promise: Promise) = notImplemented("testRepository", promise)
+  override fun testRepository(promise: Promise) =
+    runOperation("testRepository", promise) { repositories.test() }
 
   override fun approveSftpHostKey(challengeId: String, promise: Promise) =
     runOperation("approveSftpHostKey", promise) {
@@ -142,6 +162,11 @@ class CloudSyncModule(
   }
 
   companion object {
+    private fun <T> memoize(factory: () -> T): () -> T {
+      val value by lazy(factory)
+      return { value }
+    }
+
     const val NAME = CloudSyncContracts.MODULE_NAME
     private const val TAG = "CloudSync"
   }

@@ -80,6 +80,10 @@ class HostKeyTrustStore(
   suspend fun verifierFor(host: String, port: Int): TofuHostKeyVerifier =
     TofuHostKeyVerifier(dao.forHost(HostKeyChallengeRegistry.normalizeHost(host), port), challenges)
 
+  /** Whether any key is trusted for the endpoint; never reveals the key itself. */
+  suspend fun isTrusted(host: String, port: Int): Boolean =
+    dao.forHost(HostKeyChallengeRegistry.normalizeHost(host), port).isNotEmpty()
+
   /** Persists the challenged key as the endpoint's trusted key. */
   suspend fun approve(challengeId: String): TrustedSftpHostKeyEntity {
     val challenge = challenges.consume(challengeId) ?: throw challengeNotFound()

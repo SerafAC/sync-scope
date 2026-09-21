@@ -35,6 +35,10 @@ export const CloudSyncErrorCode = {
   SFTP_HOST_KEY_UNVERIFIED: 'SFTP_HOST_KEY_UNVERIFIED',
   SFTP_HOST_KEY_CHANGED: 'SFTP_HOST_KEY_CHANGED',
   HOST_KEY_CHALLENGE_NOT_FOUND: 'HOST_KEY_CHALLENGE_NOT_FOUND',
+  /** No repository has been saved yet; the Connect screen must run first. */
+  REPOSITORY_NOT_CONFIGURED: 'REPOSITORY_NOT_CONFIGURED',
+  /** The saved repository's password is missing or was rotated; re-enter it. */
+  CREDENTIAL_UNAVAILABLE: 'CREDENTIAL_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 

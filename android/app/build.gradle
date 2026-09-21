@@ -158,6 +158,9 @@ dependencies {
     // Read-only WebDAV listing client: hand-rolled OPTIONS/PROPFIND, no WebDAV library (MEM005).
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Keystore-backed (AES256_GCM MasterKey) credential storage; the password never reaches Room (R003).
+    implementation("androidx.security:security-crypto:1.1.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")

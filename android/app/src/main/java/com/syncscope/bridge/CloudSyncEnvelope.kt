@@ -23,6 +23,24 @@ class CloudSyncEnvelope(
   /** `{contractVersion, status: "ok"}` */
   fun ok(): WritableMap = base(CloudSyncContracts.STATUS_OK)
 
+  /** `{contractVersion, status: "ok", [key]: payload}` for operations that return data. */
+  fun ok(key: String, payload: WritableMap): WritableMap = ok().apply { putMap(key, payload) }
+
+  /** An empty map from the injected factory, for building payloads. */
+  fun map(): WritableMap = newMap()
+
+  /**
+   * `INVALID_QUERY` naming the offending input [field] (also carried as `error.field`).
+   * The rejected value is never echoed.
+   */
+  fun invalidField(field: String, reason: String): WritableMap =
+    error(
+      CloudSyncErrorCode.INVALID_QUERY,
+      "The repository $field is invalid: $reason.",
+      "Correct the $field and save again.",
+      field = field,
+    )
+
   /**
    * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?}}`.
    * The challenge's host/port are the user's own input, carried as structured fields so the
@@ -34,6 +52,7 @@ class CloudSyncEnvelope(
     action: String? = null,
     sensitive: Collection<String> = emptyList(),
     hostKeyChallenge: HostKeyChallenge? = null,
+    field: String? = null,
   ): WritableMap =
     base(CloudSyncContracts.STATUS_ERROR).apply {
       putMap(
@@ -43,6 +62,7 @@ class CloudSyncEnvelope(
           putString("message", redact(message, sensitive))
           if (action == null) putNull("action") else putString("action", redact(action, sensitive))
           hostKeyChallenge?.let { putMap("hostKeyChallenge", challengeMap(it)) }
+          field?.let { putString("field", it) }
         },
       )
     }
