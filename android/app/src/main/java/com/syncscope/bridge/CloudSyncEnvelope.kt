@@ -3,7 +3,9 @@ package com.syncscope.bridge
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
+import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.remote.SftpHostKeyException
 
 /**
  * Builders for the discriminated envelopes declared by the CloudSync spec
@@ -21,12 +23,17 @@ class CloudSyncEnvelope(
   /** `{contractVersion, status: "ok"}` */
   fun ok(): WritableMap = base(CloudSyncContracts.STATUS_OK)
 
-  /** `{contractVersion, status: "error", error: {code, message, action}}` */
+  /**
+   * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?}}`.
+   * The challenge's host/port are the user's own input, carried as structured fields so the
+   * prompt can be checked against `ssh-keyscan`; they are never placed in the message.
+   */
   fun error(
     code: CloudSyncErrorCode,
     message: String,
     action: String? = null,
     sensitive: Collection<String> = emptyList(),
+    hostKeyChallenge: HostKeyChallenge? = null,
   ): WritableMap =
     base(CloudSyncContracts.STATUS_ERROR).apply {
       putMap(
@@ -35,9 +42,14 @@ class CloudSyncEnvelope(
           putString("code", code.name)
           putString("message", redact(message, sensitive))
           if (action == null) putNull("action") else putString("action", redact(action, sensitive))
+          hostKeyChallenge?.let { putMap("hostKeyChallenge", challengeMap(it)) }
         },
       )
     }
+
+  /** A connect that stopped at an unapproved SFTP host key (blocking TOFU prompt). */
+  fun hostKeyApprovalRequired(challenge: HostKeyChallenge): WritableMap =
+    remoteFailure(SftpHostKeyException(CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED, challenge))
 
   /** `FilePageResultDto` error variant: an error envelope with `page: null`. */
   fun pageError(
@@ -76,7 +88,7 @@ class CloudSyncEnvelope(
     return if (page) {
       pageError(e.code, message, e.action, sensitive)
     } else {
-      error(e.code, message, e.action, sensitive)
+      error(e.code, message, e.action, sensitive, (e as? SftpHostKeyException)?.challenge)
     }
   }
 
@@ -92,6 +104,17 @@ class CloudSyncEnvelope(
   }
 
   fun emptyArray(): WritableArray = newArray()
+
+  private fun challengeMap(challenge: HostKeyChallenge): WritableMap =
+    newMap().apply {
+      putString("challengeId", challenge.challengeId)
+      putString("host", challenge.host)
+      putInt("port", challenge.port)
+      putString("algorithm", challenge.algorithm)
+      putString("fingerprint", challenge.fingerprint)
+      val previous = challenge.previousFingerprint
+      if (previous == null) putNull("previousFingerprint") else putString("previousFingerprint", previous)
+    }
 
   private fun base(status: String): WritableMap =
     newMap().apply {

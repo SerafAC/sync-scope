@@ -192,6 +192,28 @@ abstract class TrustedSftpHostKeyDao {
   open suspend fun upsert(key: TrustedSftpHostKeyEntity) {
     if (key.id != 0L && byId(key.id) != null) update(key) else insert(key)
   }
+
+  /** Every key trusted for an endpoint, whatever its algorithm. */
+  @Query("SELECT * FROM trusted_sftp_host_key WHERE host = :host AND port = :port")
+  abstract suspend fun forHost(host: String, port: Int): List<TrustedSftpHostKeyEntity>
+
+  @Query(
+    "DELETE FROM trusted_sftp_host_key WHERE host = :host AND port = :port AND algorithm != :algorithm"
+  )
+  abstract suspend fun deleteOtherAlgorithms(host: String, port: Int, algorithm: String)
+
+  /**
+   * Records an explicit user approval as the endpoint's only trusted key. Re-approving
+   * after a change reuses the existing row's id, so [upsert] updates rather than
+   * colliding with the unique index; keys of other algorithms are dropped so a
+   * superseded key can never verify again.
+   */
+  @Transaction
+  open suspend fun replaceEndpointKey(key: TrustedSftpHostKeyEntity) {
+    deleteOtherAlgorithms(key.host, key.port, key.algorithm)
+    val existing = forEndpoint(key.host, key.port, key.algorithm)
+    upsert(key.copy(id = existing?.id ?: 0L))
+  }
 }
 
 @Dao

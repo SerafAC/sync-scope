@@ -30,6 +30,9 @@ export const CloudSyncErrorCode = {
   CONNECTION_TIMEOUT: 'CONNECTION_TIMEOUT',
   CONNECTION_LOST: 'CONNECTION_LOST',
   DIRECTORY_UNREADABLE: 'DIRECTORY_UNREADABLE',
+  SFTP_HOST_KEY_UNVERIFIED: 'SFTP_HOST_KEY_UNVERIFIED',
+  SFTP_HOST_KEY_CHANGED: 'SFTP_HOST_KEY_CHANGED',
+  HOST_KEY_CHALLENGE_NOT_FOUND: 'HOST_KEY_CHALLENGE_NOT_FOUND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -42,6 +45,25 @@ export interface CloudSyncError {
   message: string;
   /** Optional hint describing the recovery action the UI should offer. */
   action: string | null;
+  /**
+   * Present on SFTP_HOST_KEY_UNVERIFIED and SFTP_HOST_KEY_CHANGED only. The
+   * connection is blocked until the user answers via approveSftpHostKey or
+   * rejectSftpHostKey with `challengeId`.
+   */
+  hostKeyChallenge?: HostKeyChallengeDto | null;
+}
+
+export interface HostKeyChallengeDto {
+  challengeId: string;
+  /** Endpoint the user typed, shown so the prompt can be checked against `ssh-keyscan`. */
+  host: string;
+  port: number;
+  /** SSH key algorithm, e.g. `ssh-ed25519`. */
+  algorithm: string;
+  /** OpenSSH `SHA256:<base64>` form, identical to `ssh-keygen -l` output. */
+  fingerprint: string;
+  /** Fingerprint of the key previously trusted for this endpoint (CHANGED only). */
+  previousFingerprint: string | null;
 }
 
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';

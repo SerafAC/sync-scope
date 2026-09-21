@@ -6,6 +6,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
+import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -26,9 +27,13 @@ class CloudSyncModule(
   reactContext: ReactApplicationContext,
   dispatcher: CoroutineDispatcher = Dispatchers.IO,
   private val envelope: CloudSyncEnvelope = CloudSyncEnvelope(),
+  hostKeyTrust: () -> HostKeyTrustStore = { HostKeyTrustStore.shared(reactContext) },
 ) : NativeCloudSyncSpec(reactContext) {
 
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+
+  /** Resolved on first use, on the background dispatcher, so the database never opens on the UI thread. */
+  private val hostKeys by lazy(hostKeyTrust)
 
   override fun getName(): String = NAME
 
@@ -65,10 +70,16 @@ class CloudSyncModule(
   override fun testRepository(promise: Promise) = notImplemented("testRepository", promise)
 
   override fun approveSftpHostKey(challengeId: String, promise: Promise) =
-    notImplemented("approveSftpHostKey", promise)
+    runOperation("approveSftpHostKey", promise) {
+      hostKeys.approve(challengeId)
+      envelope.ok()
+    }
 
   override fun rejectSftpHostKey(challengeId: String, promise: Promise) =
-    notImplemented("rejectSftpHostKey", promise)
+    runOperation("rejectSftpHostKey", promise) {
+      hostKeys.reject(challengeId)
+      envelope.ok()
+    }
 
   override fun listSources(promise: Promise) = notImplemented("listSources", promise)
 

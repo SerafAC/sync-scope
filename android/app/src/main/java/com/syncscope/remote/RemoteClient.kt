@@ -48,8 +48,11 @@ sealed interface ConnectOutcome {
   /** The session is open and authenticated. */
   data object Connected : ConnectOutcome
 
-  /** SFTP only: the server key is not yet trusted and the user must approve [fingerprint]. */
-  data class HostKeyApprovalRequired(val fingerprint: String, val keyType: String) : ConnectOutcome
+  /**
+   * SFTP only: the server key is not yet trusted. The session was torn down; the user
+   * must answer [challenge] via approve/reject before a reconnect can succeed.
+   */
+  data class HostKeyApprovalRequired(val challenge: HostKeyChallenge) : ConnectOutcome
 }
 
 enum class RemoteEntryType {
@@ -86,6 +89,9 @@ enum class PrecisionBasis {
 
   /** There was no regular file to sample; the conservative LIST floor is assumed. */
   NO_SAMPLE_FILES,
+
+  /** SFTP protocol v3 (the only version SSHJ negotiates) carries mtime as whole seconds. */
+  SFTP_V3_WHOLE_SECONDS,
 }
 
 data class PrecisionFinding(val precisionMillis: Long, val basis: PrecisionBasis)
@@ -95,7 +101,7 @@ data class PrecisionFinding(val precisionMillis: Long, val basis: PrecisionBasis
  * username, password, or path. [replyCode] is the numeric protocol reply when
  * one was received (safe to log; it carries no server text).
  */
-class RemoteClientException(
+open class RemoteClientException(
   val code: CloudSyncErrorCode,
   message: String,
   val action: String?,
