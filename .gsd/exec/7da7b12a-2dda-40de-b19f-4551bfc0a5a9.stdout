@@ -1,0 +1,21 @@
+gradle_exit=1 duration_ms=4573
+schema_present=yes
+password_field=absent
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Settings file '/home/adi/projects/sync-scope/.gsd-worktrees/M001/android/settings.gradle' line: 3
+
+* What went wrong:
+Error resolving plugin [id: 'com.facebook.react.settings']
+> Included build '/home/adi/projects/sync-scope/.gsd-worktrees/M001/node_modules/@react-native/gradle-plugin' does not exist.
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 4s
+TEST-*:  tests,  failures,  errors
