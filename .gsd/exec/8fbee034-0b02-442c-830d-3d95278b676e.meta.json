@@ -1,0 +1,20 @@
+{
+  "id": "8fbee034-0b02-442c-830d-3d95278b676e",
+  "runtime": "bash",
+  "purpose": "T05 run WebDAV unit tests (targeted, online resolve)",
+  "script_chars": 535,
+  "started_at": "2026-09-21T20:26:48.663Z",
+  "finished_at": "2026-09-21T20:27:52.312Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 63649,
+  "stdout_bytes": 210,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/8fbee034-0b02-442c-830d-3d95278b676e.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/8fbee034-0b02-442c-830d-3d95278b676e.stderr"
+}

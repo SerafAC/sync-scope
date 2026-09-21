@@ -92,6 +92,12 @@ enum class PrecisionBasis {
 
   /** SFTP protocol v3 (the only version SSHJ negotiates) carries mtime as whole seconds. */
   SFTP_V3_WHOLE_SECONDS,
+
+  /**
+   * WebDAV `DAV:getlastmodified` is an rfc1123-date (RFC 4918 §15.7), which has no
+   * sub-second field. This is structural, not a server quirk.
+   */
+  RFC1123_WHOLE_SECONDS,
 }
 
 data class PrecisionFinding(val precisionMillis: Long, val basis: PrecisionBasis)

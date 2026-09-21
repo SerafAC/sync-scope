@@ -1,0 +1,20 @@
+{
+  "id": "b4ab5976-2c5d-4b2e-b462-ebc6a7f50d1f",
+  "runtime": "bash",
+  "purpose": "T03 unit tests + task verify greps",
+  "script_chars": 733,
+  "started_at": "2026-09-21T15:52:09.507Z",
+  "finished_at": "2026-09-21T15:53:07.721Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 58214,
+  "stdout_bytes": 117,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b4ab5976-2c5d-4b2e-b462-ebc6a7f50d1f.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b4ab5976-2c5d-4b2e-b462-ebc6a7f50d1f.stderr"
+}

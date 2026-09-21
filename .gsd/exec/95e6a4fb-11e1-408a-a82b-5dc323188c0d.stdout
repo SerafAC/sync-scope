@@ -1,0 +1,5 @@
+defaultConfig=[usesCleartextTraffic:false]
+debug=[usesCleartextTraffic:true]
+debugOptimized=[usesCleartextTraffic:true]
+release=[usesCleartextTraffic:false]
+release-false-ok

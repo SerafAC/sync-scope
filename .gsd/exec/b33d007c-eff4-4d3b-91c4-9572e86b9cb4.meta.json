@@ -1,0 +1,20 @@
+{
+  "id": "b33d007c-eff4-4d3b-91c4-9572e86b9cb4",
+  "runtime": "bash",
+  "purpose": "T02 plan verify: assembleDebug + registration/placeholder greps",
+  "script_chars": 482,
+  "started_at": "2026-09-21T15:40:13.402Z",
+  "finished_at": "2026-09-21T15:43:23.020Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 189618,
+  "stdout_bytes": 51,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b33d007c-eff4-4d3b-91c4-9572e86b9cb4.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/b33d007c-eff4-4d3b-91c4-9572e86b9cb4.stderr"
+}

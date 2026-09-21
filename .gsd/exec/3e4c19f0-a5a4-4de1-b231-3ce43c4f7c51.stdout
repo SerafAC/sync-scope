@@ -1,0 +1,19 @@
+usesCleartextTraffic="true"
+testDebugUnitTest rc=1 ms=31946
+e: file:///home/adi/projects/sync-scope/.gsd-worktrees/M001/android/app/src/test/java/com/syncscope/bridge/CloudSyncModuleTest.kt:23:7 Cannot create an instance of an abstract class.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugUnitTestKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+--
+BUILD FAILED in 31s
+testsuite name="com.syncscope.FoundationUnitTest" tests="1" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.PageTokenCodecTest" tests="5" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SchemaConstraintTest" tests="5" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SchemaContractTest" tests="6" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SnapshotQueryTest" tests="3" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SnapshotStoreTest" tests="5" skipped="0" failures="0" errors="0"

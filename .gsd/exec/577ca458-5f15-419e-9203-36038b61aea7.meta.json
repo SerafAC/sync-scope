@@ -1,0 +1,20 @@
+{
+  "id": "577ca458-5f15-419e-9203-36038b61aea7",
+  "runtime": "bash",
+  "purpose": "T05 targeted WebDAV tests after truncation fix",
+  "script_chars": 535,
+  "started_at": "2026-09-21T20:28:17.090Z",
+  "finished_at": "2026-09-21T20:29:04.666Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 47576,
+  "stdout_bytes": 240,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/577ca458-5f15-419e-9203-36038b61aea7.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/577ca458-5f15-419e-9203-36038b61aea7.stderr"
+}

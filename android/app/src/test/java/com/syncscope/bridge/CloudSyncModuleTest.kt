@@ -99,39 +99,4 @@ class CloudSyncModuleTest {
     assertEquals("INTERNAL_ERROR", result.getMap("error")!!.getString("code"))
     assertEquals(true, result.isNull("page"))
   }
-
-  private class RecordingPromise : Promise {
-    var resolved: Any? = null
-    var rejectedCode: String? = null
-
-    override fun resolve(value: Any?) {
-      resolved = value
-    }
-
-    private fun rejected(code: String?) {
-      rejectedCode = code ?: "rejected"
-    }
-
-    override fun reject(code: String?, message: String?) = rejected(code)
-
-    override fun reject(code: String?, throwable: Throwable?) = rejected(code)
-
-    override fun reject(code: String?, message: String?, throwable: Throwable?) = rejected(code)
-
-    override fun reject(throwable: Throwable) = rejected(null)
-
-    override fun reject(throwable: Throwable, userInfo: WritableMap) = rejected(null)
-
-    override fun reject(code: String?, userInfo: WritableMap) = rejected(code)
-
-    override fun reject(code: String?, throwable: Throwable?, userInfo: WritableMap) = rejected(code)
-
-    override fun reject(code: String?, message: String?, userInfo: WritableMap) = rejected(code)
-
-    override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) =
-      rejected(code)
-
-    @Deprecated("Prefer reject(code, message)")
-    override fun reject(message: String) = rejected(null)
-  }
 }

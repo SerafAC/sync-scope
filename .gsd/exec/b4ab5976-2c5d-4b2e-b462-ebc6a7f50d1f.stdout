@@ -1,0 +1,4 @@
+gradle rc=0
+greps rc=0
+TEST-com.syncscope.remote.FtpPrecisionTest.xml
+tests="22" skipped="0" failures="0" errors="0"
