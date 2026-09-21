@@ -6,6 +6,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
+import com.syncscope.remote.RemoteClientException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,10 @@ class CloudSyncModule(
   private fun notImplemented(method: String, promise: Promise) =
     runOperation(method, promise) { envelope.notImplemented(method) }
 
-  /** Resolves an `OperationResultDto`; a throwable becomes an INTERNAL_ERROR envelope. */
+  /**
+   * Resolves an `OperationResultDto`; a [RemoteClientException] keeps its code, any other
+   * throwable becomes an INTERNAL_ERROR envelope.
+   */
   internal fun runOperation(method: String, promise: Promise, block: suspend () -> Any?) =
     run(method, promise, page = false, block)
 
@@ -115,6 +119,9 @@ class CloudSyncModule(
       val result =
         try {
           block()
+        } catch (e: RemoteClientException) {
+          Log.w(TAG, "$method failed: ${e.code} reply=${e.replyCode}")
+          envelope.remoteFailure(e, page)
         } catch (t: Throwable) {
           Log.e(TAG, "$method failed: ${CloudSyncEnvelope.redact(t.toString())}")
           envelope.internalError(t, page)

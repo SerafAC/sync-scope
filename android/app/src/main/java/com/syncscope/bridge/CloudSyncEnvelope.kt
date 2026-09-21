@@ -3,6 +3,7 @@ package com.syncscope.bridge
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
+import com.syncscope.remote.RemoteClientException
 
 /**
  * Builders for the discriminated envelopes declared by the CloudSync spec
@@ -64,6 +65,20 @@ class CloudSyncEnvelope(
 
   fun pageNotImplemented(method: String): WritableMap =
     pageError(CloudSyncErrorCode.NOT_IMPLEMENTED, "$method is not available in this build.")
+
+  /** A coded remote failure; [sensitive] carries the configured host/username/root for scrubbing. */
+  fun remoteFailure(
+    e: RemoteClientException,
+    page: Boolean = false,
+    sensitive: Collection<String> = emptyList(),
+  ): WritableMap {
+    val message = e.message ?: e.code.name
+    return if (page) {
+      pageError(e.code, message, e.action, sensitive)
+    } else {
+      error(e.code, message, e.action, sensitive)
+    }
+  }
 
   /** Converts any throwable into an INTERNAL_ERROR envelope; the message is redacted. */
   fun internalError(t: Throwable, page: Boolean = false): WritableMap {

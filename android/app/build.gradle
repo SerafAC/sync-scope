@@ -148,6 +148,9 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
+    // Read-only FTP listing client (passive mode only; no content transfer is ever issued).
+    implementation("commons-net:commons-net:3.12.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")
