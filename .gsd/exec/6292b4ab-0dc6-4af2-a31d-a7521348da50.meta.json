@@ -1,0 +1,20 @@
+{
+  "id": "6292b4ab-0dc6-4af2-a31d-a7521348da50",
+  "runtime": "bash",
+  "purpose": "T08: services stop audit + androidTest assemble",
+  "script_chars": 425,
+  "started_at": "2026-09-22T15:41:15.152Z",
+  "finished_at": "2026-09-22T15:44:31.464Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 196312,
+  "stdout_bytes": 650,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/6292b4ab-0dc6-4af2-a31d-a7521348da50.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/6292b4ab-0dc6-4af2-a31d-a7521348da50.stderr"
+}

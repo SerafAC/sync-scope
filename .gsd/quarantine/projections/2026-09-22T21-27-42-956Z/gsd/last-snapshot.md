@@ -1,4 +1,4 @@
-# GSD context snapshot (2026-09-22T21:27:42.942Z)
+# GSD context snapshot (2026-09-21T21:06:47.599Z)
 
 ## Active context
 Active: M001 / S01 / T08 - androidTest proving live FTP, SFTP, and WebDAV connect against the digest-pinned containers

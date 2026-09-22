@@ -1,0 +1,9 @@
+$ scripts/validation/protocol-services.sh stop
+Refusing to stop an unowned Compose project.
+Refusing to stop an unowned Compose project.
+Refusing to stop an unowned Compose project.
+[ELIFECYCLE] Command failed with exit code 1.
+STOP_EXIT=1 ms=1774
+ASSEMBLE_EXIT=0 ms=194518
+(RNVI:material-design-icons) Copying font /home/adi/projects/sync-scope/.gsd-worktrees/M001/node_modules/@react-native-vector-icons/material-design-icons/fonts/MaterialDesignIcons.ttf
+No modules to process in combine-js-to-schema-cli. If this is unexpected, please check if you set up your NativeComponent correctly. See combine-js-to-schema.js for how codegen finds modules.

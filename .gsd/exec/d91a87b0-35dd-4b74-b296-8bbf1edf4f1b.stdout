@@ -1,0 +1,18 @@
+ Network syncscope-webdav_default Created 
+ Network syncscope-webdav_default Created 
+ Container syncscope-webdav-webdav-1 Creating 
+ Container syncscope-webdav-webdav-1 Created 
+ Container syncscope-webdav-webdav-1 Starting 
+ Container syncscope-webdav-webdav-1 Started 
+ftp: deterministic before manifest recorded
+ Network syncscope-ftp_default Creating 
+ Network syncscope-ftp_default Creating 
+ Network syncscope-ftp_default Created 
+ Network syncscope-ftp_default Created 
+ Container syncscope-ftp-ftp-1 Creating 
+ Container syncscope-ftp-ftp-1 Created 
+ Container syncscope-ftp-ftp-1 Starting 
+ Container syncscope-ftp-ftp-1 Started 
+START_EXIT=0 ms=13336
+$ scripts/validation/protocol-services.sh healthcheck
+HEALTH_EXIT=0 ms=2915
