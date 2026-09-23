@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   chmod,
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -9,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import test from 'node:test';
 
 const root = new URL('../../', import.meta.url);
@@ -252,5 +253,91 @@ test('protocol launcher rejects a Docker major other than 29', async t => {
     assert.equal(launch.status, 1, version);
     assert.match(launch.stderr, /Docker 29\.x is required/, version);
     assert.doesNotMatch(launch.stderr, /Approved service port/, version);
+  }
+});
+
+async function fakeSdk(t) {
+  const home = await mkdtemp(join(tmpdir(), 'cloud-sync-checker-sdk-test-'));
+  t.after(() => rm(home, {recursive: true, force: true}));
+
+  const sdk = join(home, 'Android', 'Sdk');
+  for (const component of ['platform-tools/adb', 'emulator/emulator']) {
+    const binary = join(sdk, component);
+    await mkdir(dirname(binary), {recursive: true});
+    await writeFile(binary, '#!/bin/sh\nexit 0\n');
+    await chmod(binary, 0o755);
+  }
+
+  return {home, sdk};
+}
+
+function resolveSdk(env) {
+  const helper = new URL('android-sdk.sh', import.meta.url).pathname;
+
+  return spawnSync(
+    'sh',
+    ['-c', `. "${helper}"; android_sdk_resolve; printf '%s\\n' "$ANDROID_HOME"`],
+    {encoding: 'utf8', env},
+  );
+}
+
+test('resolves the Android SDK without an exported ANDROID_HOME', async t => {
+  const {home, sdk} = await fakeSdk(t);
+  const env = {...process.env, HOME: home};
+  delete env.ANDROID_HOME;
+  delete env.ANDROID_SDK_ROOT;
+
+  const resolved = resolveSdk(env);
+
+  assert.equal(resolved.status, 0, resolved.stderr);
+  assert.equal(resolved.stdout.trim(), sdk);
+});
+
+test('prefers an explicit ANDROID_HOME over ANDROID_SDK_ROOT and the default', async t => {
+  const {home, sdk} = await fakeSdk(t);
+
+  assert.equal(
+    resolveSdk({
+      ...process.env,
+      HOME: '/nonexistent',
+      ANDROID_HOME: sdk,
+      ANDROID_SDK_ROOT: '/nonexistent/sdk',
+    }).stdout.trim(),
+    sdk,
+  );
+  assert.equal(
+    resolveSdk({
+      ...process.env,
+      HOME: home,
+      ANDROID_HOME: '',
+      ANDROID_SDK_ROOT: sdk,
+    }).stdout.trim(),
+    sdk,
+  );
+});
+
+test('names the missing Android SDK instead of aborting on an unbound variable', async () => {
+  const env = {...process.env, HOME: '/nonexistent', ANDROID_HOME: '/nonexistent/sdk'};
+  delete env.ANDROID_SDK_ROOT;
+
+  const resolved = resolveSdk(env);
+
+  assert.equal(resolved.status, 1);
+  assert.match(resolved.stderr, /Android SDK not usable at '\/nonexistent\/sdk'/);
+  assert.match(resolved.stderr, /Set ANDROID_HOME/);
+  assert.doesNotMatch(resolved.stderr, /unbound variable/);
+});
+
+test('resolves the SDK before any script dereferences ANDROID_HOME', async () => {
+  for (const script of [
+    'scripts/validation/android-validator.sh',
+    'scripts/validation/android-flow.sh',
+  ]) {
+    const source = await text(script);
+    const resolved = source.indexOf('android_sdk_resolve');
+    const used = source.indexOf('$ANDROID_HOME/');
+
+    assert.ok(resolved !== -1, `${script} must resolve the SDK`);
+    assert.ok(used === -1 || resolved < used, `${script} dereferences ANDROID_HOME too early`);
   }
 });

@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/android-sdk.sh"
+android_sdk_resolve
+
 mode=${1:-}
 shift || true
 apis=

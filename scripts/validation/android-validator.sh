@@ -23,6 +23,9 @@ case "$api:$avd:$state" in
 esac
 [ "$exclusive_lock" = /tmp/cloud-sync-checker-validator.lock ] || exit 64
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/android-sdk.sh"
+android_sdk_resolve
+
 adb="$ANDROID_HOME/platform-tools/adb"
 emulator="$ANDROID_HOME/emulator/emulator"
 owner="$state/owner"
