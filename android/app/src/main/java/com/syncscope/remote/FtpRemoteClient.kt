@@ -76,16 +76,15 @@ class FtpRemoteClient(
       val client = session()
       val root = config?.rootPath ?: "/"
       guarded(client) {
-        val listing = fetchListing(client, root)
-        val samples = listing.filter { FtpListing.classify(it) == RemoteEntryType.REGULAR_FILE }
-        if (samples.isEmpty()) {
-          return@guarded FtpPrecision.NO_SAMPLE
-        }
+        val (directory, samples) =
+          findSampleDirectory(client, root) ?: return@guarded FtpPrecision.NO_SAMPLE
         // Commons Net documents MDTM's ".xxx" fraction as optional and warns that not every
         // server honours MDTM, so the advertisement only gates the probe; the replies decide.
         if (client.hasFeature("MDTM")) {
           val instants =
-            samples.take(PRECISION_SAMPLES).mapNotNull { client.mdtmInstant(joinPath(root, it.name)) }
+            samples.take(PRECISION_SAMPLES).mapNotNull {
+              client.mdtmInstant(joinPath(directory, it.name))
+            }
           FtpPrecision.fromMdtm(instants)?.let { return@guarded it }
         }
         if (client.hasFeature("MLST")) {
@@ -93,7 +92,7 @@ class FtpRemoteClient(
         }
         // LIST samples come from a fresh LIST so the parsed Calendar fields are still intact.
         val listSamples =
-          if (client.hasFeature("MLST")) fetchList(client, root).toList() else samples
+          if (client.hasFeature("MLST")) fetchList(client, directory).toList() else samples
         FtpPrecision.fromListTimestamps(
           listSamples
             .filter { FtpListing.classify(it) == RemoteEntryType.REGULAR_FILE }
@@ -116,6 +115,33 @@ class FtpRemoteClient(
         "The FTP session is not connected.",
         "Reconnect the repository.",
       )
+
+  /**
+   * Finds the nearest directory that actually holds regular files, starting at [root].
+   * A repository root commonly contains only folders, and sampling just the root would then
+   * report NO_SAMPLE and leave the server's timestamp precision undiscovered. The walk is
+   * breadth-first so the shallowest samples win, and bounded by [PRECISION_SCAN_DIRECTORIES]
+   * so a deep or hostile tree cannot turn discovery into a full crawl.
+   */
+  private fun findSampleDirectory(
+    client: FTPClient,
+    root: String,
+  ): Pair<String, List<FTPFile>>? {
+    val queue = ArrayDeque(listOf(root))
+    var visited = 0
+    while (queue.isNotEmpty() && visited < PRECISION_SCAN_DIRECTORIES) {
+      val directory = queue.removeFirst()
+      visited++
+      // toEntry drops "." / ".." and MLSD cdir/pdir, so the walk cannot revisit its parent.
+      val children = fetchListing(client, directory).filter { FtpListing.toEntry(it) != null }
+      val files = children.filter { FtpListing.classify(it) == RemoteEntryType.REGULAR_FILE }
+      if (files.isNotEmpty()) return directory to files
+      children
+        .filter { FtpListing.classify(it) == RemoteEntryType.DIRECTORY }
+        .forEach { queue.addLast(joinPath(directory, it.name)) }
+    }
+    return null
+  }
 
   private fun fetchListing(client: FTPClient, directory: String): Array<FTPFile> =
     if (client.hasFeature("MLST")) {
@@ -164,6 +190,9 @@ class FtpRemoteClient(
 
     /** Several samples keep a millisecond server whose one sampled file sits on .000 from reading as 1s. */
     const val PRECISION_SAMPLES = 5
+
+    /** Upper bound on directories read while looking for timestamp samples. */
+    const val PRECISION_SCAN_DIRECTORIES = 16
 
     internal fun joinPath(directory: String, name: String): String =
       if (directory.endsWith("/")) "$directory$name" else "$directory/$name"

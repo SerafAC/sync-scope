@@ -108,7 +108,7 @@ case "$action" in
 
     setsid flock -n "$exclusive_lock" \
       timeout --signal=TERM --kill-after=20 2700 \
-      "$emulator" -avd "$avd" -no-snapshot -no-boot-anim -no-audio \
+      "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
       -gpu swiftshader_indirect -memory 2048 -no-metrics \
       >"$state/emulator.log" 2>&1 &
     pid=$!

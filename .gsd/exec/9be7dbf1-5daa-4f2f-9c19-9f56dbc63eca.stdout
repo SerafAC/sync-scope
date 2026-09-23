@@ -1,0 +1,17 @@
+done? yes
+--- step results ---
+services:start rc=0 ms=13127
+services:health rc=0 ms=2875
+android:api31 rc=0 ms=116139
+services:stop rc=1 ms=1619
+--- tests ---
+Starting 8 tests on dependency_api31(AVD) - 12
+Finished 8 tests on dependency_api31(AVD) - 12
+BUILD SUCCESSFUL in 59s
+--- audits ---
+ftp audit: metadata-read operation allowlist is clean
+ftp: zero unexpected remote changes
+webdav audit: metadata-read operation allowlist is clean
+webdav: zero unexpected remote changes
+sftp audit: metadata-read operation allowlist is clean
+sftp: zero unexpected remote changes

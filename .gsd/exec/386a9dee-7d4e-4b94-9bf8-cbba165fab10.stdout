@@ -1,0 +1,9 @@
+SERIAL=emulator-5554 after ~16s
+BOOT_COMPLETED after ~16s
+--- log tail ---
+INFO         | Setting display: 0 configuration to: 1080x2340, dpi: 440x440 
+INFO         | setDisplayActiveConfig: id:0, 1080x2340
+INFO         | emulatorSetupEnvironment: Environment scene is not required
+USER_INFO    | Emulator is performing a full startup. This may take upto two minutes, or more.
+ALIVE pid=456623
+torn down

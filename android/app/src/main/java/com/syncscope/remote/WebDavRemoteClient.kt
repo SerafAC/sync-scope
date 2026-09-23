@@ -56,8 +56,10 @@ class WebDavRemoteClient(
 
     // OPTIONS proves reachability, credentials, and DAV class 1 support in one round trip.
     exchange(candidate, request(candidate, rootUrl).method("OPTIONS", null).build(), WebDavScope.CONNECT) {
-      val dav = it.header("DAV").orEmpty()
-      if (dav.split(',').none { level -> level.trim() == "1" }) {
+      // Apache answers with two DAV headers ("1,2" and its propset URI). OkHttp's header()
+      // keeps only the last value, which names no class at all, so every value must be read.
+      val classes = it.headers("DAV").flatMap { value -> value.split(',') }
+      if (classes.none { level -> level.trim() == "1" }) {
         throw WebDavFailures.notWebDav()
       }
     }

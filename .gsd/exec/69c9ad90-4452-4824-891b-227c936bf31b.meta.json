@@ -1,0 +1,20 @@
+{
+  "id": "69c9ad90-4452-4824-891b-227c936bf31b",
+  "runtime": "bash",
+  "purpose": "T08: confirm FTP read-only command inventory and clean environment",
+  "script_chars": 800,
+  "started_at": "2026-09-23T06:35:35.033Z",
+  "finished_at": "2026-09-23T06:35:35.087Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 54,
+  "stdout_bytes": 5057,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/69c9ad90-4452-4824-891b-227c936bf31b.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/69c9ad90-4452-4824-891b-227c936bf31b.stderr"
+}

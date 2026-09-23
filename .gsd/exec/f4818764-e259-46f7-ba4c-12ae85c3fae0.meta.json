@@ -1,0 +1,20 @@
+{
+  "id": "f4818764-e259-46f7-ba4c-12ae85c3fae0",
+  "runtime": "bash",
+  "purpose": "T08 recovery: clear stale validator state, pre-warm androidTest build",
+  "script_chars": 1103,
+  "started_at": "2026-09-23T06:10:46.008Z",
+  "finished_at": "2026-09-23T06:10:46.063Z",
+  "exit_code": null,
+  "signal": "SIGTERM",
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 55,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/f4818764-e259-46f7-ba4c-12ae85c3fae0.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/f4818764-e259-46f7-ba4c-12ae85c3fae0.stderr"
+}

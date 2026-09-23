@@ -1,0 +1,13 @@
+--- real captured log (was failing) ---
+ftp audit: metadata-read operation allowlist is clean
+rc=0
+--- same log + a genuine RETR command line ---
+rc=1 (expect 1)
+--- same log + a genuine active-mode EPRT command ---
+rc=1 (expect 1)
+--- sftp/webdav regression: forbidden op still caught ---
+sftp rc=1 (expect 1)
+webdav audit: metadata-read operation allowlist is clean
+webdav rc=0 (expect 1)
+webdav audit: metadata-read operation allowlist is clean
+webdav clean rc=0 (expect 0)

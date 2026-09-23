@@ -1,0 +1,9 @@
+DISPLAY='unset' WAYLAND_DISPLAY='unset'
+DIED after ~8s
+--- log tail ---
+INFO         |      Ok: Disk space requirements to run avd: `dependency_api31` are met
+INFO         |   Checking: hasSufficientHwGpu
+INFO         |      Ok: Hardware GPU compatibility checks are not required
+INFO         |   Checking: hasSufficientSystem
+INFO         |      Ok: System requirements to run avd: `dependency_api31` are met
+timeout: the monitored command dumped core

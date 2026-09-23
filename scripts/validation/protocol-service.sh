@@ -130,6 +130,19 @@ case "$action" in
     healthcheck
     ;;
   stop)
+    if [ ! -e "$state" ]; then
+      # Nothing of ours is left: android-flow.sh stops the services it started and removes
+      # their state, so the gate's trailing `validation:services:stop` finds a clean host.
+      # A guard against tearing down someone else's project must not turn an
+      # already-clean environment into a failure, but a project still running without our
+      # state really is unowned and is still refused.
+      if compose_command ps --status running --services 2>/dev/null |
+        grep -qx "$protocol"; then
+        printf '%s\n' "Refusing to stop an unowned Compose project." >&2
+        exit 1
+      fi
+      exit 0
+    fi
     [ -f "$owner" ] && [ "$(cat "$owner")" = "$project:$protocol" ] || {
       printf '%s\n' "Refusing to stop an unowned Compose project." >&2
       exit 1

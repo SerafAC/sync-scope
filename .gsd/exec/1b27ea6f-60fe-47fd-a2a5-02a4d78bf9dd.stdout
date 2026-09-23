@@ -1,0 +1,4 @@
+START_EXIT=0 ms=3264
+$ scripts/validation/protocol-services.sh start
+HEALTH_EXIT=0 ms=2844
+$ scripts/validation/protocol-services.sh healthcheck

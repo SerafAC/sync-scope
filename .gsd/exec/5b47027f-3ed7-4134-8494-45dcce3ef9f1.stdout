@@ -1,0 +1,39 @@
+--- OPTIONS /webdav/ (headers of interest) ---
+HTTP/1.1 200 OK
+DAV: 1,2
+DAV: <http://apache.org/dav/propset/fs/1>
+Allow: OPTIONS,GET,HEAD,POST,DELETE,TRACE,PROPFIND,PROPPATCH,COPY,MOVE,LOCK,UNLOCK
+--- PROPFIND /webdav/ Depth 1 hrefs ---
+<D:href>/webdav/</D:href>
+<D:href>/webdav/.hidden/</D:href>
+<D:href>/webdav/non-regular/</D:href>
+<D:href>/webdav/timestamps/</D:href>
+<D:href>/webdav/mismatch/</D:href>
+<D:href>/webdav/unicode/</D:href>
+<D:href>/webdav/duplicates/</D:href>
+<D:href>/webdav/nested/</D:href>
+<D:href>/webdav/flat/</D:href>
+--- PROPFIND status ---
+status=207
+=== build.gradle credential parsing ===
+76: * (SYNCSCOPE_{SFTP,FTP,WEBDAV}_CREDENTIAL_FILE, lines `username=` and `password=`) and maps them
+77- * to instrumentation runner arguments such as sftpUser / sftpPassword. Unset, unreadable, or
+78- * incomplete files contribute nothing, so builds without running containers configure cleanly.
+79- * Values are never logged.
+80- */
+81-def syncScopeContainerCredentials() {
+82-    def arguments = [:]
+83-    ["sftp", "ftp", "webdav"].each { protocol ->
+84:        def path = System.getenv("SYNCSCOPE_${protocol.toUpperCase()}_CREDENTIAL_FILE")
+85-        if (!path) return
+86-        def file = new File(path)
+87-        if (!file.isFile() || !file.canRead()) return
+88-        def fields = [:]
+89-        file.readLines("UTF-8").each { line ->
+90-            def separator = line.indexOf('=')
+91-            if (separator > 0) fields[line.substring(0, separator).trim()] = line.substring(separator + 1)
+92-        }
+93-        if (fields.username && fields.password) {
+94-            arguments["${protocol}User".toString()] = fields.username
+95-            arguments["${protocol}Password".toString()] = fields.password
+96-        }
