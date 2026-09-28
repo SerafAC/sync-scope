@@ -187,7 +187,7 @@ matching CHANGELOG and docs.
   or a missing emulator `-no-window`), fix the environment using MEM015 and MEM021 in `gsd-export.md`, and
   never change code to get past it. If a gate still fails, or Docker or the emulator is unavailable,
   **do not commit the merge**. Stop and ask the maintainer (plan, Risks).
-- [ ] T016 [US1] Commit the merge only after every item in T015 passes. Run
+- [X] T016 [US1] Commit the merge only after every item in T015 passes. Run
   `git add CHANGELOG.md docs specs/001-gsd-speckit-migration`, then
   `git commit -m "Merge milestone/M001: S01 native CloudSync module and live protocol connect (M001/S01/T01–T08)"`.
   Afterwards:

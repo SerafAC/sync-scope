@@ -9,14 +9,14 @@ it.
 
 - [X] **GSD runtime detached**: `pgrep -af 'gsd-pi|gsd-browser'` shows no process for this project, and
       `.claude/settings.local.json` enables no GSD MCP server. Done right after the freeze commit.
-- [ ] **Consolidated**: `git branch --merged master` lists `milestone/M001`, `git log master..milestone/M001`
+- [X] **Consolidated**: `git branch --merged master` lists `milestone/M001`, `git log master..milestone/M001`
       is empty, and `git status --porcelain` is empty.
 - [ ] **No stray work**: `git worktree list` shows only the main worktree, and `.gsd-worktrees/` is empty.
-- [ ] **Gates green on the staged merge, before the merge commit**: `pnpm lint`, `pnpm typecheck`,
+- [X] **Gates green on the staged merge, before the merge commit**: `pnpm lint`, `pnpm typecheck`,
       `pnpm test:ci`, `pnpm test:android:unit`, and the S01 live gate
       (`pnpm validation:services:start && pnpm validation:services:health && pnpm validation:android:api31 && pnpm validation:services:stop`)
       all exit 0. Record the output tails and the live-gate test count.
-- [ ] **Docs in the merge commit**: `git show --stat <merge-sha>` includes `CHANGELOG.md`, `docs/README.md`
+- [X] **Docs in the merge commit**: `git show --stat <merge-sha>` includes `CHANGELOG.md`, `docs/README.md`
       and `docs/architecture.md`.
 - [ ] **Map complete**: every inventory item in [migration-map.md](../contracts/migration-map.md) has a row, and every
       row is `Verified [X]`.
@@ -525,3 +525,8 @@ LIVE_EXIT=0
 
 8/8 instrumented tests and three clean protocol audits. Afterwards no emulator was attached to adb, and
 `/tmp/cloud-sync-checker-api31` was gone.
+
+**Merge commit** `82188c4` (parents `f64bcce` master, `16d75ac` milestone/M001):
+
+- `git branch --merged master` lists `milestone/M001`, and `git log --oneline master..milestone/M001` is empty.
+- `git show --stat 82188c4` lists `CHANGELOG.md` (+16), `docs/README.md` (+3) and `docs/architecture.md` (+53).
