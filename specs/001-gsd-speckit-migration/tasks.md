@@ -108,7 +108,7 @@ can rewrite it (research R7).
   - `git commit -m "chore: freeze GSD state before migration"`
 
   Then verify that `git status --porcelain` is empty.
-- [ ] T009 Detach the GSD runtime. This is local only, because `.claude/settings.local.json` is globally
+- [X] T009 Detach the GSD runtime. This is local only, because `.claude/settings.local.json` is globally
   git-ignored.
   1. Remove `"gsd-workflow"` and `"gsd-browser"` from `enabledMcpjsonServers` in
      `.claude/settings.local.json`. Delete the key if the list becomes empty, and delete the file if it

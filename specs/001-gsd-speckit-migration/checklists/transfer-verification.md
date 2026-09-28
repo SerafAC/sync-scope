@@ -7,7 +7,7 @@ it.
 
 ## Items
 
-- [ ] **GSD runtime detached**: `pgrep -af 'gsd-pi|gsd-browser'` shows no process for this project, and
+- [X] **GSD runtime detached**: `pgrep -af 'gsd-pi|gsd-browser'` shows no process for this project, and
       `.claude/settings.local.json` enables no GSD MCP server. Done right after the freeze commit.
 - [ ] **Consolidated**: `git branch --merged master` lists `milestone/M001`, `git log master..milestone/M001`
       is empty, and `git status --porcelain` is empty.
