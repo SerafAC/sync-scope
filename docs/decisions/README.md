@@ -1,6 +1,6 @@
 # Decision records
 
-Append-only: reverse a decision with a new record that supersedes it; new records continue from 0016.
+Append-only: reverse a decision with a new record that supersedes it; new records continue from 0018.
 
 Each record is named `00NN-<kebab-slug>.md` and has the fields Status, Date / context, Scope, Made by and
 Revisable, followed by the sections Context, Decision, Rationale, Alternatives rejected and Related.
@@ -24,3 +24,5 @@ in which the decision was made (the record's "Date / context" field).
 | D013 | [Full persistence layer in M001/S01](./0013-full-persistence-layer-in-s01.md) | Accepted | architecture | M001/S01 planning |
 | D014 | [Container credentials via instrumentation runner args](./0014-container-credentials-via-runner-args.md) | Accepted | architecture | M001/S01 planning |
 | D015 | [Docker major-version pin](./0015-docker-major-version-pin.md) | Accepted | environment | M001/S01/T08 |
+| D016 | [SAF source identity, overlap and computed availability](./0016-saf-source-identity-and-availability.md) | Accepted | architecture | 2026-09-28 |
+| D017 | [Debug-only grant-release seam for end-to-end flows](./0017-debug-grant-release-seam.md) | Accepted | testing | 2026-09-28 |
