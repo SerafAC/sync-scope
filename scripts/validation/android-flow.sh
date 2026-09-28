@@ -109,6 +109,7 @@ for api in $apis; do
     timeout --signal=TERM --kill-after=10 60 \
       "$ANDROID_HOME/platform-tools/adb" -s "$serial" install -r \
       "$repo/android/app/build/outputs/apk/debug/app-debug.apk"
+    "$repo/scripts/validation/device-fixtures.sh"
     timeout --signal=TERM --kill-after=10 600 \
       /home/adi/.cache/cloud-sync-checker-toolchain/maestro-2.10.0/maestro/bin/maestro \
       test "$repo/validation/maestro"

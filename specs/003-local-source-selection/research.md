@@ -154,6 +154,15 @@ have a decided method and a decided failure behaviour, and their outcome is reco
   primary storage, `Download/`, `Android/data/` and `Android/obb/` as a tree. The volume root of a removable
   card is allowed. This is system behaviour, not app logic, and it is documented in the README folder
   section.
+- **Observed result (2026-09-28)**: `dependency_api36` was created with `avdmanager create avd -n
+  dependency_api36 -k "system-images;android-36;google_apis;x86_64" -d pixel_5 -c 512M` (system image
+  `x86_64-36_r07`; config then set to `hw.sdCard = yes`, `sdcard.size = 512 MB` to match
+  `dependency_api31`) and booted headless through `android-validator.sh start --api 36`. `adb shell sm
+  list-volumes public` returned `public:253,80 mounted 0000-0000`, so a public removable volume **is**
+  exposed on API 36 and the failure behaviour above is not triggered. `device-fixtures.sh` seeded
+  `/sdcard/SyncScopeE2E/Camera{,/Nested}` and `/storage/0000-0000/SyncScopeE2E/Camera` on it, twice
+  (idempotent). Whether DocumentsUI lets a folder on it be picked is proven by
+  `sources/02-add-removable.yaml`.
 
 ## R11. Driving DocumentsUI and revoking a grant under Maestro
 
