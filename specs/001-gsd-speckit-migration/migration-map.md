@@ -76,36 +76,36 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 
 | Source | Disposition | Destination / Reason | Verified |
 | --- | --- | --- | --- |
-| R001 |  |  | [ ] |
-| R002 |  |  | [ ] |
-| R003 |  |  | [ ] |
-| R004 |  |  | [ ] |
-| R005 |  |  | [ ] |
-| R006 |  |  | [ ] |
-| R007 |  |  | [ ] |
-| R008 |  |  | [ ] |
-| R009 |  |  | [ ] |
-| R010 |  |  | [ ] |
-| R011 |  |  | [ ] |
-| R012 |  |  | [ ] |
-| R013 |  |  | [ ] |
-| R014 |  |  | [ ] |
-| R015 |  |  | [ ] |
-| R016 |  |  | [ ] |
-| R017 |  |  | [ ] |
-| R018 |  |  | [ ] |
-| R019 |  |  | [ ] |
-| R020 |  |  | [ ] |
-| R021 |  |  | [ ] |
-| R022 |  |  | [ ] |
-| R023 |  |  | [ ] |
-| R024 |  |  | [ ] |
-| R025 |  |  | [ ] |
-| R026 |  |  | [ ] |
-| R027 |  |  | [ ] |
-| R028 |  |  | [ ] |
-| R029 |  |  | [ ] |
-| R030 |  |  | [ ] |
+| R001 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-001 (primary FR) | [X] |
+| R002 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-002 (primary FR) | [X] |
+| R003 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-003 (primary FR) | [X] |
+| R004 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-004 (primary FR) | [X] |
+| R005 | transfer | specs/003-local-source-selection/spec.md#FR-001 (primary FR) | [X] |
+| R006 | transfer | specs/004-scan-engine-matching/spec.md#FR-001 (primary FR) | [X] |
+| R007 | transfer | specs/004-scan-engine-matching/spec.md#FR-002 (primary FR) | [X] |
+| R008 | transfer | specs/005-gallery-list-filtering/spec.md#FR-001 (primary FR) | [X] |
+| R009 | transfer | specs/005-gallery-list-filtering/spec.md#FR-002 (primary FR) | [X] |
+| R010 | transfer | specs/006-tree-view-image-preview/spec.md#FR-001 (primary FR) | [X] |
+| R011 | transfer | specs/005-gallery-list-filtering/spec.md#FR-003 (primary FR) | [X] |
+| R012 | transfer | specs/007-multiselect-local-deletion/spec.md#FR-001 (primary FR) | [X] |
+| R013 | transfer | specs/007-multiselect-local-deletion/spec.md#FR-002 (primary FR) | [X] |
+| R014 | transfer | specs/006-tree-view-image-preview/spec.md#FR-002 (primary FR) | [X] |
+| R015 | transfer | specs/004-scan-engine-matching/spec.md#FR-003 (primary FR) | [X] |
+| R016 | transfer | specs/004-scan-engine-matching/spec.md#FR-004 (primary FR) | [X] |
+| R017 | transfer | specs/004-scan-engine-matching/spec.md#FR-005 (primary FR) | [X] |
+| R018 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-005 (primary FR) | [X] |
+| R019 | transfer | specs/008-full-loop-release/spec.md#FR-001 (primary FR) | [X] |
+| R020 | transfer | specs/008-full-loop-release/spec.md#FR-002 (primary FR) | [X] |
+| R021 | transfer | specs/005-gallery-list-filtering/spec.md#FR-004 (primary FR) | [X] |
+| R022 | transfer | specs/008-full-loop-release/spec.md#FR-003 (primary FR) | [X] |
+| R023 | transfer | docs/scope.md (Deferred, `### R023`) | [X] |
+| R024 | transfer | docs/scope.md (Deferred, `### R024`) | [X] |
+| R025 | transfer | docs/scope.md (Deferred, `### R025`) | [X] |
+| R026 | transfer | docs/scope.md (Non-goals, `### R026`) | [X] |
+| R027 | transfer | docs/scope.md (Non-goals, `### R027`) | [X] |
+| R028 | transfer | docs/scope.md (Non-goals, `### R028`) | [X] |
+| R029 | transfer | docs/scope.md (Non-goals, `### R029`) | [X] |
+| R030 | transfer | docs/scope.md (Non-goals, `### R030`) | [X] |
 
 ## Decision
 
@@ -158,26 +158,26 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 
 | Source | Disposition | Destination / Reason | Verified |
 | --- | --- | --- | --- |
-| S01 |  |  | [ ] |
-| S02 |  |  | [ ] |
-| S03 |  |  | [ ] |
-| S04 |  |  | [ ] |
-| S05 |  |  | [ ] |
-| S06 |  |  | [ ] |
-| S07 |  |  | [ ] |
+| S01 | transfer | specs/002-native-cloudsync-connect/spec.md (Complete; plan.md, research.md, tasks.md alongside) | [X] |
+| S02 | transfer | specs/003-local-source-selection/spec.md (Draft (seeded)) | [X] |
+| S03 | transfer | specs/004-scan-engine-matching/spec.md (Draft (seeded)) | [X] |
+| S04 | transfer | specs/005-gallery-list-filtering/spec.md (Draft (seeded)) | [X] |
+| S05 | transfer | specs/006-tree-view-image-preview/spec.md (Draft (seeded)) | [X] |
+| S06 | transfer | specs/007-multiselect-local-deletion/spec.md (Draft (seeded)) | [X] |
+| S07 | transfer | specs/008-full-loop-release/spec.md (Draft (seeded)) | [X] |
 
 ## Task
 
 | Source | Disposition | Destination / Reason | Verified |
 | --- | --- | --- | --- |
-| S01/T01 |  |  | [ ] |
-| S01/T02 |  |  | [ ] |
-| S01/T03 |  |  | [ ] |
-| S01/T04 |  |  | [ ] |
-| S01/T05 |  |  | [ ] |
-| S01/T06 |  |  | [ ] |
-| S01/T07 |  |  | [ ] |
-| S01/T08 |  |  | [ ] |
+| S01/T01 | transfer | specs/002-native-cloudsync-connect/tasks.md (T001 [X], commit(s) 7c4d394) | [X] |
+| S01/T02 | transfer | specs/002-native-cloudsync-connect/tasks.md (T002 [X], commit(s) ca9dd60) | [X] |
+| S01/T03 | transfer | specs/002-native-cloudsync-connect/tasks.md (T003 [X], commit(s) 9500a9c) | [X] |
+| S01/T04 | transfer | specs/002-native-cloudsync-connect/tasks.md (T004 [X], commit(s) 3001c5d) | [X] |
+| S01/T05 | transfer | specs/002-native-cloudsync-connect/tasks.md (T005 [X], commit(s) a01bb64) | [X] |
+| S01/T06 | transfer | specs/002-native-cloudsync-connect/tasks.md (T006 [X], commit(s) bb37998) | [X] |
+| S01/T07 | transfer | specs/002-native-cloudsync-connect/tasks.md (T007 [X], commit(s) f331aad) | [X] |
+| S01/T08 | transfer | specs/002-native-cloudsync-connect/tasks.md (T008 [X], commit(s) 8e38f68, c04b121, 16d75ac) | [X] |
 
 ## Runtime
 

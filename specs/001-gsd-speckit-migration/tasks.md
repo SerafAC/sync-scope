@@ -392,7 +392,7 @@ Spec Kit points at 003.
   - Depends on 005 and 006.
   - Primary requirements R012 and R013. Supporting R015, R021 and R022.
   - Include the demo and the S06→S07 outputs.
-- [ ] T036 [P] [US3] Seed `specs/008-full-loop-release/spec.md` from M001/S07:
+- [X] T036 [P] [US3] Seed `specs/008-full-loop-release/spec.md` from M001/S07:
   - Status `Draft (seeded)`.
   - Depends on 002–007.
   - Primary requirements R019, R020 and R022. Their existing wording already covers API 36; cite them and
@@ -401,7 +401,7 @@ Spec Kit points at 003.
   - Add one new FR: derive Android `versionName` and `versionCode` from the `package.json` version, with a
     unit test. This is the Principle VI deferral recorded in
     `specs/001-gsd-speckit-migration/plan.md` Complexity Tracking.
-- [ ] T037 [US3] Fill the requirement, slice and task rows of
+- [X] T037 [US3] Fill the requirement, slice and task rows of
   `specs/001-gsd-speckit-migration/migration-map.md`:
   - each active R-ID → its primary spec FR anchor;
   - R023–R030 → `docs/scope.md`;
@@ -410,7 +410,7 @@ Spec Kit points at 003.
 
   Then run the R-trace loop from quickstart § US2. It must print nothing, and each active R-ID must be a
   primary FR in exactly one of `specs/00{2..8}-*/spec.md`. Set these rows to Verified `[X]`.
-- [ ] T038 [US3] Point Spec Kit at the next feature: write
+- [X] T038 [US3] Point Spec Kit at the next feature: write
   `{"feature_directory": "specs/003-local-source-selection"}` to `.specify/feature.json`. Run the checks in
   quickstart § US3, then commit with
   `git add specs .specify/feature.json && git commit -m "docs(specs): transfer M001 roadmap into Spec Kit features 002–008"`.
