@@ -7,3 +7,7 @@
 ## 2026-09-28 — Phase 2: Foundational [T005-T009]
 **Q:** T008 (freeze commit) and T009 (detach GSD MCP servers, restart session) need the maintainer. How to proceed?
 **A:** I commit + edit, you restart — the main session made the freeze commit (5619819). The auto-mode classifier refused the agent's edit of `.claude/settings.local.json`, so the maintainer removes gsd-workflow/gsd-browser there and restarts; the next autopilot run verifies with `pgrep -af 'gsd-pi|gsd-browser'` and `git status`, then ticks T009.
+
+## 2026-09-28 — Preflight: checklist gate [all]
+**Q:** checklists/transfer-verification.md has 18 open items (removal gate). Proceed with implementation anyway?
+**A:** Proceed (Recommended) — proceed despite open checklists; implementers tick items as their checks pass, and Phase 7 (GSD removal) still requires every item [X].
