@@ -1,0 +1,35 @@
+# requires: 01-add-internal
+# US1-2: a folder on removable storage is accepted like on-device storage.
+# The same folder name as the internal source gets the volume label in its
+# alias. Research R10: with no removable volume this flow fails; it is never
+# skipped.
+appId: com.syncscope
+name: sources/02-add-removable
+---
+- runFlow: ../subflows/open-sources.yaml
+- tapOn:
+    id: "sources.add"
+- runFlow:
+    file: ../subflows/pick-folder.yaml
+    env:
+      VOLUME: "SDCARD"
+      PATH: "SyncScopeE2E/Camera"
+- extendedWaitUntil:
+    visible:
+      id: "sources.row"
+      index: 1
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera \\(SDCARD\\)"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertVisible:
+    id: "sources.row.status"
+    text: "Available"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertNotVisible:
+    id: "sources.error"

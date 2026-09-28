@@ -1,0 +1,94 @@
+# requires: 05-revoked-unavailable
+# US1-6 then US1-5: Re-grant accepts only the same folder. A different folder
+# is rejected and the source stays "Access lost"; the same folder makes it
+# "Available" again with its original alias.
+appId: com.syncscope
+name: sources/06-regrant
+---
+- runFlow: ../subflows/open-sources.yaml
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 0
+
+# US1-6: re-grant the internal "Camera" row with a different folder.
+- tapOn:
+    id: "sources.row.regrant"
+    childOf:
+      id: "sources.row"
+      index: 0
+- runFlow:
+    file: ../subflows/pick-folder.yaml
+    env:
+      VOLUME: "Internal storage"
+      PATH: "SyncScopeE2E/Camera/Nested"
+- extendedWaitUntil:
+    visible:
+      id: "sources.error"
+    timeout: 15000
+- assertVisible:
+    text: ".*That is a different folder from the one that lost access\\..*"
+    childOf:
+      id: "sources.error"
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 0
+- tapOn:
+    text: "Dismiss"
+    childOf:
+      id: "sources.error"
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.error"
+    timeout: 10000
+
+# US1-5: re-grant again with the same folder.
+- tapOn:
+    id: "sources.row.regrant"
+    childOf:
+      id: "sources.row"
+      index: 0
+- runFlow:
+    file: ../subflows/pick-folder.yaml
+    env:
+      VOLUME: "Internal storage"
+      PATH: "SyncScopeE2E/Camera"
+- extendedWaitUntil:
+    visible:
+      id: "sources.row.status"
+      text: "Available"
+      childOf:
+        id: "sources.row"
+        index: 0
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertNotVisible:
+    id: "sources.row.regrant"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertNotVisible:
+    id: "sources.error"
+# The SD card source was not re-granted and is still "Access lost".
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 1

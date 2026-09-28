@@ -1,0 +1,38 @@
+# requires: 01-add-internal
+# (and 02-add-removable, for the two-row count)
+# Edge case / FR-002: a folder nested in an existing source is rejected with
+# a message naming the conflicting source, and nothing is persisted.
+appId: com.syncscope
+name: sources/03-reject-overlap
+---
+- runFlow: ../subflows/open-sources.yaml
+- tapOn:
+    id: "sources.add"
+- runFlow:
+    file: ../subflows/pick-folder.yaml
+    env:
+      VOLUME: "Internal storage"
+      PATH: "SyncScopeE2E/Camera/Nested"
+- extendedWaitUntil:
+    visible:
+      id: "sources.error"
+    timeout: 15000
+- assertVisible:
+    text: ".*overlaps \"Camera\", a folder you already added\\..*"
+    childOf:
+      id: "sources.error"
+# Still exactly the two sources from flows 01 and 02.
+- assertVisible:
+    id: "sources.row"
+    index: 1
+- assertNotVisible:
+    id: "sources.row"
+    index: 2
+- tapOn:
+    text: "Dismiss"
+    childOf:
+      id: "sources.error"
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.error"
+    timeout: 10000

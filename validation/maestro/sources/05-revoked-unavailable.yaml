@@ -1,0 +1,60 @@
+# requires: 04-restart-persists
+# US1-4 / SC-002: a grant revoked between sessions shows the source as
+# unavailable ("Access lost") instead of removing it. The debug-only seam
+# releases every persisted SAF grant, the same OS state a real revocation
+# leaves (research R11).
+appId: com.syncscope
+name: sources/05-revoked-unavailable
+---
+- stopApp
+- openLink: "syncscope-debug://release-grants"
+# openLink returns once the intent is sent. Give the seam activity time to
+# release the grants and finish before open-sources force-stops and
+# relaunches the app (a bounded pause; the element never appears).
+- extendedWaitUntil:
+    visible: "syncscope-release-grants-settle"
+    timeout: 3000
+    optional: true
+- runFlow: ../subflows/open-sources.yaml
+- extendedWaitUntil:
+    visible:
+      id: "sources.row"
+      index: 1
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.regrant"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera \\(SDCARD\\)"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertVisible:
+    id: "sources.row.regrant"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertNotVisible:
+    id: "sources.row"
+    index: 2
