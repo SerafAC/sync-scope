@@ -103,7 +103,8 @@ class CloudSyncModule(
 
   override fun listSources(promise: Promise) = notImplemented("listSources", promise)
 
-  override fun launchSourcePicker(promise: Promise) = notImplemented("launchSourcePicker", promise)
+  override fun launchSourcePicker(regrantSourceId: String?, promise: Promise) =
+    notImplemented("launchSourcePicker", promise)
 
   override fun removeSource(sourceId: String, promise: Promise) = notImplemented("removeSource", promise)
 

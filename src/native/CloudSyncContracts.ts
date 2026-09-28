@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 1;
+export const CLOUD_SYNC_CONTRACT_VERSION = 2;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -39,11 +39,58 @@ export const CloudSyncErrorCode = {
   REPOSITORY_NOT_CONFIGURED: 'REPOSITORY_NOT_CONFIGURED',
   /** The saved repository's password is missing or was rotated; re-enter it. */
   CREDENTIAL_UNAVAILABLE: 'CREDENTIAL_UNAVAILABLE',
+  /** The picked folder is inside, equal to, or around a folder already added. */
+  SOURCE_OVERLAP: 'SOURCE_OVERLAP',
+  /** The picked folder comes from a provider other than device/SD card storage. */
+  SOURCE_UNSUPPORTED: 'SOURCE_UNSUPPORTED',
+  /** A re-grant picked a different folder from the one that lost access. */
+  SOURCE_REGRANT_MISMATCH: 'SOURCE_REGRANT_MISMATCH',
+  /** The source ID is not (or no longer) in the list of added folders. */
+  SOURCE_NOT_FOUND: 'SOURCE_NOT_FOUND',
+  /** The folder picker is already open, or there is no foreground activity. */
+  PICKER_BUSY: 'PICKER_BUSY',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
 export type CloudSyncErrorCode =
   (typeof CloudSyncErrorCode)[keyof typeof CloudSyncErrorCode];
+
+export type SourceErrorCode =
+  | 'SOURCE_OVERLAP'
+  | 'SOURCE_UNSUPPORTED'
+  | 'SOURCE_REGRANT_MISMATCH'
+  | 'SOURCE_NOT_FOUND'
+  | 'PICKER_BUSY';
+
+/**
+ * Exact redacted message and recovery action for the source-selection error
+ * codes (contract version 2). The Kotlin `CloudSyncErrorCode` entries carry the
+ * same text; CloudSyncContractsParityTest fails on any drift.
+ */
+export const SOURCE_ERROR_TEXT: Readonly<
+  Record<SourceErrorCode, {message: string; action: string}>
+> = {
+  SOURCE_OVERLAP: {
+    message: 'This folder overlaps a folder you already added.',
+    action: 'Pick a folder that is not inside, or around, an existing one.',
+  },
+  SOURCE_UNSUPPORTED: {
+    message: 'Only folders on this device or its SD card can be added.',
+    action: 'Pick a folder from internal storage or the SD card.',
+  },
+  SOURCE_REGRANT_MISMATCH: {
+    message: 'That is a different folder from the one that lost access.',
+    action: 'Pick the same folder again, or remove the source.',
+  },
+  SOURCE_NOT_FOUND: {
+    message: 'That folder is no longer in your list.',
+    action: 'Refresh the folder list.',
+  },
+  PICKER_BUSY: {
+    message: 'The folder picker is already open.',
+    action: 'Finish or close the picker, then try again.',
+  },
+};
 
 export interface CloudSyncError {
   code: CloudSyncErrorCode | string;
@@ -57,6 +104,12 @@ export interface CloudSyncError {
    * rejectSftpHostKey with `challengeId`.
    */
   hostKeyChallenge?: HostKeyChallengeDto | null;
+  /**
+   * Present on SOURCE_OVERLAP only: the already-added source the pick
+   * overlaps, carried as structured data so the alias never passes through
+   * message redaction.
+   */
+  conflictingSource?: {sourceId: string; alias: string} | null;
 }
 
 export interface HostKeyChallengeDto {
@@ -141,6 +194,54 @@ export interface OperationError {
 
 /** Envelope for operations implemented by later features. */
 export type OperationResult = OperationOk | OperationError;
+
+/**
+ * Availability of an added source, computed at call time: the persisted
+ * grant is gone (GRANT_REVOKED) or its storage is not mounted/present
+ * (STORAGE_MISSING).
+ */
+export type SourceAvailability =
+  | 'AVAILABLE'
+  | 'GRANT_REVOKED'
+  | 'STORAGE_MISSING';
+
+/**
+ * One local folder the user chose to check. The SAF tree URI and the
+ * canonical root are native-only and never cross the bridge.
+ */
+export interface SourceDto {
+  sourceId: string;
+  /** Generated, unique, stable (FR-004). */
+  alias: string;
+  /** e.g. "Internal shared storage", "SDCARD". */
+  volumeLabel: string;
+  /** Path within the volume; "" for a volume root. */
+  displayPath: string;
+  isRemovable: boolean;
+  canWrite: boolean;
+  addedAtMillis: number;
+  availability: SourceAvailability;
+}
+
+export interface ListSourcesOk {
+  contractVersion: number;
+  status: 'ok';
+  sources: SourceDto[];
+}
+
+export type ListSourcesResult = ListSourcesOk | OperationError;
+
+export type SourcePickerOutcome = 'ADDED' | 'REGRANTED' | 'CANCELLED';
+
+export interface LaunchSourcePickerOk {
+  contractVersion: number;
+  status: 'ok';
+  outcome: SourcePickerOutcome;
+  /** null only when outcome is CANCELLED. */
+  source: SourceDto | null;
+}
+
+export type LaunchSourcePickerResult = LaunchSourcePickerOk | OperationError;
 
 export function isErrorResult(
   result: OperationResult | QueryFilesResult,

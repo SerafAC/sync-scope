@@ -33,12 +33,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesOne() {
+  fun contractVersionResolvesTwo() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(1, promise.resolved)
+    assertEquals(2, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -47,6 +47,8 @@ class CloudSyncModuleTest {
     val calls: List<(Promise) -> Unit> =
       listOf(
         { module.listSources(it) },
+        { module.launchSourcePicker(null, it) },
+        { module.launchSourcePicker("src-1", it) },
         { module.startScan(it) },
         { module.executeLocalDeletion("plan", it) },
       )

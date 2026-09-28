@@ -8,7 +8,7 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 1
+  const val CONTRACT_VERSION = 2
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -30,8 +30,13 @@ object CloudSyncContracts {
   }
 }
 
-/** Stable, machine-readable error codes; the wire value is the enum name. */
-enum class CloudSyncErrorCode {
+/**
+ * Stable, machine-readable error codes; the wire value is the enum name.
+ *
+ * Codes with a fixed user-facing text carry it as [defaultMessage]/[defaultAction]; the text must match
+ * `SOURCE_ERROR_TEXT` in the TypeScript contract (checked by CloudSyncContractsParityTest).
+ */
+enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAction: String? = null) {
   NOT_IMPLEMENTED,
   NATIVE_MODULE_UNAVAILABLE,
   INVALID_QUERY,
@@ -50,5 +55,25 @@ enum class CloudSyncErrorCode {
   HOST_KEY_CHALLENGE_NOT_FOUND,
   REPOSITORY_NOT_CONFIGURED,
   CREDENTIAL_UNAVAILABLE,
+  SOURCE_OVERLAP(
+    "This folder overlaps a folder you already added.",
+    "Pick a folder that is not inside, or around, an existing one.",
+  ),
+  SOURCE_UNSUPPORTED(
+    "Only folders on this device or its SD card can be added.",
+    "Pick a folder from internal storage or the SD card.",
+  ),
+  SOURCE_REGRANT_MISMATCH(
+    "That is a different folder from the one that lost access.",
+    "Pick the same folder again, or remove the source.",
+  ),
+  SOURCE_NOT_FOUND(
+    "That folder is no longer in your list.",
+    "Refresh the folder list.",
+  ),
+  PICKER_BUSY(
+    "The folder picker is already open.",
+    "Finish or close the picker, then try again.",
+  ),
   INTERNAL_ERROR,
 }

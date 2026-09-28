@@ -66,6 +66,17 @@ describe('typed native boundary', () => {
     }
   });
 
+  it('launchSourcePicker takes an optional re-grant source ID (contract v2)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /launchSourcePicker\(\s*regrantSourceId\?: string \| null,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).not.toContain('launchSourcePicker(): ');
+  });
+
   it('spec pages are bounded by the shared page contract', () => {
     const source = fs.readFileSync(
       path.join(SPECS_DIR, 'NativeCloudSync.ts'),
