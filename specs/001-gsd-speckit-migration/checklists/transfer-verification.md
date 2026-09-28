@@ -145,3 +145,314 @@ Auto-merging scripts/validation/validation-infrastructure.test.mjs
 CONFLICT (content): Merge conflict in scripts/validation/validation-infrastructure.test.mjs
 (exit 1)
 ```
+
+## Master duplicate of D015 (T005, re-planned 2026-09-28)
+
+Master's duplicate D015 script edits were committed in `769182d`, so `git restore` no longer applies and
+`scripts/` is not touched here. T011 resolves both files below to `milestone/M001`'s side, which carries the
+authoritative D015 implementation and its tests (research R2).
+
+### `git diff master milestone/M001 -- scripts/validation/protocol-service.sh scripts/validation/validation-infrastructure.test.mjs`
+
+Recorded on `master` at `33f8167`.
+
+```diff
+diff --git a/scripts/validation/protocol-service.sh b/scripts/validation/protocol-service.sh
+index ed593ad..8a01746 100755
+--- a/scripts/validation/protocol-service.sh
++++ b/scripts/validation/protocol-service.sh
+@@ -29,7 +29,7 @@ esac
+ case "$project" in syncscope-sftp|syncscope-webdav|syncscope-ftp) ;; *) exit 64 ;; esac
+ [ -f "$compose" ] || exit 1
+ 
+-repo=/home/adi/projects/cloud-sync-checker
++repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+ state="/tmp/cloud-sync-checker-$project"
+ credentials="$state/credentials"
+ owner="$state/owner"
+@@ -61,9 +61,10 @@ healthcheck() {
+ case "$action" in
+   start)
+     docker_version=$(docker version --format '{{.Client.Version}} {{.Server.Version}}')
++    # Any Docker 29 patch/minor release is accepted; a new major needs a deliberate bump.
+     case "$docker_version" in
+-      29.*" "29.*) ;;
+-      *) printf '%s\n' "Docker 29.x client and server are required." >&2; exit 1 ;;
++      "29."*" 29."*) ;;
++      *) printf '%s\n' "Docker 29.x is required." >&2; exit 1 ;;
+     esac
+     [ "$(docker compose version --short)" = "5.5.1" ] ||
+       { printf '%s\n' "Compose 5.5.1 is required." >&2; exit 1; }
+@@ -129,6 +130,19 @@ case "$action" in
+     healthcheck
+     ;;
+   stop)
++    if [ ! -e "$state" ]; then
++      # Nothing of ours is left: android-flow.sh stops the services it started and removes
++      # their state, so the gate's trailing `validation:services:stop` finds a clean host.
++      # A guard against tearing down someone else's project must not turn an
++      # already-clean environment into a failure, but a project still running without our
++      # state really is unowned and is still refused.
++      if compose_command ps --status running --services 2>/dev/null |
++        grep -qx "$protocol"; then
++        printf '%s\n' "Refusing to stop an unowned Compose project." >&2
++        exit 1
++      fi
++      exit 0
++    fi
+     [ -f "$owner" ] && [ "$(cat "$owner")" = "$project:$protocol" ] || {
+       printf '%s\n' "Refusing to stop an unowned Compose project." >&2
+       exit 1
+diff --git a/scripts/validation/validation-infrastructure.test.mjs b/scripts/validation/validation-infrastructure.test.mjs
+index d343751..73f2f9f 100644
+--- a/scripts/validation/validation-infrastructure.test.mjs
++++ b/scripts/validation/validation-infrastructure.test.mjs
+@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
+ import {
+   chmod,
+   lstat,
++  mkdir,
+   mkdtemp,
+   readFile,
+   rm,
+   writeFile,
+ } from 'node:fs/promises';
+-import { spawnSync } from 'node:child_process';
+-import { tmpdir } from 'node:os';
+-import { join } from 'node:path';
++import {spawnSync} from 'node:child_process';
++import {tmpdir} from 'node:os';
++import {dirname, join} from 'node:path';
+ import test from 'node:test';
+ 
+ const root = new URL('../../', import.meta.url);
+@@ -20,7 +21,9 @@ async function text(path) {
+ 
+ test('pins loopback-only read-only protocol services', async () => {
+   const compose = await text('validation/services/compose.yaml');
+-  const entrypoint = await text('validation/services/runtime-entrypoint.sh');
++  const entrypoint = await text(
++    'validation/services/runtime-entrypoint.sh',
++  );
+ 
+   for (const digest of [
+     'cloud-sync-checker/sftp-validation@sha256:04907991d1417618fbe8dadc349e5db305cc19a7af66cb4c7198c7be769e31ac',
+@@ -52,8 +55,8 @@ test('generates deterministic representative fixture metadata', async t => {
+   const secondState = await mkdtemp(
+     join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
+   );
+-  t.after(() => rm(state, { recursive: true, force: true }));
+-  t.after(() => rm(secondState, { recursive: true, force: true }));
++  t.after(() => rm(state, {recursive: true, force: true}));
++  t.after(() => rm(secondState, {recursive: true, force: true}));
+ 
+   const seed = spawnSync(
+     'sh',
+@@ -62,7 +65,7 @@ test('generates deterministic representative fixture metadata', async t => {
+       '--root',
+       join(state, 'fixtures'),
+     ],
+-    { encoding: 'utf8' },
++    {encoding: 'utf8'},
+   );
+   assert.equal(seed.status, 0, seed.stderr);
+ 
+@@ -93,7 +96,7 @@ test('generates deterministic representative fixture metadata', async t => {
+       '--state',
+       state,
+     ],
+-    { encoding: 'utf8' },
++    {encoding: 'utf8'},
+   );
+   assert.equal(first.status, 0, first.stderr);
+   const secondSeed = spawnSync(
+@@ -103,7 +106,7 @@ test('generates deterministic representative fixture metadata', async t => {
+       '--root',
+       join(secondState, 'fixtures'),
+     ],
+-    { encoding: 'utf8' },
++    {encoding: 'utf8'},
+   );
+   assert.equal(secondSeed.status, 0, secondSeed.stderr);
+   const independent = spawnSync(
+@@ -117,12 +120,15 @@ test('generates deterministic representative fixture metadata', async t => {
+       '--state',
+       secondState,
+     ],
+-    { encoding: 'utf8' },
++    {encoding: 'utf8'},
+   );
+   assert.equal(independent.status, 0, independent.stderr);
+   assert.equal(
+     await readFile(join(state, 'manifests/sftp.before.sha256'), 'utf8'),
+-    await readFile(join(secondState, 'manifests/sftp.before.sha256'), 'utf8'),
++    await readFile(
++      join(secondState, 'manifests/sftp.before.sha256'),
++      'utf8',
++    ),
+   );
+   const second = spawnSync(
+     'sh',
+@@ -135,7 +141,7 @@ test('generates deterministic representative fixture metadata', async t => {
+       '--state',
+       state,
+     ],
+-    { encoding: 'utf8' },
++    {encoding: 'utf8'},
+   );
+   assert.equal(second.status, 0, second.stderr);
+   assert.match(second.stdout, /zero unexpected remote changes/);
+@@ -174,11 +180,11 @@ test('exposes bounded owned service and serial validator entry points', async ()
+   );
+ });
+ 
+-async function launchWithDockerVersion(t, dockerVersion) {
++async function launchWithStubbedDocker(t, dockerVersion) {
+   const bin = await mkdtemp(
+     join(tmpdir(), 'cloud-sync-checker-launcher-test-'),
+   );
+-  t.after(() => rm(bin, { recursive: true, force: true }));
++  t.after(() => rm(bin, {recursive: true, force: true}));
+ 
+   const docker = join(bin, 'docker');
+   await writeFile(
+@@ -224,34 +230,114 @@ esac
+     ],
+     {
+       encoding: 'utf8',
+-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
++      env: {...process.env, PATH: `${bin}:${process.env.PATH}`},
+     },
+   );
+ }
+ 
+-for (const dockerVersion of ['29.7.2 29.7.2', '29.8.1 29.0.0']) {
+-  test(`protocol launcher accepts Docker ${dockerVersion} before preflight`, async t => {
+-    const launch = await launchWithDockerVersion(t, dockerVersion);
+-
+-    assert.equal(launch.status, 1);
+-    assert.match(launch.stderr, /Approved service port is occupied/);
+-    assert.doesNotMatch(
+-      launch.stderr,
+-      /Docker 29\.x client and server are required|Compose 5\.5\.1 is required|unexpected/,
+-    );
+-  });
++test('protocol launcher accepts any Docker 29 release before preflight', async t => {
++  const launch = await launchWithStubbedDocker(t, '29.8.1 29.8.1');
++
++  assert.equal(launch.status, 1);
++  assert.match(launch.stderr, /Approved service port is occupied/);
++  assert.doesNotMatch(
++    launch.stderr,
++    /Docker 29\.x is required|Compose 5\.5\.1 is required|unexpected/,
++  );
++});
++
++test('protocol launcher rejects a Docker major other than 29', async t => {
++  for (const version of ['30.0.0 30.0.0', '29.8.1 30.0.0', '28.5.2 29.8.1']) {
++    const launch = await launchWithStubbedDocker(t, version);
++
++    assert.equal(launch.status, 1, version);
++    assert.match(launch.stderr, /Docker 29\.x is required/, version);
++    assert.doesNotMatch(launch.stderr, /Approved service port/, version);
++  }
++});
++
++async function fakeSdk(t) {
++  const home = await mkdtemp(join(tmpdir(), 'cloud-sync-checker-sdk-test-'));
++  t.after(() => rm(home, {recursive: true, force: true}));
++
++  const sdk = join(home, 'Android', 'Sdk');
++  for (const component of ['platform-tools/adb', 'emulator/emulator']) {
++    const binary = join(sdk, component);
++    await mkdir(dirname(binary), {recursive: true});
++    await writeFile(binary, '#!/bin/sh\nexit 0\n');
++    await chmod(binary, 0o755);
++  }
++
++  return {home, sdk};
+ }
+ 
+-for (const dockerVersion of [
+-  '30.0.0 30.0.0',
+-  '28.5.1 29.8.1',
+-  '29.8.1 28.5.1',
+-]) {
+-  test(`protocol launcher rejects Docker ${dockerVersion}`, async t => {
+-    const launch = await launchWithDockerVersion(t, dockerVersion);
+-
+-    assert.equal(launch.status, 1);
+-    assert.match(launch.stderr, /Docker 29\.x client and server are required/);
+-    assert.doesNotMatch(launch.stderr, /Approved service port is occupied/);
+-  });
++function resolveSdk(env) {
++  const helper = new URL('android-sdk.sh', import.meta.url).pathname;
++
++  return spawnSync(
++    'sh',
++    ['-c', `. "${helper}"; android_sdk_resolve; printf '%s\\n' "$ANDROID_HOME"`],
++    {encoding: 'utf8', env},
++  );
+ }
++
++test('resolves the Android SDK without an exported ANDROID_HOME', async t => {
++  const {home, sdk} = await fakeSdk(t);
++  const env = {...process.env, HOME: home};
++  delete env.ANDROID_HOME;
++  delete env.ANDROID_SDK_ROOT;
++
++  const resolved = resolveSdk(env);
++
++  assert.equal(resolved.status, 0, resolved.stderr);
++  assert.equal(resolved.stdout.trim(), sdk);
++});
++
++test('prefers an explicit ANDROID_HOME over ANDROID_SDK_ROOT and the default', async t => {
++  const {home, sdk} = await fakeSdk(t);
++
++  assert.equal(
++    resolveSdk({
++      ...process.env,
++      HOME: '/nonexistent',
++      ANDROID_HOME: sdk,
++      ANDROID_SDK_ROOT: '/nonexistent/sdk',
++    }).stdout.trim(),
++    sdk,
++  );
++  assert.equal(
++    resolveSdk({
++      ...process.env,
++      HOME: home,
++      ANDROID_HOME: '',
++      ANDROID_SDK_ROOT: sdk,
++    }).stdout.trim(),
++    sdk,
++  );
++});
++
++test('names the missing Android SDK instead of aborting on an unbound variable', async () => {
++  const env = {...process.env, HOME: '/nonexistent', ANDROID_HOME: '/nonexistent/sdk'};
++  delete env.ANDROID_SDK_ROOT;
++
++  const resolved = resolveSdk(env);
++
++  assert.equal(resolved.status, 1);
++  assert.match(resolved.stderr, /Android SDK not usable at '\/nonexistent\/sdk'/);
++  assert.match(resolved.stderr, /Set ANDROID_HOME/);
++  assert.doesNotMatch(resolved.stderr, /unbound variable/);
++});
++
++test('resolves the SDK before any script dereferences ANDROID_HOME', async () => {
++  for (const script of [
++    'scripts/validation/android-validator.sh',
++    'scripts/validation/android-flow.sh',
++  ]) {
++    const source = await text(script);
++    const resolved = source.indexOf('android_sdk_resolve');
++    const used = source.indexOf('$ANDROID_HOME/');
++
++    assert.ok(resolved !== -1, `${script} must resolve the SDK`);
++    assert.ok(used === -1 || resolved < used, `${script} dereferences ANDROID_HOME too early`);
++  }
++});
+```

@@ -79,13 +79,13 @@ can rewrite it (research R7).
 
 **⚠️ CRITICAL**: No user story work can begin until T009 is done.
 
-- [ ] T005 (Re-planned 2026-09-28.) Master's duplicate of D015 is no longer uncommitted: it was committed
+- [X] T005 (Re-planned 2026-09-28.) Master's duplicate of D015 is no longer uncommitted: it was committed
   in 769182d, so `git restore` no longer applies. Do not touch `scripts/` here. Instead record in
   `checklists/transfer-verification.md` the output of
   `git diff master milestone/M001 -- scripts/validation/protocol-service.sh scripts/validation/validation-infrastructure.test.mjs`
   and note that T011 resolves both files to the branch's side, which carries the authoritative D015
   implementation and its tests (research R2).
-- [ ] T006 [P] Export the GSD database to `specs/001-gsd-speckit-migration/gsd-export.md` with
+- [X] T006 [P] Export the GSD database to `specs/001-gsd-speckit-migration/gsd-export.md` with
   `sqlite3 .gsd/gsd.db`. Add the header note "Temporary migration export, deleted in the GSD removal
   commit." Then write three sections:
   - `## Memories`: one Markdown table row per memory, from
@@ -93,7 +93,7 @@ can rewrite it (research R7).
     `content` without truncating it, and escape pipes. Expect 22 rows, MEM001–MEM022.
   - `## Task status`: from `select id, status from tasks`.
   - `## Slice status`: from `select id, status from slices`.
-- [ ] T007 [P] Create `specs/001-gsd-speckit-migration/migration-map.md` following
+- [X] T007 [P] Create `specs/001-gsd-speckit-migration/migration-map.md` following
   `specs/001-gsd-speckit-migration/contracts/migration-map.md`:
   - One table per kind, in this order: tooling, document, requirement, decision, memory, slice, task,
     runtime.
@@ -101,7 +101,7 @@ can rewrite it (research R7).
   - One row for every item in the contract's "Required inventory": R001–R030, D001–D015, MEM001–MEM022,
     S01–S07, S01/T01–T08, and every document, tooling and runtime path listed there.
   - Leave Disposition and Destination empty, and set Verified to `[ ]`.
-- [ ] T008 Commit the freeze:
+- [X] T008 Commit the freeze:
   - `git add .gsd specs/001-gsd-speckit-migration/gsd-export.md specs/001-gsd-speckit-migration/migration-map.md`.
     This adds every non-ignored `.gsd` file (the `*.md`, `phases/**`, `quarantine/**`, `*.json` and
     `*.jsonl`), as research R2 describes. `.gitignore` already excludes the runtime.
