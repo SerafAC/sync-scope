@@ -1,0 +1,22 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Debug-only test seam (research R11, docs/decisions): Maestro opens
+      syncscope-debug://release-grants to release every persisted SAF grant,
+      reproducing the OS state of a real revocation. Never in the release build.
+    -->
+    <application>
+      <activity
+        android:name="com.syncscope.debug.ReleaseGrantsActivity"
+        android:exported="true"
+        android:excludeFromRecents="true"
+        android:noHistory="true"
+        android:theme="@android:style/Theme.NoDisplay">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="syncscope-debug" android:host="release-grants" />
+        </intent-filter>
+      </activity>
+    </application>
+</manifest>

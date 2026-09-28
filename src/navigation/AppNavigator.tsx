@@ -3,6 +3,7 @@ import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {Icon} from 'react-native-paper';
 
 import {PlaceholderScreen} from '../screens/PlaceholderScreen';
+import {SettingsScreen} from '../screens/SettingsScreen';
 
 export type RootTabParamList = {
   Files: undefined;
@@ -12,10 +13,11 @@ export type RootTabParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-const descriptions: Record<keyof RootTabParamList, string> = {
+type PlaceholderTab = Exclude<keyof RootTabParamList, 'Settings'>;
+
+const placeholderDescriptions: Record<PlaceholderTab, string> = {
   Files: 'File browsing will appear here after setup and a completed scan.',
   Scan: 'Scan controls and progress will appear here after setup.',
-  Settings: 'Repository and folder settings will appear here.',
 };
 
 type TabBarIconProps = {
@@ -48,19 +50,24 @@ export function AppNavigator(): React.JSX.Element {
         headerTitle: 'SyncScope',
         tabBarLabelPosition: 'below-icon',
       }}>
-      {(Object.keys(descriptions) as Array<keyof RootTabParamList>).map(name => (
+      {(Object.keys(placeholderDescriptions) as PlaceholderTab[]).map(name => (
         <Tab.Screen
           key={name}
           name={name}
           options={{tabBarIcon: tabBarIcons[name]}}>
           {() => (
             <PlaceholderScreen
-              description={descriptions[name]}
+              description={placeholderDescriptions[name]}
               title={name}
             />
           )}
         </Tab.Screen>
       ))}
+      <Tab.Screen
+        component={SettingsScreen}
+        name="Settings"
+        options={{tabBarIcon: tabBarIcons.Settings}}
+      />
     </Tab.Navigator>
   );
 }
