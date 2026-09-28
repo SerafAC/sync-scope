@@ -1,0 +1,83 @@
+# requires: 06-regrant
+# FR-005: removing a source asks for confirmation; Cancel keeps it and
+# Confirm removes it. The target is the SD card row, still "Access lost"
+# after flow 06, which proves removal works for an unavailable source.
+# Rows are ordered by addedAtMillis, so the SD card row is index 1.
+appId: com.syncscope
+name: sources/07-remove
+---
+- runFlow: ../subflows/open-sources.yaml
+- extendedWaitUntil:
+    visible:
+      id: "sources.row"
+      index: 1
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera \\(SDCARD\\)"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertVisible:
+    id: "sources.row.status"
+    text: "Access lost"
+    childOf:
+      id: "sources.row"
+      index: 1
+
+# Cancel keeps both rows.
+- tapOn:
+    id: "sources.row.remove"
+    childOf:
+      id: "sources.row"
+      index: 1
+- extendedWaitUntil:
+    visible:
+      id: "sources.dialog.cancel"
+    timeout: 10000
+- tapOn:
+    id: "sources.dialog.cancel"
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.dialog.cancel"
+    timeout: 10000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera \\(SDCARD\\)"
+    childOf:
+      id: "sources.row"
+      index: 1
+
+# Confirm removes the SD card row; only "Camera" remains.
+- tapOn:
+    id: "sources.row.remove"
+    childOf:
+      id: "sources.row"
+      index: 1
+- extendedWaitUntil:
+    visible:
+      id: "sources.dialog.confirm"
+    timeout: 10000
+- tapOn:
+    id: "sources.dialog.confirm"
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.row"
+      index: 1
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertNotVisible:
+    text: "Camera \\(SDCARD\\)"
+- assertNotVisible:
+    id: "sources.dialog.confirm"

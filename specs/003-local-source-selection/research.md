@@ -163,6 +163,15 @@ have a decided method and a decided failure behaviour, and their outcome is reco
   `/sdcard/SyncScopeE2E/Camera{,/Nested}` and `/storage/0000-0000/SyncScopeE2E/Camera` on it, twice
   (idempotent). Whether DocumentsUI lets a folder on it be picked is proven by
   `sources/02-add-removable.yaml`.
+- **Observed result, API 31 (2026-09-28, T042)**: the claim above that `dependency_api31` "already has
+  this" was only half true. Its `config.ini` had `hw.sdCard = yes` and `sdcard.size = 512 MB`, but the AVD
+  directory had no `sdcard.img`, so the emulator mounted no public volume and `device-fixtures.sh` failed
+  with "No public removable volume is mounted". Editing `config.ini` does not create the image; it is
+  only created by `avdmanager create avd -c <size>`. Fix: `$ANDROID_HOME/emulator/mksdcard 512M
+  ~/.android/avd/dependency_api31.avd/sdcard.img` (FAT32, label `SDCARD`, identical to the API 36 image).
+  After that API 31 exposes `public:... mounted 0000-0000` like API 36, and `sources/02-add-removable`
+  passes on both. DocumentsUI on API 36 lets a folder on the card be picked, so the R10 failure behaviour
+  (escalation) was not triggered.
 
 ## R11. Driving DocumentsUI and revoking a grant under Maestro
 
@@ -181,6 +190,14 @@ have a decided method and a decided failure behaviour, and their outcome is reco
   scenario, and unmounting a volume mid-flow would make the e2e suite depend on emulator mount timing.
 - **Alternatives rejected**: `adb root` and editing `urigrants.xml` (needs a reboot and is fragile);
   UiAutomator instrumented tests (D012 makes Maestro the proof bar).
+- **Observed result (2026-09-28, T042)**: `pnpm e2e:android` passed all seven flows on API 31 (7/7 in
+  4m 8s) and API 36 (7/7 in 4m 29s). The API-level and build differences handled in
+  `subflows/pick-folder.yaml` are: the confirm buttons read "USE THIS FOLDER" / "ALLOW" on API 31 and
+  "Use this folder" / "Allow" on API 36 (matched with case-insensitive `(?i)` patterns); internal storage
+  is listed under the device model name (`sdk_gphone64_x86_64`) on the emulator images rather than
+  "Internal storage" (matched with an alternation); and the roots drawer is behind a "Show roots" button
+  only when it is collapsed (a `runFlow: when: visible:` branch). No feature flow needed an API-specific
+  branch.
 
 ## R12. Seeding device fixtures
 
