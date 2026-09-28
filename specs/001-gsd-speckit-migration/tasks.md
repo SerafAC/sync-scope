@@ -426,7 +426,7 @@ Principles VI–IX.
 
 **Independent Test**: [quickstart.md § US5](./quickstart.md#us5-constitution-documentation-baseline).
 
-- [ ] T039 [P] [US5] Create `README.md`, user-facing content first:
+- [X] T039 [P] [US5] Create `README.md`, user-facing content first:
   1. What SyncScope does and why, in one paragraph taken from `docs/overview.md`.
   2. An honest **Current status**: connecting over FTP, SFTP and WebDAV is implemented and proven.
      Selecting sources, scanning, the views and deletion are not available yet.
@@ -435,7 +435,7 @@ Principles VI–IX.
   5. Only then, a "For developers" link to `DEVELOPMENT.md` and `docs/`.
 
   Claim nothing that hasn't been delivered.
-- [ ] T040 [US5] Complete `DEVELOPMENT.md`. This extends T024 and depends on it. Add:
+- [X] T040 [US5] Complete `DEVELOPMENT.md`. This extends T024 and depends on it. Add:
   - Prerequisites: Node 24.11.1, pnpm 11.3.0, JDK 21+, the Android SDK (minSdk 31 / compileSdk 37 /
     targetSdk 36), Docker 29.x, Compose 5.5.1 and Maestro 2.10.0.
   - Every `package.json` script, grouped as build / quality gates / validation services / emulator flows.
@@ -447,14 +447,14 @@ Principles VI–IX.
     is tracked in `specs/008-full-loop-release`.
   - The release and CHANGELOG procedure.
   - Links to `docs/` for technical depth.
-- [ ] T041 [P] [US5] Extend `CHANGELOG.md` under `## [Unreleased]`:
+- [X] T041 [P] [US5] Extend `CHANGELOG.md` under `## [Unreleased]`:
   - `### Added`: project docs under `docs/`, plus README, DEVELOPMENT and the Spec Kit feature specs
     002–008.
   - `### Changed`: project management migrated from GSD to Spec Kit, see
     `specs/001-gsd-speckit-migration/migration-map.md`.
 
   Leave the "Removed" line to T047.
-- [ ] T042 [US5] Run the checks in quickstart § US5, then commit with
+- [X] T042 [US5] Run the checks in quickstart § US5, then commit with
   `git add README.md DEVELOPMENT.md CHANGELOG.md && git commit -m "docs: add README and DEVELOPMENT, extend CHANGELOG"`.
 
 **Checkpoint**: The constitution baseline is in place, and every transfer destination exists.
