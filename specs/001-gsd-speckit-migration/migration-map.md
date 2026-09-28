@@ -198,3 +198,5 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | `.gsd/milestones/` | discard | untracked GSD milestone scaffold (empty `M001/slices/`); no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
 | `.gsd/*.json` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
 | `.gsd/*.jsonl` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+
+**Removal commit**: `4aaa624` (`chore: remove GSD after migration to Spec Kit`)

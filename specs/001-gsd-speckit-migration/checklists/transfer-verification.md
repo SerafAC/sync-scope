@@ -36,11 +36,11 @@ it.
 
 ## Post-removal checks (recorded after the removal commit)
 
-- [ ] `git grep -nIwi -e gsd -e 'get-shit-done' -- . ':!specs/001-gsd-speckit-migration' ':!CHANGELOG.md'`
+- [X] `git grep -nIwi -e gsd -e 'get-shit-done' -- . ':!specs/001-gsd-speckit-migration' ':!CHANGELOG.md'`
       returns nothing (SC-003).
-- [ ] The same gate commands as above, including the S01 live gate, return the same results (SC-004).
-- [ ] The removal is exactly one commit; its hash is recorded in the migration-map footer (SC-006).
-- [ ] `git branch --list milestone/M001` is empty.
+- [X] The same gate commands as above, including the S01 live gate, return the same results (SC-004).
+- [X] The removal is exactly one commit; its hash is recorded in the migration-map footer (SC-006).
+- [X] `git branch --list milestone/M001` is empty.
 - [ ] Fresh-session check (SC-002): a new agent session asked "what is next?" reaches
       `specs/003-local-source-selection/spec.md` and its acceptance scenarios in under 5 minutes, using only
       Spec Kit artifacts. Record the elapsed time.
@@ -555,3 +555,30 @@ Run on `master` at `63e01e6` plus the T043 edits.
 - **Neutral wording**: the dry run first returned `docs/decisions/README.md:5-6` (a link into this spec's
   directory and a sentence naming GSD). T043 reworded the index introduction to describe the record format
   inline. The rerun returns nothing (exit 1).
+
+## Post-removal evidence (2026-09-28, T046)
+
+Run on `master` after removal commit `4aaa624` and the T045 deletes.
+
+- `git grep -nIwi -e gsd -e 'get-shit-done' -- . ':!specs/001-gsd-speckit-migration' ':!CHANGELOG.md'`
+  returns nothing (exit 1). `ls -a` at the repo root lists no `.gsd`, `.gsd-id`, `.gsd-worktrees`,
+  `.bg-shell` or `.mcp.json`.
+- The removal is the single commit `4aaa624` (330 files: `.gsd/**`, `.bg-shell/manifest.json`, `.mcp.json`,
+  `gsd-export.md`, `.gitignore`). Its hash is in the `migration-map.md` footer.
+- `git branch -d milestone/M001` succeeded (was `16d75ac`), and `git branch --list milestone/M001` is empty.
+- Gates, same as T015: `pnpm lint` and `pnpm typecheck` pass; `pnpm test:ci` 10/10 node tests and 17/17
+  Jest tests; `pnpm test:android:unit` 120/120 in 15 suites; S01 live gate exit 0:
+
+```text
+Starting 8 tests on dependency_api31(AVD) - 12
+Finished 8 tests on dependency_api31(AVD) - 12
+ftp audit: metadata-read operation allowlist is clean
+ftp: zero unexpected remote changes
+webdav audit: metadata-read operation allowlist is clean
+webdav: zero unexpected remote changes
+sftp audit: metadata-read operation allowlist is clean
+sftp: zero unexpected remote changes
+LIVE_EXIT=0
+```
+
+  Afterwards no emulator was attached to adb, and `/tmp/cloud-sync-checker-api31` was gone.

@@ -24,3 +24,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 - Project management migrated from GSD to Spec Kit; see
   [`specs/001-gsd-speckit-migration/migration-map.md`](./specs/001-gsd-speckit-migration/migration-map.md)
   for where each GSD artifact went.
+
+### Removed
+
+- GSD workflow tooling and state: `.gsd/`, the GSD MCP servers in `.mcp.json`, `.bg-shell/` and the
+  `milestone/M001` branch. The GSD-only `.gitignore` entries went with them; the generic editor and
+  operating-system entries moved under "Editor and operating-system files".

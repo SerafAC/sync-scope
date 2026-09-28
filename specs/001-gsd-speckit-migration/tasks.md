@@ -478,7 +478,7 @@ not run T044–T047.
   4. Fill any tooling and runtime rows that are still empty as `discard`, with the reasons from research R7.
   5. Commit with
      `git add specs/001-gsd-speckit-migration && git commit -m "docs: complete migration map and transfer checklist"`.
-- [ ] T044 [US4] Make the single removal commit (FR-021):
+- [X] T044 [US4] Make the single removal commit (FR-021):
   1. Stage the deletions with
      `git rm -r -q .gsd .bg-shell .mcp.json specs/001-gsd-speckit-migration/gsd-export.md`.
   2. Edit `.gitignore` as research R8 describes:
@@ -489,12 +489,12 @@ not run T044–T047.
        `.venv/`, `venv/`, `target/`, `vendor/` and the Windows device names.
   3. Commit with `git add .gitignore && git commit -m "chore: remove GSD after migration to Spec Kit"`.
   4. Verify that `git show --stat HEAD` touches only those paths.
-- [ ] T045 [US4] Delete the untracked GSD leftovers and the branch:
+- [X] T045 [US4] Delete the untracked GSD leftovers and the branch:
   - Run `rm -rf .gsd .gsd-id .gsd-worktrees`. This removes the ignored runtime that T044 left behind, and
     it is deleted without an archive (clarified).
   - Run `git branch -d milestone/M001`, with `-d` and never `-D`. If git refuses, stop, because that means
     some work is not merged.
-- [ ] T046 [US4] Run the post-removal checks listed in `checklists/transfer-verification.md`:
+- [X] T046 [US4] Run the post-removal checks listed in `checklists/transfer-verification.md`:
   - The GSD reference search, which must return nothing:
     `git grep -nIwi -e gsd -e 'get-shit-done' -- . ':!specs/001-gsd-speckit-migration' ':!CHANGELOG.md'`.
   - The `ls -a` check.
@@ -502,7 +502,7 @@ not run T044–T047.
   - The full gate set from T015, including the S01 live gate. The results must match T015.
 
   Tick the items that pass.
-- [ ] T047 [US4] Record the removal:
+- [X] T047 [US4] Record the removal:
   - Add a footer to `migration-map.md`: `Removal commit: <sha from T044>`.
   - Add `### Removed` — GSD workflow tooling and state (`.gsd/`, the GSD MCP servers in `.mcp.json`,
     `.bg-shell/`, the `milestone/M001` branch) — to `CHANGELOG.md` under `[Unreleased]`.

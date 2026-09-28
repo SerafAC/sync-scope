@@ -15,3 +15,7 @@
 ## 2026-09-28 — Phase 3: User Story 1 — Consolidate the code on one mainline [T010-T016]
 **Q:** T016 needs two commits (merge commit with exact message, then evidence commit) and the run was told not to commit. How should T016 be carried out?
 **A:** Main session does T016 — runs T016 as written (git add, merge commit, post-checks, tick checklist items and T016, evidence commit); no push; autopilot then continues with Phase 4.
+
+## 2026-09-28 — Phase 7: User Story 4 — Remove GSD safely [T043-T047]
+**Q:** Phase 7 needs three commits, irreversible deletes (T045) and the live gate, and the T043 gate failed (empty map rows, docs/decisions/README.md:6 naming GSD). Who does Phase 7, and how?
+**A:** Main session does all of Phase 7 — runs T043–T047 as written, including the gate fixes, commits, deletes and live gate; autopilot then moves on to Phase 8.
