@@ -1,0 +1,116 @@
+{
+  "schema": 2,
+  "lastWriter": "gsd-pi",
+  "lastProjectedAt": "2026-09-23T18:42:29.556Z",
+  "projections": {
+    "REQUIREMENTS.md": {
+      "sha": "242bf30757483f7c",
+      "entities": []
+    },
+    "PROJECT.md": {
+      "sha": "cb5acb053ae09b93",
+      "entities": []
+    },
+    "phases/01-syncscope-v1/01-ROADMAP.md": {
+      "sha": "f5afcb192e3411f0",
+      "entities": [
+        "M001"
+      ]
+    },
+    "phases/01-syncscope-v1/01-01-RESEARCH.md": {
+      "sha": "aa4314ab91b79952",
+      "entities": [
+        "M001",
+        "M001/S01"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T01-SUMMARY.md": {
+      "sha": "254c6df571601159",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T01"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T02-SUMMARY.md": {
+      "sha": "72e5a273b1807a0c",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T02"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T03-SUMMARY.md": {
+      "sha": "be0b1f9a411391ae",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T03"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T04-SUMMARY.md": {
+      "sha": "391ebcde36c351e5",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T04"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T05-SUMMARY.md": {
+      "sha": "04e31e93baefe543",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T05"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T06-SUMMARY.md": {
+      "sha": "bd96787dba906123",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T06"
+      ]
+    },
+    "phases/01-syncscope-v1/S01-T07-SUMMARY.md": {
+      "sha": "ff10aa0934175be7",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T07"
+      ]
+    },
+    "phases/01-syncscope-v1/01-01-PLAN.md": {
+      "sha": "50e273d53ce242b6",
+      "entities": [
+        "M001",
+        "M001/S01"
+      ]
+    },
+    "phases/01-syncscope-v1/01-CONTEXT.md": {
+      "sha": "ae92ef281e2ae4b0",
+      "entities": [
+        "M001"
+      ]
+    },
+    "DECISIONS.md": {
+      "sha": "45c58fe12bcd1401",
+      "entities": []
+    },
+    "phases/01-syncscope-v1/S01-T08-SUMMARY.md": {
+      "sha": "9aae22f519f6987e",
+      "entities": [
+        "M001",
+        "M001/S01",
+        "M001/S01/T08"
+      ]
+    }
+  },
+  "planning": {
+    "active": false,
+    "layout": null,
+    "projections": {},
+    "passthrough": {}
+  },
+  "piVersion": ""
+}
