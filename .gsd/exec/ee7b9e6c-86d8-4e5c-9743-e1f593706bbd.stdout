@@ -1,5 +1,0 @@
-releaseManifest rc=1
-* What went wrong:
-Execution failed for task ':app:extractDeepLinksRelease'.
-> Failed to calculate the value of task ':app:extractDeepLinksRelease' property 'navFilesFolders'.
-   > Querying the mapped value of map(map(list(interface java.util.Collection, item(list(interface org.gradle.api.file.Directory, [/home/adi/projects/sync-scope/.gsd-worktrees/M001/android/app/src/main/res])) + item(list(interface org.gradle.api.file.Directory, [/home/adi/projects/sync-scope/.gsd-worktrees/M001/android/app/src/release/res])) + item(list(interface org.gradle.api.file.Directory, item(property(org.gradle.api.file.Directory, property(org.gradle.api.file.Directory, property(org.gradle.api.file.Directory, map(org.gradle.api.file.Directory flatmap(provider(task 'generateReleaseResValues', class com.android.build.gradle.tasks.GenerateResValues)) check-type()))))))) + item(list(interface org.gradle.api.file.Directory, item(flatmap(provider(task 'createBundleReleaseJsAndAssets', class com.facebook.react.tasks.BundleHermesCTask)))))))) before task ':app:createBundleReleaseJsAndAssets' has completed is not supported

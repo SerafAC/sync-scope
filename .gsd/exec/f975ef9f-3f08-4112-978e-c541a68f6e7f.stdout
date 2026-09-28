@@ -1,8 +1,0 @@
-sdk.dir=/home/adi/Android/Sdk
-/home/adi/Android/Sdk:
-build-tools
-licenses
-
-/home/adi/Android/Sdk/licenses:
-android-sdk-license
-android-sdk-preview-license

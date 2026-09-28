@@ -1,4 +1,0 @@
-exit=0 secs=47
-BUILD SUCCESSFUL in 47s
-TEST-com.syncscope.bridge.CloudSyncContractsParityTest.xml tests="3" skipped="0" failures="0" errors="0"
-TEST-com.syncscope.remote.PropfindParserTest.xml tests="13" skipped="0" failures="0" errors="0"

@@ -1,5 +1,0 @@
-drwxr-xr-x 3 root root 4096 Jul 10 18:06 /opt/android-sdk
-NOT_WRITABLE
-no licenses dir
-.gitignore:15:local.properties
-.gitignore:16:android/local.properties

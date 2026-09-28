@@ -1,9 +1,0 @@
-gradle_exit=0 duration_ms=76216
-schema_present=yes
-password_field=absent
-FoundationUnitTest: 1 tests, 0 failures, 0 errors, 0 skipped
-PageTokenCodecTest: 5 tests, 0 failures, 0 errors, 0 skipped
-SchemaConstraintTest: 5 tests, 0 failures, 0 errors, 0 skipped
-SchemaContractTest: 6 tests, 0 failures, 0 errors, 0 skipped
-SnapshotQueryTest: 3 tests, 0 failures, 0 errors, 0 skipped
-SnapshotStoreTest: 5 tests, 0 failures, 0 errors, 0 skipped
