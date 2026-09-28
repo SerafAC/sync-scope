@@ -1,0 +1,20 @@
+{
+  "id": "579d5cb7-b496-4a70-9219-32117277eb22",
+  "runtime": "bash",
+  "purpose": "Check codegen spec naming rules and remaining JS tests for envelope expectations",
+  "script_chars": 353,
+  "started_at": "2026-09-20T17:56:55.391Z",
+  "finished_at": "2026-09-20T17:56:55.407Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 16,
+  "stdout_bytes": 3311,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/579d5cb7-b496-4a70-9219-32117277eb22.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/579d5cb7-b496-4a70-9219-32117277eb22.stderr"
+}

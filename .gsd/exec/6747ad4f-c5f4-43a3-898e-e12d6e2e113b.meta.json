@@ -1,0 +1,20 @@
+{
+  "id": "6747ad4f-c5f4-43a3-898e-e12d6e2e113b",
+  "runtime": "bash",
+  "purpose": "T02 JS boundary suite + release manifest placeholder",
+  "script_chars": 467,
+  "started_at": "2026-09-21T15:45:08.358Z",
+  "finished_at": "2026-09-21T15:45:38.006Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 29648,
+  "stdout_bytes": 103,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/6747ad4f-c5f4-43a3-898e-e12d6e2e113b.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/6747ad4f-c5f4-43a3-898e-e12d6e2e113b.stderr"
+}

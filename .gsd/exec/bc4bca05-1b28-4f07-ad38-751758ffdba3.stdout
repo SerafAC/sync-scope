@@ -1,0 +1,40 @@
+### commons-net
+commons-net/commons-net/3.12.0
+### com.squareup.okhttp3
+com.squareup.okhttp3/okhttp/4.12.0
+com.squareup.okhttp3/okhttp/4.9.2
+com.squareup.okhttp3/okhttp/5.3.2
+com.squareup.okhttp3/okhttp-android/5.3.2
+com.squareup.okhttp3/okhttp-urlconnection/4.9.2
+### org.bouncycastle
+org.bouncycastle/bcpkix-jdk15on/1.67
+org.bouncycastle/bcpkix-jdk18on/1.79
+org.bouncycastle/bcpkix-jdk18on/1.80
+org.bouncycastle/bcprov-jdk15on/1.67
+org.bouncycastle/bcprov-jdk18on/1.79
+org.bouncycastle/bcprov-jdk18on/1.80
+org.bouncycastle/bcprov-jdk18on/1.80.2
+org.bouncycastle/bcprov-jdk18on/1.81
+org.bouncycastle/bcutil-jdk18on/1.79
+org.bouncycastle/bcutil-jdk18on/1.80.2
+### androidx.room
+androidx.room/room-common/2.8.4
+androidx.room/room-common-jvm/2.8.4
+androidx.room/room-ktx/2.8.4
+androidx.room/room-runtime/2.8.4
+androidx.room/room-runtime-android/2.8.4
+### androidx.sqlite
+androidx.sqlite/sqlite/2.6.2
+androidx.sqlite/sqlite-android/2.6.2
+androidx.sqlite/sqlite-framework/2.6.2
+androidx.sqlite/sqlite-framework-android/2.6.2
+
+### documentfile / security-crypto present?
+ls: cannot access '/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/androidx.documentfile': No such file or directory
+ls: cannot access '/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/androidx.security': No such file or directory
+
+### sshj on maven central versions reachable?
+<latest>0.40.0</latest>
+<release>0.40.0</release>
+### sshj 0.40.0 pom http code
+200

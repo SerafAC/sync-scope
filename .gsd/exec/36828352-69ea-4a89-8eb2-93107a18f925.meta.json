@@ -1,0 +1,20 @@
+{
+  "id": "36828352-69ea-4a89-8eb2-93107a18f925",
+  "runtime": "bash",
+  "purpose": "Check SDK dir writability and licenses",
+  "script_chars": 230,
+  "started_at": "2026-09-21T06:04:46.675Z",
+  "finished_at": "2026-09-21T06:04:46.691Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 16,
+  "stdout_bytes": 157,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/36828352-69ea-4a89-8eb2-93107a18f925.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/36828352-69ea-4a89-8eb2-93107a18f925.stderr"
+}

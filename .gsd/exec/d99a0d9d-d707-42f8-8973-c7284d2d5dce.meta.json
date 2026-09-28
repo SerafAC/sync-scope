@@ -1,0 +1,20 @@
+{
+  "id": "d99a0d9d-d707-42f8-8973-c7284d2d5dce",
+  "runtime": "bash",
+  "purpose": "T08 diag: probe live WebDAV container OPTIONS/PROPFIND",
+  "script_chars": 1034,
+  "started_at": "2026-09-23T06:22:27.251Z",
+  "finished_at": "2026-09-23T06:22:30.500Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 3249,
+  "stdout_bytes": 689,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d99a0d9d-d707-42f8-8973-c7284d2d5dce.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d99a0d9d-d707-42f8-8973-c7284d2d5dce.stderr"
+}

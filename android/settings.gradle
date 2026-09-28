@@ -1,5 +1,9 @@
 pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
-plugins { id("com.facebook.react.settings") }
+plugins {
+    id("com.facebook.react.settings")
+    // Lets Gradle auto-provision the JDK 21 that Robolectric's SDK 36 sandbox requires.
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'SyncScope'
 include ':app'

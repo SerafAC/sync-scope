@@ -75,4 +75,4 @@ EncryptedSharedPreferences needs a String, so a JVM String copy of the password 
 - `android/app/src/main/java/com/syncscope/remote/HostKeyTrustStore.kt`
 - `android/app/build.gradle`
 - `android/app/src/test/java/com/syncscope/credential/RepositoryConfigBoundaryTest.kt`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=61:0 -->

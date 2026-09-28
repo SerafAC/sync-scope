@@ -1,0 +1,20 @@
+{
+  "id": "cfd8f353-f929-4a40-831c-5873540135c7",
+  "runtime": "bash",
+  "purpose": "T08 diag: emulator availability and android-flow connected path",
+  "script_chars": 591,
+  "started_at": "2026-09-23T06:09:54.821Z",
+  "finished_at": "2026-09-23T06:09:54.886Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 65,
+  "stdout_bytes": 387,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/cfd8f353-f929-4a40-831c-5873540135c7.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/cfd8f353-f929-4a40-831c-5873540135c7.stderr"
+}

@@ -23,6 +23,9 @@ case "$api:$avd:$state" in
 esac
 [ "$exclusive_lock" = /tmp/cloud-sync-checker-validator.lock ] || exit 64
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/android-sdk.sh"
+android_sdk_resolve
+
 adb="$ANDROID_HOME/platform-tools/adb"
 emulator="$ANDROID_HOME/emulator/emulator"
 owner="$state/owner"
@@ -108,7 +111,7 @@ case "$action" in
 
     setsid flock -n "$exclusive_lock" \
       timeout --signal=TERM --kill-after=20 2700 \
-      "$emulator" -avd "$avd" -no-snapshot -no-boot-anim -no-audio \
+      "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
       -gpu swiftshader_indirect -memory 2048 -no-metrics \
       >"$state/emulator.log" 2>&1 &
     pid=$!

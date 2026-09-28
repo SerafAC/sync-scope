@@ -1,0 +1,20 @@
+{
+  "id": "2982357a-cd04-4226-bcf4-dcb61734e1cd",
+  "runtime": "bash",
+  "purpose": "T08 diag: poll controlled run",
+  "script_chars": 470,
+  "started_at": "2026-09-23T06:23:46.110Z",
+  "finished_at": "2026-09-23T06:25:11.164Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 85054,
+  "stdout_bytes": 4338,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/2982357a-cd04-4226-bcf4-dcb61734e1cd.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/2982357a-cd04-4226-bcf4-dcb61734e1cd.stderr"
+}

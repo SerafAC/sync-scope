@@ -1,0 +1,102 @@
+=== node_modules present? ===
+no
+=== typecheck ===
++ react-test-renderer 19.2.3
++ typescript 6.0.3
+
+Done in 12.7s using pnpm v11.3.0
+$ tsc --noEmit
+=== jest ===
+$ jest
+PASS src/native/__tests__/CloudSyncContracts.test.ts
+PASS src/native/__tests__/CloudSync.test.ts
+PASS src/native/__tests__/NativeCloudSyncBoundary.test.ts
+PASS __tests__/App.test.tsx (13.297 s)
+
+Test Suites: 4 passed, 4 total
+Tests:       17 passed, 17 total
+Snapshots:   0 total
+Time:        14.1 s
+Ran all test suites.
+=== skills-lock ===
+{
+  "version": 1,
+  "skills": {
+    "code-review-excellence": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/code-review-excellence/SKILL.md",
+      "computedHash": "0f585a4ad2f6d8353069ca9051c6f0e8865abb9d3a6a268d423784c3c3852962"
+    },
+    "docx": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docx/SKILL.md",
+      "computedHash": "59c70107f8eae818bdfca7da685a6e4111aa519638b667775b794cb74987ec47"
+    },
+    "error-handling-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/error-handling-patterns/SKILL.md",
+      "computedHash": "73f0570edd3ddc740ba5411932a67954df375530bbffbe7fa0cecd8e59b0711e"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "git-advanced-workflows": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/git-advanced-workflows/SKILL.md",
+      "computedHash": "f4d0569096237c09b1c07896770fe487d7224c549f7aab0c6551a4f330fcf160"
+    },
+    "javascript-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/javascript-testing-patterns/SKILL.md",
+      "computedHash": "8d0a8d7615ff343770af0218720691d56c55ae258793565936c8b3a97e188f51"
+    },
+    "mobile-android-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/ui-design/skills/mobile-android-design/SKILL.md",
+      "computedHash": "bcb274bcc4e0ad076b5947f90e5a247f370ed4da1274b2b7347dc293ee396309"
+    },
+    "modern-javascript-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/modern-javascript-patterns/SKILL.md",
+      "computedHash": "ef81ef5b5b70287b3962dd0fce50c90b27c636e940ec4e80f9a0b216587be549"
+    },
+    "nodejs-backend-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/nodejs-backend-patterns/SKILL.md",
+      "computedHash": "b63b54d09c77cec0e84cdd42424c12909785f14bdb286c835c45420b885ff1f3"
+    },
+    "pdf": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+=== .claude / .agents ===
+.agents/skills/find-skills/SKILL.md
+.agents/skills/react-native-architecture/SKILL.md
+.agents/skills/react-native-architecture/references/details.md
+.agents/skills/xlsx/LICENSE.txt
+.agents/skills/xlsx/SKILL.md
+.agents/skills/xlsx/scripts/office/validators/pptx.py
+.agents/skills/xlsx/scripts/office/validators/redlining.py
+.agents/skills/xlsx/scripts/office/validators/base.py
+.agents/skills/xlsx/scripts/office/validators/docx.py
+.agents/skills/xlsx/scripts/office/validators/__init__.py
+.agents/skills/xlsx/scripts/office/helpers/pptx_theme.py
+.agents/skills/xlsx/scripts/office/helpers/pptx_slide.py
+.agents/skills/xlsx/scripts/office/helpers/__init__.py
+.agents/skills/xlsx/scripts/office/helpers/pptx_chart.py
+.agents/skills/xlsx/scripts/office/validate.py
+.agents/skills/xlsx/scripts/office/schemas/microsoft/wml-cid-2016.xsd
+.agents/skills/xlsx/scripts/office/schemas/microsoft/wml-2018.xsd
+.agents/skills/xlsx/scripts/office/schemas/microsoft/wml-2010.xsd
+.agents/skills/xlsx/scripts/office/schemas/microsoft/wml-symex-2015.xsd
+.agents/skills/xlsx/scripts/office/schemas/microsoft/wml-cex-2018.xsd

@@ -1,0 +1,3 @@
+webdav audit: metadata-read operation allowlist is clean
+clean rc=0 (expect 0)
+dirty rc=1 (expect 1)

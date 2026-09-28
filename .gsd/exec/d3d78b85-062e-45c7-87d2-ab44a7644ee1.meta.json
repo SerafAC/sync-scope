@@ -1,0 +1,20 @@
+{
+  "id": "d3d78b85-062e-45c7-87d2-ab44a7644ee1",
+  "runtime": "bash",
+  "purpose": "T07 task verify command",
+  "script_chars": 665,
+  "started_at": "2026-09-21T20:39:59.239Z",
+  "finished_at": "2026-09-21T20:40:01.398Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 2159,
+  "stdout_bytes": 222,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d3d78b85-062e-45c7-87d2-ab44a7644ee1.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d3d78b85-062e-45c7-87d2-ab44a7644ee1.stderr"
+}

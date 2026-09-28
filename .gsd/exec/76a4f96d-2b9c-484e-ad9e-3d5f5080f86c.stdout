@@ -1,0 +1,7 @@
+unitTests exit=0 secs=32
+BUILD SUCCESSFUL in 32s
+classes=14 tests=104 failed=0
+grep exit=0
+forbidden-literal-grep exit=1 (1=none)
+assembleDebug exit=0 secs=46
+BUILD SUCCESSFUL in 45s

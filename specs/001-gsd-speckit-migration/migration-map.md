@@ -19,6 +19,23 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | `.gsd-worktrees/` |  |  | [ ] |
 | `milestone/M001` branch |  |  | [ ] |
 | master working-tree script edits (duplicate D015, committed in 769182d) |  |  | [ ] |
+| merge conflict: `.gsd/DECISIONS.md` | transfer | `.gsd/DECISIONS.md` — master's side (ours) won; only copy with D013–D015 (T011, research R2) | [X] |
+| merge conflict: `.gsd/.compat.json` | transfer | `.gsd/.compat.json` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/last-snapshot.md` | transfer | `.gsd/last-snapshot.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/01-01-PLAN.md` | transfer | `.gsd/phases/01-syncscope-v1/01-01-PLAN.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/01-01-RESEARCH.md` | transfer | `.gsd/phases/01-syncscope-v1/01-01-RESEARCH.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/01-CONTEXT.md` | transfer | `.gsd/phases/01-syncscope-v1/01-CONTEXT.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/01-ROADMAP.md` | transfer | `.gsd/phases/01-syncscope-v1/01-ROADMAP.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-CONTINUE.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-CONTINUE.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T01-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T01-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T02-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T02-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T03-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T03-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T04-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T04-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T05-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T05-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T06-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T06-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `.gsd/phases/01-syncscope-v1/S01-T07-SUMMARY.md` | transfer | `.gsd/phases/01-syncscope-v1/S01-T07-SUMMARY.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
+| merge conflict: `scripts/validation/protocol-service.sh` | transfer | `scripts/validation/protocol-service.sh` — milestone/M001's side (theirs) won; authoritative D015 implementation, master's duplicate 769182d dropped (T011, research R2) | [X] |
+| merge conflict: `scripts/validation/validation-infrastructure.test.mjs` | transfer | `scripts/validation/validation-infrastructure.test.mjs` — milestone/M001's side (theirs) won; authoritative D015 implementation, master's duplicate 769182d dropped (T011, research R2) | [X] |
 
 ## Document
 

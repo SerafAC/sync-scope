@@ -98,4 +98,4 @@ Tests: TofuHostKeyVerifierTest (12 cases, Robolectric in-memory Room), SftpRemot
 - `android/app/src/test/java/com/syncscope/remote/SftpRemoteClientTest.kt`
 - `android/app/src/test/java/com/syncscope/bridge/CloudSyncHostKeyModuleTest.kt`
 - `android/app/src/test/java/com/syncscope/bridge/RecordingPromise.kt`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=47:0 -->

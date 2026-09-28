@@ -25,6 +25,20 @@ export const CloudSyncErrorCode = {
   PAGE_TOKEN_MISMATCH: 'PAGE_TOKEN_MISMATCH',
   SNAPSHOT_NOT_FOUND: 'SNAPSHOT_NOT_FOUND',
   STALE_GENERATION: 'STALE_GENERATION',
+  AUTH_FAILED: 'AUTH_FAILED',
+  CONNECTION_REFUSED: 'CONNECTION_REFUSED',
+  CONNECTION_TIMEOUT: 'CONNECTION_TIMEOUT',
+  CONNECTION_LOST: 'CONNECTION_LOST',
+  DIRECTORY_UNREADABLE: 'DIRECTORY_UNREADABLE',
+  REMOTE_ROOT_NOT_FOUND: 'REMOTE_ROOT_NOT_FOUND',
+  SERVER_ERROR: 'SERVER_ERROR',
+  SFTP_HOST_KEY_UNVERIFIED: 'SFTP_HOST_KEY_UNVERIFIED',
+  SFTP_HOST_KEY_CHANGED: 'SFTP_HOST_KEY_CHANGED',
+  HOST_KEY_CHALLENGE_NOT_FOUND: 'HOST_KEY_CHALLENGE_NOT_FOUND',
+  /** No repository has been saved yet; the Connect screen must run first. */
+  REPOSITORY_NOT_CONFIGURED: 'REPOSITORY_NOT_CONFIGURED',
+  /** The saved repository's password is missing or was rotated; re-enter it. */
+  CREDENTIAL_UNAVAILABLE: 'CREDENTIAL_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -37,6 +51,25 @@ export interface CloudSyncError {
   message: string;
   /** Optional hint describing the recovery action the UI should offer. */
   action: string | null;
+  /**
+   * Present on SFTP_HOST_KEY_UNVERIFIED and SFTP_HOST_KEY_CHANGED only. The
+   * connection is blocked until the user answers via approveSftpHostKey or
+   * rejectSftpHostKey with `challengeId`.
+   */
+  hostKeyChallenge?: HostKeyChallengeDto | null;
+}
+
+export interface HostKeyChallengeDto {
+  challengeId: string;
+  /** Endpoint the user typed, shown so the prompt can be checked against `ssh-keyscan`. */
+  host: string;
+  port: number;
+  /** SSH key algorithm, e.g. `ssh-ed25519`. */
+  algorithm: string;
+  /** OpenSSH `SHA256:<base64>` form, identical to `ssh-keygen -l` output. */
+  fingerprint: string;
+  /** Fingerprint of the key previously trusted for this endpoint (CHANGED only). */
+  previousFingerprint: string | null;
 }
 
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';

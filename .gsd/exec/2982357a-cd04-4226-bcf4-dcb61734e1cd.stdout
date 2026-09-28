@@ -1,0 +1,54 @@
+done? yes
+services started
+serial=emulator-5554
+booted
+GRADLE_RC=1
+=== test failures ===
+com.syncscope.ProtocolConnectInstrumentedTest > ftpConnectsThroughTheModuleAndRejectsAWrongPassword[dependency_api31(AVD) - 12] [31mFAILED [0m
+dependency_api31(AVD) - 12 Tests 3/8 completed. (0 skipped) (1 failed)
+com.syncscope.ProtocolConnectInstrumentedTest > ftpListingMatchesTheSeededFixtures[dependency_api31(AVD) - 12] [31mFAILED [0m
+com.syncscope.ProtocolConnectInstrumentedTest > webDavConnectsThroughTheModuleAndRejectsAWrongPassword[dependency_api31(AVD) - 12] [31mFAILED [0m
+dependency_api31(AVD) - 12 Tests 6/8 completed. (0 skipped) (3 failed)
+com.syncscope.ProtocolConnectInstrumentedTest > webDavListingMatchesTheSeededFixtures[dependency_api31(AVD) - 12] [31mFAILED [0m
+Finished 8 tests on dependency_api31(AVD) - 12
+Execute com.syncscope.ProtocolConnectInstrumentedTest.ftpConnectsThroughTheModuleAndRejectsAWrongPassword: FAILED
+Execute com.syncscope.ProtocolConnectInstrumentedTest.ftpListingMatchesTheSeededFixtures: FAILED
+Execute com.syncscope.ProtocolConnectInstrumentedTest.webDavConnectsThroughTheModuleAndRejectsAWrongPassword: FAILED
+Execute com.syncscope.ProtocolConnectInstrumentedTest.webDavListingMatchesTheSeededFixtures: FAILED
+> Task :app:connectedDebugAndroidTest FAILED
+BUILD FAILED in 56s
+=== webdav error detail ===
+
+com.syncscope.ProtocolConnectInstrumentedTest > webDavConnectsThroughTheModuleAndRejectsAWrongPassword[dependency_api31(AVD) - 12] [31mFAILED [0m
+	org.junit.ComparisonFailure: expected ok, got error CONNECTION_REFUSED expected:<[ok]> but was:<[error]>
+dependency_api31(AVD) - 12 Tests 6/8 completed. (0 skipped) (3 failed)
+
+com.syncscope.ProtocolConnectInstrumentedTest > webDavListingMatchesTheSeededFixtures[dependency_api31(AVD) - 12] [31mFAILED [0m
+	com.syncscope.remote.RemoteClientException: The server answered but does not offer WebDAV at the configured folder.
+	at com.syncscope.remote.WebDavFailures.notWebDav(WebDavRemoteClient.kt:221)
+> Task :app:connectedDebugAndroidTest
+
+Tests on dependency_api31(AVD) - 12 failed: There was 4 failure(s).
+Finished 8 tests on dependency_api31(AVD) - 12
+--
+at com.syncscope.ProtocolConnectInstrumentedTest.listingProof(ProtocolConnectInstrumentedTest.kt:203)
+at com.syncscope.ProtocolConnectInstrumentedTest.ftpListingMatchesTheSeededFixtures(ProtocolConnectInstrumentedTest.kt:124)
+Execute com.syncscope.ProtocolConnectInstrumentedTest.webDavConnectsThroughTheModuleAndRejectsAWrongPassword: FAILED
+org.junit.ComparisonFailure: org.junit.ComparisonFailure: expected ok, got error CONNECTION_REFUSED expected:<[ok]> but was:<[error]>
+at com.syncscope.ProtocolConnectInstrumentedTest.assertOk(ProtocolConnectInstrumentedTest.kt:356)
+at com.syncscope.ProtocolConnectInstrumentedTest.assertConnected(ProtocolConnectInstrumentedTest.kt:370)
+at com.syncscope.ProtocolConnectInstrumentedTest.moduleConnectProof(ProtocolConnectInstrumentedTest.kt:178)
+at com.syncscope.ProtocolConnectInstrumentedTest.webDavConnectsThroughTheModuleAndRejectsAWrongPassword(ProtocolConnectInstrumentedTest.kt:122)
+
+org.junit.ComparisonFailure: expected ok, got error CONNECTION_REFUSED expected:<[ok]> but was:<[error]>
+at com.syncscope.ProtocolConnectInstrumentedTest.assertOk(ProtocolConnectInstrumentedTest.kt:356)
+at com.syncscope.ProtocolConnectInstrumentedTest.assertConnected(ProtocolConnectInstrumentedTest.kt:370)
+at com.syncscope.ProtocolConnectInstrumentedTest.moduleConnectProof(ProtocolConnectInstrumentedTest.kt:178)
+at com.syncscope.ProtocolConnectInstrumentedTest.webDavConnectsThroughTheModuleAndRejectsAWrongPassword(ProtocolConnectInstrumentedTest.kt:122)
+Execute com.syncscope.ProtocolConnectInstrumentedTest.webDavListingMatchesTheSeededFixtures: FAILED
+com.syncscope.remote.RemoteClientException: com.syncscope.remote.RemoteClientException: The server answered but does not offer WebDAV at the configured folder.
+at com.syncscope.remote.WebDavFailures.notWebDav(WebDavRemoteClient.kt:221)
+at com.syncscope.remote.WebDavRemoteClient.connect$lambda$2(WebDavRemoteClient.kt:61)
+at com.syncscope.remote.WebDavRemoteClient$$ExternalSyntheticLambda1.invoke(D8$$SyntheticClass:0)
+at com.syncscope.remote.WebDavRemoteClient$exchange$2$2.onResponse(WebDavRemoteClient.kt:141)
+at okhttp3.internal.connection.RealCall$AsyncCall.run(RealCall.kt:519)

@@ -55,4 +55,4 @@ android/local.properties is gitignored, so fresh worktrees must recreate it (or 
 - `android/app/src/main/java/com/syncscope/persistence/SnapshotStore.kt`
 - `android/app/src/main/java/com/syncscope/persistence/PersistenceExceptions.kt`
 - `android/app/schemas/com.syncscope.persistence.SyncScopeDatabase/1.json`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=35:0 -->

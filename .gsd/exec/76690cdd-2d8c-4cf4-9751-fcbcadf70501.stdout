@@ -1,0 +1,19 @@
+### room-compiler / ksp cached?
+
+### which gradle home does gradlew actually use? (GRADLE_USER_HOME refs)
+android/gradle/wrapper/gradle-wrapper.properties:1:distributionBase=GRADLE_USER_HOME
+android/gradle/wrapper/gradle-wrapper.properties:6:zipStoreBase=GRADLE_USER_HOME
+
+### security-crypto latest on maven
+<version>1.1.0-alpha04</version>
+<version>1.1.0-alpha05</version>
+<version>1.1.0-alpha06</version>
+<version>1.1.0-alpha07</version>
+<version>1.1.0-beta01</version>
+<version>1.1.0</version>
+
+### documentfile latest
+<version>1.1.0-alpha01</version>
+<version>1.1.0-beta01</version>
+<version>1.1.0-rc01</version>
+<version>1.1.0</version>

@@ -11,3 +11,7 @@
 ## 2026-09-28 — Preflight: checklist gate [all]
 **Q:** checklists/transfer-verification.md has 18 open items (removal gate). Proceed with implementation anyway?
 **A:** Proceed (Recommended) — proceed despite open checklists; implementers tick items as their checks pass, and Phase 7 (GSD removal) still requires every item [X].
+
+## 2026-09-28 — Phase 3: User Story 1 — Consolidate the code on one mainline [T010-T016]
+**Q:** T016 needs two commits (merge commit with exact message, then evidence commit) and the run was told not to commit. How should T016 be carried out?
+**A:** Main session does T016 — runs T016 as written (git add, merge commit, post-checks, tick checklist items and T016, evidence commit); no push; autopilot then continues with Phase 4.

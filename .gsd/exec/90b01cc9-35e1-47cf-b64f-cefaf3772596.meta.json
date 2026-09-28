@@ -1,0 +1,20 @@
+{
+  "id": "90b01cc9-35e1-47cf-b64f-cefaf3772596",
+  "runtime": "bash",
+  "purpose": "T03 assembleDebug + TS contract test + R026 grep",
+  "script_chars": 571,
+  "started_at": "2026-09-21T15:53:14.410Z",
+  "finished_at": "2026-09-21T15:53:49.187Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 34777,
+  "stdout_bytes": 98,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/90b01cc9-35e1-47cf-b64f-cefaf3772596.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/90b01cc9-35e1-47cf-b64f-cefaf3772596.stderr"
+}

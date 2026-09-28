@@ -1,0 +1,53 @@
+=== toolchain gradle-home modules matching protocol libs ===
+/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/com.squareup.okhttp3
+/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/androidx.room
+/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/commons-net
+/home/adi/.cache/cloud-sync-checker-toolchain/gradle-home/caches/modules-2/files-2.1/org.bouncycastle
+
+=== total modules cached in toolchain gradle-home ===
+158
+
+=== sample of cached groups ===
+androidx.activity
+androidx.annotation
+androidx.appcompat
+androidx.arch.core
+androidx.autofill
+androidx.cardview
+androidx.collection
+androidx.concurrent
+androidx.constraintlayout
+androidx.coordinatorlayout
+androidx.core
+androidx.cursoradapter
+androidx.customview
+androidx.databinding
+androidx.drawerlayout
+androidx.dynamicanimation
+androidx.emoji2
+androidx.fragment
+androidx.graphics
+androidx.interpolator
+androidx.lifecycle
+androidx.loader
+androidx.profileinstaller
+androidx.recyclerview
+androidx.resourceinspection
+androidx.room
+androidx.savedstate
+androidx.sqlite
+androidx.startup
+androidx.swiperefreshlayout
+androidx.test
+androidx.test.espresso
+androidx.test.ext
+androidx.test.services
+androidx.tracing
+androidx.transition
+androidx.vectordrawable
+androidx.versionedparcelable
+androidx.viewpager
+androidx.viewpager2
+
+=== maven central reachable? ===
+200

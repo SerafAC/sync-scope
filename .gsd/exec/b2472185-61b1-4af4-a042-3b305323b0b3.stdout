@@ -1,0 +1,11 @@
+gradle_rc=0 dur=96s
+(RNVI:material-design-icons) Copying font /home/adi/projects/sync-scope/.gsd-worktrees/M001/node_modules/@react-native-vector-icons/material-design-icons/fonts/MaterialDesignIcons.ttf
+No modules to process in combine-js-to-schema-cli. If this is unexpected, please check if you set up your NativeComponent correctly. See combine-js-to-schema.js for how codegen finds modules.
+schema_ok
+no_password_ok
+testsuite name="com.syncscope.FoundationUnitTest" tests="1" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.PageTokenCodecTest" tests="5" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SchemaConstraintTest" tests="5" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SchemaContractTest" tests="6" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SnapshotQueryTest" tests="3" skipped="0" failures="0" errors="0"
+testsuite name="com.syncscope.persistence.SnapshotStoreTest" tests="5" skipped="0" failures="0" errors="0"

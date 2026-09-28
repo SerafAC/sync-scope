@@ -64,4 +64,4 @@ LIST timestamps are interpreted by Commons Net in the JVM default zone unless th
 - `android/app/src/main/java/com/syncscope/bridge/CloudSyncEnvelope.kt`
 - `android/app/src/main/java/com/syncscope/bridge/CloudSyncModule.kt`
 - `src/native/CloudSyncContracts.ts`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=43:0 -->

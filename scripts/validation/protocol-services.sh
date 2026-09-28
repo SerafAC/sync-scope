@@ -3,7 +3,7 @@ set -eu
 
 action=${1:-}
 case "$action" in start|stop|healthcheck) ;; *) exit 64 ;; esac
-repo=/home/adi/projects/cloud-sync-checker
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 compose="$repo/validation/services/compose.yaml"
 
 run() {

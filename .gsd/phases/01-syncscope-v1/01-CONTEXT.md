@@ -289,4 +289,3 @@ Also enforced mechanically:
 - **Removable storage (SD card) via SAF on both API levels** — whether it behaves consistently enough to be a genuinely first-class source. Current thinking: treat it as first-class, and if API 36 diverges, surface the limitation explicitly rather than silently degrading.
 - **The 7-day staleness threshold** — a default, not a researched number. Current thinking: ship it tunable and revisit after real use.
 - **Filtered browse navigation** — directories whose children are all filtered out. Current thinking: show dimmed with a count. To be settled in S05 planning.
-<!-- gsd:state-version=88:0 -->

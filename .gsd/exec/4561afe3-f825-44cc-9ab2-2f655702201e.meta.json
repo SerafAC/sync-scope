@@ -1,0 +1,20 @@
+{
+  "id": "4561afe3-f825-44cc-9ab2-2f655702201e",
+  "runtime": "bash",
+  "purpose": "T08: tear down diag environment, rebuild with fixes",
+  "script_chars": 1205,
+  "started_at": "2026-09-23T06:28:10.742Z",
+  "finished_at": "2026-09-23T06:30:04.053Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 113311,
+  "stdout_bytes": 408,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/4561afe3-f825-44cc-9ab2-2f655702201e.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/4561afe3-f825-44cc-9ab2-2f655702201e.stderr"
+}

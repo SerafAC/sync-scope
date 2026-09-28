@@ -1,0 +1,20 @@
+{
+  "id": "76690cdd-2d8c-4cf4-9751-fcbcadf70501",
+  "runtime": "bash",
+  "purpose": "Check room-compiler KSP artifact cached and EncryptedSharedPreferences availability",
+  "script_chars": 856,
+  "started_at": "2026-09-20T17:56:10.383Z",
+  "finished_at": "2026-09-20T17:56:10.811Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 428,
+  "stdout_bytes": 643,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/76690cdd-2d8c-4cf4-9751-fcbcadf70501.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/76690cdd-2d8c-4cf4-9751-fcbcadf70501.stderr"
+}

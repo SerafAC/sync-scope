@@ -1,0 +1,20 @@
+{
+  "id": "3e4c19f0-a5a4-4de1-b231-3ce43c4f7c51",
+  "runtime": "bash",
+  "purpose": "T02 unit tests + merged manifest cleartext check",
+  "script_chars": 593,
+  "started_at": "2026-09-21T15:43:27.804Z",
+  "finished_at": "2026-09-21T15:43:59.785Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 31981,
+  "stdout_bytes": 1211,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/3e4c19f0-a5a4-4de1-b231-3ce43c4f7c51.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/3e4c19f0-a5a4-4de1-b231-3ce43c4f7c51.stderr"
+}

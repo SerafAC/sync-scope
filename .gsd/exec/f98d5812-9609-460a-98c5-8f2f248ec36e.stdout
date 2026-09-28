@@ -1,0 +1,52 @@
+=== Entity/DTO types referenced ===
+     15 PageTokenCodec
+     13 SnapshotQuery
+      6 SyncScopeDatabase
+      2 TrustedSftpHostKeyEntity
+      2 SnapshotStore
+      2 RemoteMatchKeyEntity
+      1 SourceRootEntity
+      1 SnapshotEntity
+      1 SnapshotCountsEntity
+      1 ScanRunEntity
+      1 RemoteNodeEntity
+      1 RemoteAmbiguityEntity
+      1 LocalNodeEntity
+      1 LocalDeletionOverlayEntity
+
+=== dao() accessor calls on db ===
+db.close()
+db.localDeletionOverlayDao()
+db.localNodeDao()
+db.remoteAmbiguityDao()
+db.remoteMatchKeyDao()
+db.remoteNodeDao()
+db.scanRunDao()
+db.snapshotCountsDao()
+db.snapshotDao()
+db.sourceRootDao()
+db.trustedSftpHostKeyDao()
+
+=== DAO method calls ===
+db.localDeletionOverlayDao().forSnapshot
+db.localNodeDao().countFor
+db.localNodeDao().insertAll
+db.remoteAmbiguityDao().countFor
+db.remoteMatchKeyDao().countFor
+db.remoteMatchKeyDao().insertAll
+db.remoteNodeDao().countFor
+db.scanRunDao().byId
+db.scanRunDao().insert
+db.snapshotCountsDao().forSnapshot
+db.snapshotDao().byId
+db.snapshotDao().deleteById
+db.snapshotDao().insert
+db.sourceRootDao().upsert
+
+=== top-level funcs/objects referenced (PageTokenCodec, SnapshotQuery...) ===
+PageTokenCodec.decode
+PageTokenCodec.encode
+PageTokenCodec.requireMatches
+SnapshotQuery.boundedPageSize
+SnapshotQuery.DEFAULT
+SnapshotQuery.MAX

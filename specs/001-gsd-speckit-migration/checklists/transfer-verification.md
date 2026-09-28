@@ -456,3 +456,72 @@ index d343751..73f2f9f 100644
 +  }
 +});
 ```
+
+## US1 consolidation evidence (2026-09-28)
+
+### T011 conflict resolution
+
+`git merge --no-ff --no-commit milestone/M001` stopped with the 17 expected conflicts. `.gsd/DECISIONS.md`
+was resolved to master's side (ours). The other 14 `.gsd/**` paths and both `scripts/validation/` files
+(`protocol-service.sh`, `validation-infrastructure.test.mjs`) were resolved to milestone/M001's side
+(theirs). `git diff --cached --quiet <side> -- <path>` confirmed that each staged file matches its winning
+side. No conflict fell outside the expected set. Each resolution has a `tooling` row in `../migration-map.md`.
+
+### T014 nothing lost (SC-005), staged merge vs branch
+
+`git diff milestone/M001 -- . ':!.gsd' ':!specs' ':!.specify' ':!.claude' ':!CHANGELOG.md' ':!docs'`:
+
+```text
+$ git diff --name-status milestone/M001 -- . ':!.gsd' ':!specs' ':!.specify' ':!.claude' ':!CHANGELOG.md' ':!docs'
+A	project-definition.md
+```
+
+The only difference is `project-definition.md`, which was **added** on master in e79e0f6 and never existed
+on milestone/M001. It is the original brief, which the spec keeps as the historical brief (spec.md,
+Assumptions). The task's pathspec did not exclude it. No file from the branch is missing or modified. With
+`':!project-definition.md'` added to the pathspec, the diff is empty (`git diff --quiet` exit 0). So no
+branch content was lost. The second SC-005 check (`git log --oneline master..milestone/M001`) is recorded
+after the merge commit (T016).
+
+### T015 gates on the staged, uncommitted merge
+
+All gates were run with the merge staged (`MERGE_HEAD` = milestone/M001) and not committed.
+`ANDROID_HOME=$HOME/Android/Sdk` was exported for the Android gates (environment only, per MEM015).
+
+| Command | Exit | Output tail |
+| --- | --- | --- |
+| `pnpm install --frozen-lockfile` | 0 | `Already up to date` / `Done in 493ms using pnpm v11.3.0` |
+| `pnpm lint` | 0 | `eslint . --max-warnings=0`, no findings |
+| `pnpm typecheck` | 0 | `tsc --noEmit`, no findings |
+| `pnpm test:ci` | 0 | foundation `node --test`: tests 10, pass 10, fail 0; Jest: `Test Suites: 4 passed, 4 total`, `Tests: 17 passed, 17 total` |
+| `pnpm test:android:unit` | 0 | `BUILD SUCCESSFUL in 2m 7s`; JUnit XML: 15 suites, 120 tests, 0 failures, 0 errors, 0 skipped |
+| S01 live gate (first attempt) | 1 | `Validator memory preflight failed.` The environment failed, not the code (see below). |
+| S01 live gate (rerun) | 0 | see below |
+
+**Live-gate environment fix.** On the first attempt, `android-validator.sh` `memory_ready` refused to
+start the emulator. It requires MemAvailable >= 8 GiB and >= 30% of MemTotal, and only about 5.7 GiB was
+available, because the Gradle and Kotlin daemons left over from `pnpm test:android:unit` held about 4 GB. The
+fix stopped those daemons (`./gradlew --stop`, then the two Kotlin compile daemons), which raised
+MemAvailable to 31% of total. No code was changed. The protocol services were started, audited clean and
+stopped normally during the failed attempt.
+
+**Live gate rerun**
+(`pnpm validation:services:start && pnpm validation:services:health && pnpm validation:android:api31 && pnpm validation:services:stop`),
+exit 0:
+
+```text
+Starting 8 tests on dependency_api31(AVD) - 12
+dependency_api31(AVD) - 12 Tests 3/8 completed. (0 skipped) (0 failed)
+dependency_api31(AVD) - 12 Tests 4/8 completed. (0 skipped) (0 failed)
+Finished 8 tests on dependency_api31(AVD) - 12
+ftp audit: metadata-read operation allowlist is clean
+ftp: zero unexpected remote changes
+webdav audit: metadata-read operation allowlist is clean
+webdav: zero unexpected remote changes
+sftp audit: metadata-read operation allowlist is clean
+sftp: zero unexpected remote changes
+LIVE_EXIT=0
+```
+
+8/8 instrumented tests and three clean protocol audits. Afterwards no emulator was attached to adb, and
+`/tmp/cloud-sync-checker-api31` was gone.

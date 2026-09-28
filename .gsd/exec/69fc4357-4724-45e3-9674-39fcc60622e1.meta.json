@@ -1,0 +1,20 @@
+{
+  "id": "69fc4357-4724-45e3-9674-39fcc60622e1",
+  "runtime": "bash",
+  "purpose": "Extract failure details from test reports",
+  "script_chars": 457,
+  "started_at": "2026-09-21T06:09:09.760Z",
+  "finished_at": "2026-09-21T06:09:09.996Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 236,
+  "stdout_bytes": 5108,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/69fc4357-4724-45e3-9674-39fcc60622e1.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/69fc4357-4724-45e3-9674-39fcc60622e1.stderr"
+}

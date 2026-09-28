@@ -54,4 +54,4 @@ Host Docker was upgraded to 29.8.1, but scripts/validation/protocol-service.sh:6
 - `scripts/validation/protocol-service.sh`
 - `scripts/validation/protocol-services.sh`
 - `android/app/build.gradle`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=65:0 -->

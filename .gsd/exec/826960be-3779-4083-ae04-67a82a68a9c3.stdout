@@ -1,0 +1,29 @@
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2:
+repository
+
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/repository:
+org
+
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/repository/org:
+robolectric
+
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/repository/org/robolectric:
+android-all-instrumented
+
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/repository/org/robolectric/android-all-instrumented:
+6.0.1_r3-robolectric-r1-i7
+
+/home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/repository/org/robolectric/android-all-instrumented/6.0.1_r3-robolectric-r1-i7:
+android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar
+android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar.sha512
+android-all-instrumented-6.0.1_r3-robolectric-r1-i7.pom
+android-all-instrumented-6.0.1_r3-robolectric-r1-i7.pom.sha512
+=== error ===
+java.lang.IllegalArgumentException: Path is not a file: /home/adi/.cache/cloud-sync-checker-toolchain/robolectric-m2/dependency-cache/android-all-instrumented-16-robolectric-13921718-i7.jar
+	at org.robolectric.internal.dependency.LocalDependencyResolver.validateFile(LocalDependencyResolver.java:50)
+	at org.robolectric.internal.dependency.LocalDependencyResolver.getLocalArtifactUrl(LocalDependencyResolver.java:27)
+	at org.robolectric.plugins.LegacyDependencyResolver.getLocalArtifactUrl(LegacyDependencyResolver.java:95)
+	at org.robolectric.plugins.DefaultSdkProvider$DefaultSdk.getJarPath(DefaultSdkProvider.java:141)
+	at org.robolectric.internal.AndroidSandbox$SdkSandboxClassLoader.<init>(AndroidSandbox.java:128)
+	at java.base/jdk.internal.reflect.DirectConstructorHandleAccessor.newInstance(DirectConstructorHandleAccessor.java:62)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:502)

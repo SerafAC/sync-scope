@@ -1,0 +1,28 @@
+launched pid=456170
+DIED after ~2s
+--- emulator log ---
+INFO         | Android emulator version 37.1.11.0 (build_id 15917651) (CL:N/A)
+INFO         | Graphics backend: gfxstream
+INFO         | Found systemPath /home/adi/Android/Sdk/system-images/android-31/google_apis/x86_64/
+WARNING      | Please update the emulator to one that supports the feature(s): Vulkan
+INFO         | Guest GLES Driver: Auto (ext controls)
+INFO         | emuglConfig_init: vulkan_mode_selected:swiftshader gles_mode_selected:swiftshader
+INFO         | Checking system compatibility:
+INFO         |   Checking: hasSufficientDiskSpace
+INFO         |      Ok: Disk space requirements to run avd: `dependency_api31` are met
+INFO         |   Checking: hasSufficientHwGpu
+INFO         |      Ok: Hardware GPU compatibility checks are not required
+INFO         |   Checking: hasSufficientSystem
+INFO         |      Ok: System requirements to run avd: `dependency_api31` are met
+WARNING      | Feature QuickbootFileBacked is disabled due to stability issues, if you really want that, the environment variable ANDROID_EMU_FORCE_QUICKBOOT_FILE_BACKED need to set to 1
+INFO         | Warning: could not connect to display  (:0, )
+INFO         | Warning: From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin. (:0, )
+INFO         | Info: Could not load the Qt platform plugin "xcb" in "/home/adi/Android/Sdk/emulator/lib64/qt/plugins" even though it was found. (:0, )
+INFO         | Fatal: This application failed to start because no Qt platform plugin could be initialized. Reinstalling the application may fix this problem.
+
+Available platform plugins are: xcb, minimal, linuxfb, offscreen, vnc.
+ (:0, )
+timeout: the monitored command dumped core
+--- adb devices ---
+List of devices attached
+

@@ -1,0 +1,20 @@
+{
+  "id": "e3e7fb99-abf3-4976-88b0-4800dc897e42",
+  "runtime": "bash",
+  "purpose": "T08: confirm webdav audit catches GET in the real %m %U %s log format",
+  "script_chars": 419,
+  "started_at": "2026-09-23T06:27:47.153Z",
+  "finished_at": "2026-09-23T06:27:47.174Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 21,
+  "stdout_bytes": 101,
+  "stderr_bytes": 64,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/e3e7fb99-abf3-4976-88b0-4800dc897e42.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/e3e7fb99-abf3-4976-88b0-4800dc897e42.stderr"
+}

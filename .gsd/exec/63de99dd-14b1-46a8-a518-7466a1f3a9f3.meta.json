@@ -1,0 +1,20 @@
+{
+  "id": "63de99dd-14b1-46a8-a518-7466a1f3a9f3",
+  "runtime": "bash",
+  "purpose": "T01 verification round 4: :app:testDebugUnitTest with SDK 36 Robolectric jar",
+  "script_chars": 265,
+  "started_at": "2026-09-21T06:14:22.549Z",
+  "finished_at": "2026-09-21T06:14:50.095Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 27546,
+  "stdout_bytes": 1754,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/63de99dd-14b1-46a8-a518-7466a1f3a9f3.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/63de99dd-14b1-46a8-a518-7466a1f3a9f3.stderr"
+}

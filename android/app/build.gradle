@@ -71,6 +71,33 @@ def enableProguardInReleaseBuilds = false
  * give correct results when using with locales other than en-US. Note that
  * this variant is about 6MiB larger per architecture than default.
  */
+/**
+ * Reads the per-start protocol credentials written by scripts/validation/protocol-service.sh
+ * (SYNCSCOPE_{SFTP,FTP,WEBDAV}_CREDENTIAL_FILE, lines `username=` and `password=`) and maps them
+ * to instrumentation runner arguments such as sftpUser / sftpPassword. Unset, unreadable, or
+ * incomplete files contribute nothing, so builds without running containers configure cleanly.
+ * Values are never logged.
+ */
+def syncScopeContainerCredentials() {
+    def arguments = [:]
+    ["sftp", "ftp", "webdav"].each { protocol ->
+        def path = System.getenv("SYNCSCOPE_${protocol.toUpperCase()}_CREDENTIAL_FILE")
+        if (!path) return
+        def file = new File(path)
+        if (!file.isFile() || !file.canRead()) return
+        def fields = [:]
+        file.readLines("UTF-8").each { line ->
+            def separator = line.indexOf('=')
+            if (separator > 0) fields[line.substring(0, separator).trim()] = line.substring(separator + 1)
+        }
+        if (fields.username && fields.password) {
+            arguments["${protocol}User".toString()] = fields.username
+            arguments["${protocol}Password".toString()] = fields.password
+        }
+    }
+    return arguments
+}
+
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
@@ -86,6 +113,10 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Deny cleartext unless a build type explicitly opts in.
+        manifestPlaceholders = [usesCleartextTraffic: "false"]
+        // Container credentials live on the host; instrumentation reads them as runner arguments.
+        testInstrumentationRunnerArguments.putAll(syncScopeContainerCredentials())
     }
     externalNativeBuild {
         cmake {
@@ -93,7 +124,13 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // FTP control and WebDAV Basic to the local test containers (10.0.2.2) are plaintext.
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
         release {
+            // The shipped APK carries no blanket cleartext permit.
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -112,6 +149,10 @@ ksp {
 }
 
 tasks.withType(Test).configureEach {
+    // Robolectric sandboxes for compileSdk 36 refuse to start on Java 17.
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
     // Robolectric runtime artifacts come from the approved toolchain cache;
     // the network resolver remains a fallback for uncached artifacts.
     systemProperty "robolectric.dependency.repo.url",
@@ -135,6 +176,19 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Read-only FTP listing client (passive mode only; no content transfer is ever issued).
+    implementation("commons-net:commons-net:3.12.0")
+
+    // Read-only SFTP listing client. BouncyCastle backs Ed25519 host-key verification.
+    implementation("com.hierynomus:sshj:0.40.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80.2")
+
+    // Read-only WebDAV listing client: hand-rolled OPTIONS/PROPFIND, no WebDAV library (MEM005).
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Keystore-backed (AES256_GCM MasterKey) credential storage; the password never reaches Room (R003).
+    implementation("androidx.security:security-crypto:1.1.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

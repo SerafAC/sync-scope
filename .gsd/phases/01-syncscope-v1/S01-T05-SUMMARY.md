@@ -97,4 +97,4 @@ Retry after a transient credential-cooldown failure. None of the prior attempt's
 - `android/app/src/main/java/com/syncscope/remote/RemoteClient.kt`
 - `android/app/src/main/java/com/syncscope/bridge/CloudSyncContracts.kt`
 - `src/native/CloudSyncContracts.ts`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=57:0 -->

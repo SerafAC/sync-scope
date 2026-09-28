@@ -113,4 +113,4 @@ Produces:
 
 Consumes from all prior slices:
 - The assembled loop — registered TurboModule, live protocol clients, persisted sources, completed snapshot, three browsable views, and two-phase deletion — which S07 exercises end to end on both API 31 and API 36 and documents in `./docs` and README
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=16:0 -->

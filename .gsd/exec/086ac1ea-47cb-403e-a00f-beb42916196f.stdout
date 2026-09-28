@@ -1,0 +1,18 @@
+MAIN KOTLIN FILES:
+android/app/src/main/java/com/syncscope/MainActivity.kt
+android/app/src/main/java/com/syncscope/MainApplication.kt
+
+SCHEMAS DIR:
+ls: cannot access 'android/app/schemas': No such file or directory
+
+IMPORTS IN persistence TESTS (com.syncscope.*):
+
+TEST FILE SIZES:
+   61 android/app/src/test/java/com/syncscope/persistence/PageTokenCodecTest.kt
+   74 android/app/src/test/java/com/syncscope/persistence/PersistenceTestFixtures.kt
+  156 android/app/src/test/java/com/syncscope/persistence/SchemaConstraintTest.kt
+   90 android/app/src/test/java/com/syncscope/persistence/SchemaContractTest.kt
+   39 android/app/src/test/java/com/syncscope/persistence/SnapshotQueryTest.kt
+  162 android/app/src/test/java/com/syncscope/persistence/SnapshotStoreTest.kt
+   17 android/app/src/androidTest/java/com/syncscope/FoundationInstrumentedTest.kt
+  599 total

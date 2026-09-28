@@ -1,0 +1,20 @@
+{
+  "id": "7cacef43-009a-4297-a38b-e06513c61161",
+  "runtime": "bash",
+  "purpose": "T08 compile androidTest + assemble test APK + JVM unit tests",
+  "script_chars": 316,
+  "started_at": "2026-09-21T20:45:53.330Z",
+  "finished_at": "2026-09-21T20:46:33.489Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 40159,
+  "stdout_bytes": 25,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/7cacef43-009a-4297-a38b-e06513c61161.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/7cacef43-009a-4297-a38b-e06513c61161.stderr"
+}

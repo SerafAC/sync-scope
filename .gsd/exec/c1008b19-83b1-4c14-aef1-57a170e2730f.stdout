@@ -1,0 +1,10 @@
+<testsuite name="com.syncscope.credential.RepositoryConfigBoundaryTest" tests="16" skipped="0" failures="0" errors="0"
+<testsuite name="com.syncscope.bridge.CloudSyncModuleTest" tests="6" skipped="0" failures="0" errors="0"
+<testsuite name="com.syncscope.persistence.SchemaContractTest" tests="6" skipped="0" failures="0" errors="0"
+<testsuite name="com.syncscope.bridge.CloudSyncContractsParityTest" tests="3" skipped="0" failures="0" errors="0"
+total: failures:
+assembleDebug=0
+greps=0
+jest=0
+Tests:       15 passed, 15 total
+tsc=0

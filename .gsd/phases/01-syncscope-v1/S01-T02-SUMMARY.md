@@ -80,4 +80,4 @@ Release variant packaging (`:app:processReleaseMainManifest`) cannot run in this
 - `android/app/src/test/java/com/syncscope/bridge/CloudSyncEnvelopeTest.kt`
 - `android/app/src/test/java/com/syncscope/bridge/CloudSyncContractsParityTest.kt`
 - `android/app/src/test/java/com/syncscope/bridge/CloudSyncModuleTest.kt`
-<!-- gsd:state-version=88:0 -->
+<!-- gsd:state-version=39:0 -->

@@ -29,7 +29,7 @@ esac
 case "$project" in syncscope-sftp|syncscope-webdav|syncscope-ftp) ;; *) exit 64 ;; esac
 [ -f "$compose" ] || exit 1
 
-repo=/home/adi/projects/cloud-sync-checker
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 state="/tmp/cloud-sync-checker-$project"
 credentials="$state/credentials"
 owner="$state/owner"
@@ -61,9 +61,10 @@ healthcheck() {
 case "$action" in
   start)
     docker_version=$(docker version --format '{{.Client.Version}} {{.Server.Version}}')
+    # Any Docker 29 patch/minor release is accepted; a new major needs a deliberate bump.
     case "$docker_version" in
-      29.*" "29.*) ;;
-      *) printf '%s\n' "Docker 29.x client and server are required." >&2; exit 1 ;;
+      "29."*" 29."*) ;;
+      *) printf '%s\n' "Docker 29.x is required." >&2; exit 1 ;;
     esac
     [ "$(docker compose version --short)" = "5.5.1" ] ||
       { printf '%s\n' "Compose 5.5.1 is required." >&2; exit 1; }
@@ -129,6 +130,19 @@ case "$action" in
     healthcheck
     ;;
   stop)
+    if [ ! -e "$state" ]; then
+      # Nothing of ours is left: android-flow.sh stops the services it started and removes
+      # their state, so the gate's trailing `validation:services:stop` finds a clean host.
+      # A guard against tearing down someone else's project must not turn an
+      # already-clean environment into a failure, but a project still running without our
+      # state really is unowned and is still refused.
+      if compose_command ps --status running --services 2>/dev/null |
+        grep -qx "$protocol"; then
+        printf '%s\n' "Refusing to stop an unowned Compose project." >&2
+        exit 1
+      fi
+      exit 0
+    fi
     [ -f "$owner" ] && [ "$(cat "$owner")" = "$project:$protocol" ] || {
       printf '%s\n' "Refusing to stop an unowned Compose project." >&2
       exit 1

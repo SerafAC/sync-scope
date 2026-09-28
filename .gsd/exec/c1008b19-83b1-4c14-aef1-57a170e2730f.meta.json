@@ -1,0 +1,20 @@
+{
+  "id": "c1008b19-83b1-4c14-aef1-57a170e2730f",
+  "runtime": "bash",
+  "purpose": "T06 verify: test results, assembleDebug, plan greps, TS tests",
+  "script_chars": 1181,
+  "started_at": "2026-09-21T20:37:20.709Z",
+  "finished_at": "2026-09-21T20:38:00.515Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 39806,
+  "stdout_bytes": 534,
+  "stderr_bytes": 82,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/c1008b19-83b1-4c14-aef1-57a170e2730f.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/c1008b19-83b1-4c14-aef1-57a170e2730f.stderr"
+}

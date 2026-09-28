@@ -1,0 +1,20 @@
+{
+  "id": "d6b213ea-4fb0-4303-a645-5ba2c404376f",
+  "runtime": "bash",
+  "purpose": "Check toolchain gradle-home for protocol libs and network reachability for Maven",
+  "script_chars": 853,
+  "started_at": "2026-09-20T17:55:46.610Z",
+  "finished_at": "2026-09-20T17:55:46.800Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 190,
+  "stdout_bytes": 1413,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d6b213ea-4fb0-4303-a645-5ba2c404376f.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/d6b213ea-4fb0-4303-a645-5ba2c404376f.stderr"
+}

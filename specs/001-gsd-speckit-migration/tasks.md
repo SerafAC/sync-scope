@@ -131,9 +131,9 @@ matching CHANGELOG and docs.
 
 **Independent Test**: [quickstart.md § US1](./quickstart.md#us1-code-consolidated).
 
-- [ ] T010 [US1] Stage the merge without committing it:
+- [X] T010 [US1] Stage the merge without committing it:
   `git merge --no-ff --no-commit milestone/M001`. Never squash or rebase (FR-003).
-- [ ] T011 [US1] Resolve any conflicts using the rule in research R2:
+- [X] T011 [US1] Resolve any conflicts using the rule in research R2:
   - For `.gsd/DECISIONS.md`, keep master's side (`git checkout --ours .gsd/DECISIONS.md`). It is the only
     copy that contains D013–D015.
   - For every other conflicted `.gsd/**` path, keep the branch's side (`git checkout --theirs <path>`).
@@ -145,7 +145,7 @@ matching CHANGELOG and docs.
   - `git add` each resolved path.
   - Add one `tooling` row per resolved file to `specs/001-gsd-speckit-migration/migration-map.md`, naming
     the side that won.
-- [ ] T012 [P] [US1] Create `CHANGELOG.md` in Keep a Changelog format. Under `## [Unreleased]` → `### Added`,
+- [X] T012 [P] [US1] Create `CHANGELOG.md` in Keep a Changelog format. Under `## [Unreleased]` → `### Added`,
   add one entry describing the merged S01 capabilities:
   - Room persistence layer;
   - CloudSync TurboModule registration;
@@ -156,7 +156,7 @@ matching CHANGELOG and docs.
 
   Don't write the word "GSD" in this entry. This satisfies constitution VI, which requires the changelog
   in the same change as the behaviour.
-- [ ] T013 [P] [US1] Create `docs/README.md` and `docs/architecture.md`, which satisfies constitution VII
+- [X] T013 [P] [US1] Create `docs/README.md` and `docs/architecture.md`, which satisfies constitution VII
   (docs in the same change as the behaviour).
   - `docs/README.md`: a one-line index. Later tasks add links to it.
   - `docs/architecture.md`: an initial description of the merged native layer. Cover:
@@ -166,13 +166,13 @@ matching CHANGELOG and docs.
     - that 13 spec methods still return `NOT_IMPLEMENTED`.
 
   Sources are `.gsd/PROJECT.md` and the merged code. T019 expands this file.
-- [ ] T014 [US1] Verify that nothing was lost (SC-005). Both of these must be empty:
+- [X] T014 [US1] Verify that nothing was lost (SC-005). Both of these must be empty:
   - `git diff milestone/M001 -- . ':!.gsd' ':!specs' ':!.specify' ':!.claude' ':!CHANGELOG.md' ':!docs'`
     (this compares the working tree to the branch);
   - `git log --oneline master..milestone/M001` after the commit in T016.
 
   Record the first result in `checklists/transfer-verification.md` now.
-- [ ] T015 [US1] Run every gate on the **staged, uncommitted** merge, and record each command's exit code
+- [X] T015 [US1] Run every gate on the **staged, uncommitted** merge, and record each command's exit code
   and output tail in `checklists/transfer-verification.md`:
   - `pnpm install --frozen-lockfile`
   - `pnpm lint`

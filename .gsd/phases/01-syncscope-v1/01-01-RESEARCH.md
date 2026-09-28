@@ -170,4 +170,3 @@ Roughly dependency-ordered; T1–T3 are the unblocker, T4–T6 are independent o
 - [RFC 4918 §15.7 `DAV:getlastmodified`](http://www.webdav.org/specs/rfc4918.html) — rfc1123-date, second precision
 - [React Native New Architecture: Turbo Modules](https://github.com/reactwg/react-native-new-architecture/blob/main/docs/turbo-modules.md) — `BaseReactPackage`, `getReactModuleInfoProvider`, `isTurboModule`
 - [Turbo Native Modules: Android](https://reactnative.dev/docs/next/turbo-native-modules-android)
-<!-- gsd:state-version=88:0 -->

@@ -1,0 +1,20 @@
+{
+  "id": "26c4e282-7805-43cf-9931-21a4a419fd09",
+  "runtime": "bash",
+  "purpose": "T08 compile androidTest sources",
+  "script_chars": 272,
+  "started_at": "2026-09-21T20:45:02.016Z",
+  "finished_at": "2026-09-21T20:45:41.315Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "aborted": false,
+  "force_resolved": false,
+  "duration_ms": 39299,
+  "stdout_bytes": 993,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/26c4e282-7805-43cf-9931-21a4a419fd09.stdout",
+  "stderr_path": "/home/adi/projects/sync-scope/.gsd-worktrees/M001/.gsd/exec/26c4e282-7805-43cf-9931-21a4a419fd09.stderr"
+}
