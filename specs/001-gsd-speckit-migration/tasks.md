@@ -51,19 +51,24 @@ documentation baseline in place.
   - `git status --porcelain`
   - `git worktree list`
   - `git log --oneline master..milestone/M001` (expect 13 commits)
-  - `git merge-tree --write-tree --name-only master milestone/M001` (expect exit 0)
-- [ ] T002 [P] Delete the `<!-- Sync Impact Report … -->` HTML comment at the top of
+  - `git merge-tree --write-tree --name-only master milestone/M001` (re-planned 2026-09-28: expect exit 1
+    with 17 conflicts, 15 add/add under `.gsd/**` and 2 content conflicts in `scripts/validation/`; see
+    `decisions.md`)
+- [X] T002 [P] Delete the `<!-- Sync Impact Report … -->` HTML comment at the top of
   `.specify/memory/constitution.md`. It is scratch text and must be removed before commit. Change no
   other line.
-- [ ] T003 [P] In `specs/001-gsd-speckit-migration/checklists/requirements.md`, replace the Notes bullet
+- [X] T003 [P] In `specs/001-gsd-speckit-migration/checklists/requirements.md`, replace the Notes bullet
   "archive untracked GSD history outside the repository" with "delete untracked GSD history without an
   archive (clarified 2026-09-28)".
-- [ ] T004 Commit the Spec Kit adoption:
-  - `git add .specify .claude/skills/speckit-* specs/001-gsd-speckit-migration`
-  - `git commit -m "chore(speckit): adopt Spec Kit and constitution v1.0.0"`
+- [ ] T004 Commit the Phase 1 follow-up. (Re-planned 2026-09-28: `.specify/`, `.claude/skills/speckit-*`
+  and `specs/001-gsd-speckit-migration` were already committed in e79e0f6, which counts as the adoption
+  commit.)
+  - `git add .specify/memory/constitution.md specs/001-gsd-speckit-migration/checklists`
+  - `git commit -m "chore(speckit): finalize constitution v1.0.0 and record migration baseline"`
 
-  Then verify that `git status --porcelain` no longer lists `.specify/`, `.claude/skills/speckit-*` or
-  `specs/`.
+  Then verify that `git ls-files .specify .claude/skills specs | head` lists the Spec Kit files and that
+  `git status --porcelain` shows nothing under `.specify/`, `.claude/skills/speckit-*` or `specs/`
+  (except `specs/*/.autopilot/`, which is git-excluded).
 
 ---
 
@@ -74,9 +79,12 @@ can rewrite it (research R7).
 
 **⚠️ CRITICAL**: No user story work can begin until T009 is done.
 
-- [ ] T005 Discard master's uncommitted duplicate of D015 with
-  `git restore scripts/validation/protocol-service.sh scripts/validation/validation-infrastructure.test.mjs`.
-  The branch already carries the authoritative D015 implementation and its tests (research R2).
+- [ ] T005 (Re-planned 2026-09-28.) Master's duplicate of D015 is no longer uncommitted: it was committed
+  in 769182d, so `git restore` no longer applies. Do not touch `scripts/` here. Instead record in
+  `checklists/transfer-verification.md` the output of
+  `git diff master milestone/M001 -- scripts/validation/protocol-service.sh scripts/validation/validation-infrastructure.test.mjs`
+  and note that T011 resolves both files to the branch's side, which carries the authoritative D015
+  implementation and its tests (research R2).
 - [ ] T006 [P] Export the GSD database to `specs/001-gsd-speckit-migration/gsd-export.md` with
   `sqlite3 .gsd/gsd.db`. Add the header note "Temporary migration export, deleted in the GSD removal
   commit." Then write three sections:
@@ -129,7 +137,11 @@ matching CHANGELOG and docs.
   - For `.gsd/DECISIONS.md`, keep master's side (`git checkout --ours .gsd/DECISIONS.md`). It is the only
     copy that contains D013–D015.
   - For every other conflicted `.gsd/**` path, keep the branch's side (`git checkout --theirs <path>`).
-  - If any conflict falls outside `.gsd/**`, **stop and ask the maintainer**. Research predicts none.
+  - For `scripts/validation/protocol-service.sh` and
+    `scripts/validation/validation-infrastructure.test.mjs`, keep the branch's side
+    (`git checkout --theirs <path>`). These conflicts come from master's duplicate D015 commit 769182d
+    (re-planned 2026-09-28, see `decisions.md`); the branch's side is authoritative.
+  - If any other conflict falls outside `.gsd/**`, **stop and ask the maintainer**.
   - `git add` each resolved path.
   - Add one `tooling` row per resolved file to `specs/001-gsd-speckit-migration/migration-map.md`, naming
     the side that won.

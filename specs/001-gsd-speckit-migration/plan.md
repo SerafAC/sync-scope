@@ -157,12 +157,18 @@ GSD entries in .claude/settings.local.json (globally git-ignored, so edited loca
 
 ## Execution Order and Commit Plan
 
+> **Baseline deviation (2026-09-28)**: commits 769182d and e79e0f6 already put the Spec Kit files, the
+> whole `.gsd/` tree and master's duplicate D015 script edits into git. Commit 0(a) is therefore covered by
+> e79e0f6 plus a small follow-up, and the stage 1 merge has 17 expected conflicts: 15 add/add under
+> `.gsd/**` (resolved by research R2) and 2 in `scripts/validation/` (resolved to `milestone/M001`). See
+> `decisions.md`.
+
 Each stage is one or more commits. Stages run strictly in order, and each stage's check (from
 [quickstart.md](./quickstart.md)) must pass before the next stage starts.
 
 | # | Stage | Commits | Gate to proceed |
 | --- | --- | --- | --- |
-| 0 | **Freeze, adopt Spec Kit, detach GSD** | (a) `chore(speckit): adopt Spec Kit and constitution v1.0.0`, which adds `.specify/`, `.claude/skills/speckit-*` and `specs/001-*`; (b) `chore: freeze GSD state before migration`, which contains every non-ignored `.gsd` file (the `*.md`, `phases/**`, `quarantine/**`, `*.json` and `*.jsonl`) and adds `specs/001-*/gsd-export.md` (research R4); (c) local only: remove the GSD servers from `.claude/settings.local.json` and restart the agent session | Master working-tree script edits discarded (`git restore scripts/validation/`), `git status` clean, no GSD process for this project |
+| 0 | **Freeze, adopt Spec Kit, detach GSD** | (a) `chore(speckit): adopt Spec Kit and constitution v1.0.0`, which adds `.specify/`, `.claude/skills/speckit-*` and `specs/001-*`; (b) `chore: freeze GSD state before migration`, which contains every non-ignored `.gsd` file (the `*.md`, `phases/**`, `quarantine/**`, `*.json` and `*.jsonl`) and adds `specs/001-*/gsd-export.md` (research R4); (c) local only: remove the GSD servers from `.claude/settings.local.json` and restart the agent session | `git status` clean, no GSD process for this project. (Re-planned 2026-09-28: master's duplicate D015 script edits were committed in 769182d, so they are resolved to the branch's side during the stage 1 merge instead of being discarded.) |
 | 1 | **Consolidate** | `git merge --no-ff --no-commit milestone/M001`. `.gsd/**` conflicts are resolved by the rule in research R2 and logged in the migration map. Add `CHANGELOG.md`, `docs/README.md` and `docs/architecture.md`. Run all gates on the staged result, including the S01 live gate. Only then run `git commit`, so these files and the evidence land in the merge commit | US1 checks; every gate green before the commit |
 | 2 | **Transfer: docs** | `docs: …` commits: decisions 0001–0015, then architecture/protocols/safety/scope/overview, then README/DEVELOPMENT/CHANGELOG | US2 + US5 checks |
 | 3 | **Transfer: features** | `docs(specs): …`: feature 002 in full (spec, plan, research, tasks with commit refs), then 003–008 as seeded drafts | US3 checks |
