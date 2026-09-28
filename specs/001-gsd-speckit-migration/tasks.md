@@ -44,7 +44,7 @@ documentation baseline in place.
 
 **Purpose**: Put Spec Kit itself under version control and record the starting state.
 
-- [ ] T001 Record the baseline in `specs/001-gsd-speckit-migration/checklists/transfer-verification.md`.
+- [X] T001 Record the baseline in `specs/001-gsd-speckit-migration/checklists/transfer-verification.md`.
   Create the file by copying every item from
   `specs/001-gsd-speckit-migration/contracts/transfer-verification.md`, all unchecked. Then append a
   "Baseline (2026-09-28)" section containing the output of:
@@ -60,7 +60,7 @@ documentation baseline in place.
 - [X] T003 [P] In `specs/001-gsd-speckit-migration/checklists/requirements.md`, replace the Notes bullet
   "archive untracked GSD history outside the repository" with "delete untracked GSD history without an
   archive (clarified 2026-09-28)".
-- [ ] T004 Commit the Phase 1 follow-up. (Re-planned 2026-09-28: `.specify/`, `.claude/skills/speckit-*`
+- [X] T004 Commit the Phase 1 follow-up. (Re-planned 2026-09-28: `.specify/`, `.claude/skills/speckit-*`
   and `specs/001-gsd-speckit-migration` were already committed in e79e0f6, which counts as the adoption
   commit.)
   - `git add .specify/memory/constitution.md specs/001-gsd-speckit-migration/checklists`

@@ -39,6 +39,6 @@
   defaults in Assumptions:
   - one Spec Kit feature per GSD slice;
   - merge `milestone/M001` into `master`;
-  - archive untracked GSD history outside the repository.
+  - delete untracked GSD history without an archive (clarified 2026-09-28).
   Revisit them with `/speckit-clarify` if they are wrong.
 - Validation passed on iteration 1.

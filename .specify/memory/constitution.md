@@ -1,23 +1,3 @@
-<!--
-Sync Impact Report
-- Version change: (unratified template) → 1.0.0
-- Modified principles: all template placeholders replaced (initial ratification)
-- Added principles:
-  I. Simplicity First (KISS)
-  II. Build Only What Is Needed (YAGNI)
-  III. Single Source of Truth (DRY)
-  IV. Unit Tests for All Code (NON-NEGOTIABLE)
-  V. End-to-End Coverage of Major Requirements (NON-NEGOTIABLE)
-  VI. Versioning and CHANGELOG.md
-  VII. Documentation Under ./docs Is Mandatory
-  VIII. README.md Is Mandatory and User-Facing
-  IX. DEVELOPMENT.md Is for Developers
-- Added sections: Quality Gates, Development Workflow, Governance
-- Removed sections: none
-- Follow-up TODOs: none in this file. Repo does not yet contain ./docs, CHANGELOG.md,
-  README.md or DEVELOPMENT.md; they must be created to become compliant (see Principles VI–IX).
--->
-
 # SyncScope Constitution
 
 ## Core Principles
