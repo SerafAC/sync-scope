@@ -61,8 +61,10 @@ healthcheck() {
 case "$action" in
   start)
     docker_version=$(docker version --format '{{.Client.Version}} {{.Server.Version}}')
-    [ "$docker_version" = "29.7.2 29.7.2" ] ||
-      { printf '%s\n' "Docker 29.7.2 is required." >&2; exit 1; }
+    case "$docker_version" in
+      29.*" "29.*) ;;
+      *) printf '%s\n' "Docker 29.x client and server are required." >&2; exit 1 ;;
+    esac
     [ "$(docker compose version --short)" = "5.5.1" ] ||
       { printf '%s\n' "Compose 5.5.1 is required." >&2; exit 1; }
     if healthcheck 2>/dev/null; then

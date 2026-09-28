@@ -7,9 +7,9 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import {spawnSync} from 'node:child_process';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 const root = new URL('../../', import.meta.url);
@@ -20,9 +20,7 @@ async function text(path) {
 
 test('pins loopback-only read-only protocol services', async () => {
   const compose = await text('validation/services/compose.yaml');
-  const entrypoint = await text(
-    'validation/services/runtime-entrypoint.sh',
-  );
+  const entrypoint = await text('validation/services/runtime-entrypoint.sh');
 
   for (const digest of [
     'cloud-sync-checker/sftp-validation@sha256:04907991d1417618fbe8dadc349e5db305cc19a7af66cb4c7198c7be769e31ac',
@@ -54,8 +52,8 @@ test('generates deterministic representative fixture metadata', async t => {
   const secondState = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
   );
-  t.after(() => rm(state, {recursive: true, force: true}));
-  t.after(() => rm(secondState, {recursive: true, force: true}));
+  t.after(() => rm(state, { recursive: true, force: true }));
+  t.after(() => rm(secondState, { recursive: true, force: true }));
 
   const seed = spawnSync(
     'sh',
@@ -64,7 +62,7 @@ test('generates deterministic representative fixture metadata', async t => {
       '--root',
       join(state, 'fixtures'),
     ],
-    {encoding: 'utf8'},
+    { encoding: 'utf8' },
   );
   assert.equal(seed.status, 0, seed.stderr);
 
@@ -95,7 +93,7 @@ test('generates deterministic representative fixture metadata', async t => {
       '--state',
       state,
     ],
-    {encoding: 'utf8'},
+    { encoding: 'utf8' },
   );
   assert.equal(first.status, 0, first.stderr);
   const secondSeed = spawnSync(
@@ -105,7 +103,7 @@ test('generates deterministic representative fixture metadata', async t => {
       '--root',
       join(secondState, 'fixtures'),
     ],
-    {encoding: 'utf8'},
+    { encoding: 'utf8' },
   );
   assert.equal(secondSeed.status, 0, secondSeed.stderr);
   const independent = spawnSync(
@@ -119,15 +117,12 @@ test('generates deterministic representative fixture metadata', async t => {
       '--state',
       secondState,
     ],
-    {encoding: 'utf8'},
+    { encoding: 'utf8' },
   );
   assert.equal(independent.status, 0, independent.stderr);
   assert.equal(
     await readFile(join(state, 'manifests/sftp.before.sha256'), 'utf8'),
-    await readFile(
-      join(secondState, 'manifests/sftp.before.sha256'),
-      'utf8',
-    ),
+    await readFile(join(secondState, 'manifests/sftp.before.sha256'), 'utf8'),
   );
   const second = spawnSync(
     'sh',
@@ -140,7 +135,7 @@ test('generates deterministic representative fixture metadata', async t => {
       '--state',
       state,
     ],
-    {encoding: 'utf8'},
+    { encoding: 'utf8' },
   );
   assert.equal(second.status, 0, second.stderr);
   assert.match(second.stdout, /zero unexpected remote changes/);
@@ -179,11 +174,11 @@ test('exposes bounded owned service and serial validator entry points', async ()
   );
 });
 
-test('protocol launcher completes pinned version checks before preflight', async t => {
+async function launchWithDockerVersion(t, dockerVersion) {
   const bin = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-launcher-test-'),
   );
-  t.after(() => rm(bin, {recursive: true, force: true}));
+  t.after(() => rm(bin, { recursive: true, force: true }));
 
   const docker = join(bin, 'docker');
   await writeFile(
@@ -191,7 +186,7 @@ test('protocol launcher completes pinned version checks before preflight', async
     `#!/bin/sh
 case "$*" in
   "version --format {{.Client.Version}} {{.Server.Version}}")
-    printf '%s\\n' '29.7.2 29.7.2'
+    printf '%s\\n' '${dockerVersion}'
     ;;
   "compose version --short")
     printf '%s\\n' '5.5.1'
@@ -211,7 +206,7 @@ esac
   );
   await chmod(ss, 0o755);
 
-  const launch = spawnSync(
+  return spawnSync(
     'sh',
     [
       new URL('protocol-service.sh', import.meta.url).pathname,
@@ -229,14 +224,34 @@ esac
     ],
     {
       encoding: 'utf8',
-      env: {...process.env, PATH: `${bin}:${process.env.PATH}`},
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
     },
   );
+}
 
-  assert.equal(launch.status, 1);
-  assert.match(launch.stderr, /Approved service port is occupied/);
-  assert.doesNotMatch(
-    launch.stderr,
-    /Docker 29\.7\.2 is required|Compose 5\.5\.1 is required|unexpected/,
-  );
-});
+for (const dockerVersion of ['29.7.2 29.7.2', '29.8.1 29.0.0']) {
+  test(`protocol launcher accepts Docker ${dockerVersion} before preflight`, async t => {
+    const launch = await launchWithDockerVersion(t, dockerVersion);
+
+    assert.equal(launch.status, 1);
+    assert.match(launch.stderr, /Approved service port is occupied/);
+    assert.doesNotMatch(
+      launch.stderr,
+      /Docker 29\.x client and server are required|Compose 5\.5\.1 is required|unexpected/,
+    );
+  });
+}
+
+for (const dockerVersion of [
+  '30.0.0 30.0.0',
+  '28.5.1 29.8.1',
+  '29.8.1 28.5.1',
+]) {
+  test(`protocol launcher rejects Docker ${dockerVersion}`, async t => {
+    const launch = await launchWithDockerVersion(t, dockerVersion);
+
+    assert.equal(launch.status, 1);
+    assert.match(launch.stderr, /Docker 29\.x client and server are required/);
+    assert.doesNotMatch(launch.stderr, /Approved service port is occupied/);
+  });
+}
