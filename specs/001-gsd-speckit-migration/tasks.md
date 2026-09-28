@@ -286,13 +286,13 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
     to feature 008.
 
   US5 completes the rest of the file.
-- [ ] T025 [US2] Add the decision index and the docs links:
+- [X] T025 [US2] Add the decision index and the docs links:
   - Create `docs/decisions/README.md`. It depends on T017 and T018. Give it one table with the columns
     ID, title (linked), status, scope and date. State "Append-only: reverse a decision with a new record
     that supersedes it; new records continue from 0016."
   - Add links to `overview.md`, `sync-and-deletion-safety.md`, `protocols.md`, `scope.md` and
     `decisions/README.md` in `docs/README.md`, one line each.
-- [ ] T026 [US2] Fill the rows of `specs/001-gsd-speckit-migration/migration-map.md` for decision, memory,
+- [X] T026 [US2] Fill the rows of `specs/001-gsd-speckit-migration/migration-map.md` for decision, memory,
   document and PREFERENCES:
   - **Decisions**: D001–D015 → `transfer`, pointing to their `docs/decisions/` files.
   - **Memories**:
@@ -306,7 +306,7 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
     - `git.auto_push: true` and `git.isolation: worktree` → `discard`, reason "conflicts with the
       constitution's reviewed-commit workflow; not adopted".
     - `main_branch: master` → `transfer`, to `DEVELOPMENT.md`.
-- [ ] T027 [US2] Verify US2:
+- [X] T027 [US2] Verify US2:
   1. Run the D and MEM checks in quickstart § US2.
   2. Spot-check D003, MEM020 and one D-ID picked at random against the originals.
   3. Set `Verified [X]` on every row filled in T026.
