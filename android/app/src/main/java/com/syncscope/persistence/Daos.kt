@@ -88,6 +88,41 @@ abstract class SourceRootDao {
   open suspend fun upsert(root: SourceRootEntity) {
     if (byId(root.sourceId) == null) insert(root) else update(root)
   }
+
+  @Query("SELECT * FROM source_root WHERE canonicalRoot = :canonicalRoot")
+  abstract suspend fun byCanonicalRoot(canonicalRoot: String): SourceRootEntity?
+
+  @Query(
+    "DELETE FROM local_deletion_overlay WHERE localEntryId IN (SELECT entryId FROM local_node WHERE sourceId = :sourceId)"
+  )
+  protected abstract suspend fun deleteDeletionOverlaysFor(sourceId: String): Int
+
+  @Query("DELETE FROM remote_ambiguity WHERE sourceId = :sourceId")
+  protected abstract suspend fun deleteAmbiguitiesFor(sourceId: String): Int
+
+  @Query("DELETE FROM snapshot_counts WHERE sourceId = :sourceId")
+  protected abstract suspend fun deleteSnapshotCountsFor(sourceId: String): Int
+
+  @Query("DELETE FROM local_node WHERE sourceId = :sourceId")
+  protected abstract suspend fun deleteLocalNodesFor(sourceId: String): Int
+
+  @Query("DELETE FROM source_root WHERE sourceId = :sourceId")
+  protected abstract suspend fun deleteById(sourceId: String): Int
+
+  /**
+   * Removal cascade (research R7, FR-005): one transaction removing the source's scan data, then
+   * the row. Order matters: `local_node.sourceId` references `source_root` without a cascade, and
+   * the overlay rows are found through the source's `local_node` entries. Snapshots, match keys
+   * and other sources' rows are untouched. Any failure rolls every step back.
+   */
+  @Transaction
+  open suspend fun deleteWithScanData(sourceId: String) {
+    deleteDeletionOverlaysFor(sourceId)
+    deleteAmbiguitiesFor(sourceId)
+    deleteSnapshotCountsFor(sourceId)
+    deleteLocalNodesFor(sourceId)
+    deleteById(sourceId)
+  }
 }
 
 @Dao
