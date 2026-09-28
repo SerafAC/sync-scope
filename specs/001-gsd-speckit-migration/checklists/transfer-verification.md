@@ -41,7 +41,7 @@ it.
 - [X] The same gate commands as above, including the S01 live gate, return the same results (SC-004).
 - [X] The removal is exactly one commit; its hash is recorded in the migration-map footer (SC-006).
 - [X] `git branch --list milestone/M001` is empty.
-- [ ] Fresh-session check (SC-002): a new agent session asked "what is next?" reaches
+- [X] Fresh-session check (SC-002): a new agent session asked "what is next?" reaches
       `specs/003-local-source-selection/spec.md` and its acceptance scenarios in under 5 minutes, using only
       Spec Kit artifacts. Record the elapsed time.
 
@@ -582,3 +582,49 @@ LIVE_EXIT=0
 ```
 
   Afterwards no emulator was attached to adb, and `/tmp/cloud-sync-checker-api31` was gone.
+
+## Polish evidence (2026-09-28, T048–T050)
+
+Run on `master` at `7299867`.
+
+### T048 fresh-session check (SC-002)
+
+A new headless agent session (`claude -p`, restricted to read-only tools: Read, Glob, Grep, `ls`, `cat`,
+`git log`, `git status`) was asked "What is the next work in this project? Name the spec file that describes
+it and summarize its acceptance scenarios." It reached `specs/003-local-source-selection/spec.md` through
+`.specify/feature.json` and `specs/002-*/tasks.md`. It listed all five User Story 1 acceptance scenarios, the
+edge cases and SC-001/SC-002 of feature 003.
+
+- Elapsed: **23 s** (`duration_ms` 22736, 8 turns; wall clock 26 s including CLI start-up). This is under
+  the 5-minute bar, so `DEVELOPMENT.md` needed no change.
+
+### T049 quickstart run on final `master`
+
+- **US1 (post-merge)**: `milestone/M001` was deleted in T045, so the three branch-based commands now fail with
+  `unknown revision`. This is expected. Instead, `git merge-base --is-ancestor 16d75ac master` succeeds
+  (the branch tip is in master), `git status --porcelain` is empty, and `git show --stat 82188c4` lists
+  `CHANGELOG.md`, `docs/README.md` and `docs/architecture.md`. The staged-merge gates were recorded in T015.
+- **US2**: no missing R-ID; 15 decision files; 22 MEM rows.
+- **US3**: 7 feature dirs `specs/002-*` to `specs/008-*`; `specs/002-*/tasks.md` 8 `[X]` and 0 `[ ]`;
+  6 `Draft (seeded)` specs; `.specify/feature.json` points at `specs/003-local-source-selection`.
+- **US5**: `README.md`, `DEVELOPMENT.md`, `CHANGELOG.md` and `docs/README.md` present; `## [Unreleased]`
+  at `CHANGELOG.md:8`.
+- **US4**: the GSD reference search returns nothing (exit 1); `ls -a` lists no GSD paths;
+  `git branch --list milestone/M001` is empty; `4aaa624` touches only `.gsd/**`, `.bg-shell/`, `.mcp.json`,
+  `.gitignore` and `gsd-export.md`. Gates: `pnpm lint` 0, `pnpm typecheck` 0, `pnpm test:ci` 0 (10/10 node
+  tests, 17/17 Jest tests), `pnpm test:android:unit` BUILD SUCCESSFUL (15 suites, 120 tests, 0 failures).
+  S01 live gate `LIVE_EXIT=0`: 8/8 tests on `dependency_api31(AVD)`, and the ftp, webdav and sftp audits are
+  clean with zero unexpected remote changes.
+- **Links and paths**: every relative Markdown link and anchor in `README.md`, `DEVELOPMENT.md` and
+  `docs/**` (24 files) resolves. The only backticked repository paths that don't exist are
+  `android/local.properties` (a local file that git ignores) and `validation/maestro`. `docs/architecture.md`
+  and decision 0012 both document `validation/maestro` as not created yet. So nothing is stale, and no fix
+  commit was needed.
+
+### T050 revert drill
+
+Run in a throwaway worktree on branch `revert-drill` (created from `master` at `7299867`) so the main
+working tree was untouched. `git revert --no-commit 4aaa624` applied cleanly (330 files) and restored
+`.gsd/DECISIONS.md`. The restored `.gsd/` is identical to `4aaa624^`. The revert was then aborted, the
+worktree removed and `git branch -D revert-drill` run. `git worktree list` shows only the main worktree.
+Result: the removal can be reverted in one step.

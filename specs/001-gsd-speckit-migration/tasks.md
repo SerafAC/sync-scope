@@ -515,14 +515,14 @@ not run T044–T047.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T048 Fresh-session check (SC-002). Start a new agent session, ask "what is the next work?", and time
+- [X] T048 Fresh-session check (SC-002). Start a new agent session, ask "what is the next work?", and time
   how long it takes to reach `specs/003-local-source-selection/spec.md` and its acceptance scenarios using
   only Spec Kit artifacts. Record the elapsed time in `checklists/transfer-verification.md`. It must be
   under 5 minutes. If it isn't, improve the `DEVELOPMENT.md` pointer and repeat the check.
-- [ ] T049 [P] Run all of `specs/001-gsd-speckit-migration/quickstart.md` from top to bottom on the final
+- [X] T049 [P] Run all of `specs/001-gsd-speckit-migration/quickstart.md` from top to bottom on the final
   `master`. Fix any stale path or link in `README.md`, `DEVELOPMENT.md` or `docs/**` in its own commit;
   never touch the removal commit.
-- [ ] T050 [P] Optional revert drill from quickstart § US4, done on a throwaway branch (`revert-drill`).
+- [X] T050 [P] Optional revert drill from quickstart § US4, done on a throwaway branch (`revert-drill`).
   Confirm that `.gsd/DECISIONS.md` comes back, then delete the branch. Record the result in
   `checklists/transfer-verification.md`.
 
