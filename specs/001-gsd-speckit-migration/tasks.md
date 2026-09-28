@@ -333,19 +333,19 @@ Spec Kit points at 003.
 - Tag every FR with its R-ID and class, e.g. `(R005, core-capability)`.
 - Link to `docs/decisions/` instead of restating decisions. Follow the neutral-wording rule.
 
-- [ ] T028 [US3] Create `specs/002-native-cloudsync-connect/spec.md` from M001/S01, with status `Complete`:
+- [X] T028 [US3] Create `specs/002-native-cloudsync-connect/spec.md` from M001/S01, with status `Complete`:
   - Primary FRs R001, R002, R003, R004 and R018, each marked **Validated** and citing the consolidation
     live-gate evidence recorded in T015.
   - Acceptance scenarios: the S01 demo plus the S01 must-haves in `.gsd/phases/01-syncscope-v1/01-01-PLAN.md`.
   - A "Provides" section listing the S01→S02 and S01→S03 boundary outputs.
-- [ ] T029 [US3] Create `specs/002-native-cloudsync-connect/plan.md` and
+- [X] T029 [US3] Create `specs/002-native-cloudsync-connect/plan.md` and
   `specs/002-native-cloudsync-connect/research.md`:
   - `plan.md`: the goal, must-haves, proof level and integration closure from `01-01-PLAN.md`; a
     Constitution Check table against `.specify/memory/constitution.md`; and the Kotlin package structure.
   - `research.md`: the findings from `.gsd/phases/01-syncscope-v1/01-01-RESEARCH.md` and the layers of
     `01-CONTEXT.md` that still apply, plus the `key_decisions` from the front matter of
     `S01-T01…T08-SUMMARY.md`, in the Decision / Rationale / Alternatives format.
-- [ ] T030 [US3] Create `specs/002-native-cloudsync-connect/tasks.md` in Spec Kit format. Every task is
+- [X] T030 [US3] Create `specs/002-native-cloudsync-connect/tasks.md` in Spec Kit format. Every task is
   `[X]`, tagged with its milestone trace and its delivering commit(s) from `milestone/M001`:
 
   | Task | Trace | Commit(s) |
@@ -363,31 +363,31 @@ Spec Kit points at 003.
   - T008 cites two pieces of evidence: "live gate exit 0 on API 31, 8/8 instrumented tests, three protocol
     audits clean, 2026-09-23", and the consolidation re-run from T015, with its date and merge sha.
   - Add no open tasks.
-- [ ] T031 [P] [US3] Seed `specs/003-local-source-selection/spec.md` from M001/S02:
+- [X] T031 [P] [US3] Seed `specs/003-local-source-selection/spec.md` from M001/S02:
   - Status `Draft (seeded)`.
   - Depends on 002.
   - Primary requirement R005. Supporting R020 and R022.
   - Demo: Add folder through the SAF picker (including removable storage), sources persist across restart,
     a revoked grant shows as unavailable, proven by Maestro on API 31 and API 36.
   - Provides the S02→S03 outputs, including creating `validation/maestro/`.
-- [ ] T032 [P] [US3] Seed `specs/004-scan-engine-matching/spec.md` from M001/S03:
+- [X] T032 [P] [US3] Seed `specs/004-scan-engine-matching/spec.md` from M001/S03:
   - Status `Draft (seeded)`.
   - Depends on 002 and 003.
   - Primary requirements R006, R007, R015, R016 and R017. Supporting R020 and R022.
   - Include the demo and the S03→S04 and S03→S05 outputs.
-- [ ] T033 [P] [US3] Seed `specs/005-gallery-list-filtering/spec.md` from M001/S04:
+- [X] T033 [P] [US3] Seed `specs/005-gallery-list-filtering/spec.md` from M001/S04:
   - Status `Draft (seeded)`.
   - Depends on 004.
   - Primary requirements R008, R009, R011 and R021. Supporting R020 and R022.
   - Include the demo and the S04→S05 and S04→S06 outputs.
-- [ ] T034 [P] [US3] Seed `specs/006-tree-view-image-preview/spec.md` from M001/S05:
+- [X] T034 [P] [US3] Seed `specs/006-tree-view-image-preview/spec.md` from M001/S05:
   - Status `Draft (seeded)`.
   - Depends on 005.
   - Primary requirements R010 and R014. Supporting R011, R021 and R022.
   - Add the open detail from R010's Notes (directories filtered to empty stay visible, dimmed, with a
     count) as a `[NEEDS CLARIFICATION]` item.
   - Include the demo and the S05→S06 outputs.
-- [ ] T035 [P] [US3] Seed `specs/007-multiselect-local-deletion/spec.md` from M001/S06:
+- [X] T035 [P] [US3] Seed `specs/007-multiselect-local-deletion/spec.md` from M001/S06:
   - Status `Draft (seeded)`.
   - Depends on 005 and 006.
   - Primary requirements R012 and R013. Supporting R015, R021 and R022.
