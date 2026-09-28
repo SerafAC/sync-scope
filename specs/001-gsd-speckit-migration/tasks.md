@@ -216,7 +216,7 @@ gotchas live in `./docs` or `DEVELOPMENT.md`. Each one can be traced by its ID.
 
 Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
 
-- [ ] T017 [P] [US2] Create the decision records D001–D008 in `docs/decisions/`, following
+- [X] T017 [P] [US2] Create the decision records D001–D008 in `docs/decisions/`, following
   `specs/001-gsd-speckit-migration/contracts/decision-record.md`:
   - `0001-single-cloudsync-turbomodule.md`
   - `0002-room-scan-store-keystore-credentials.md`
@@ -229,7 +229,7 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
 
   Give every record Status `Accepted` and fill every template section, writing `none` where the original
   recorded nothing. List the related R-IDs, meaning the R-IDs whose Notes name the decision's subject.
-- [ ] T018 [P] [US2] Create the decision records D009–D015 in `docs/decisions/`, following the same
+- [X] T018 [P] [US2] Create the decision records D009–D015 in `docs/decisions/`, following the same
   contract:
   - `0009-foreground-scan-and-freshness.md`
   - `0010-snapshot-paging-and-origin-badge.md`
@@ -238,7 +238,7 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
   - `0013-full-persistence-layer-in-s01.md`
   - `0014-container-credentials-via-runner-args.md`
   - `0015-docker-major-version-pin.md`
-- [ ] T019 [P] [US2] Expand `docs/architecture.md`, which T013 started. Add:
+- [X] T019 [P] [US2] Expand `docs/architecture.md`, which T013 started. Add:
   - the full "Architecture / Key Patterns" content from `.gsd/PROJECT.md` and `.gsd/CODEBASE.md`;
   - snapshot-scoped paging clamped to 200;
   - two-phase deletion;
@@ -246,11 +246,11 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
   - the validation infrastructure.
 
   Link each pattern to its decision record instead of restating the rationale.
-- [ ] T020 [P] [US2] Create `docs/overview.md` with:
+- [X] T020 [P] [US2] Create `docs/overview.md` with:
   - the vision and core value ("knowing, with honest confidence, which local files are safe to delete");
   - the user loop: connect → pick folders → scan → browse and filter → select → delete locally;
   - a glossary of SYNCED, UNSYNCED, UNKNOWN, snapshot, remote root and source.
-- [ ] T021 [P] [US2] Create `docs/sync-and-deletion-safety.md`. Cover:
+- [X] T021 [P] [US2] Create `docs/sync-and-deletion-safety.md`. Cover:
   - matching by name + size + mtime within the precision bucket, ignoring directories;
   - precision discovered at connect time;
   - UNKNOWN is never deletable;
@@ -259,7 +259,7 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
   - the remote-listing age shown near delete, with a rescan suggested after 7 days.
 
   Link D003, D004, D006, D008, D009 and D011, and cite R007, R012, R013, R015 and R017.
-- [ ] T022 [P] [US2] Create `docs/protocols.md`. Cover:
+- [X] T022 [P] [US2] Create `docs/protocols.md`. Cover:
   - **FTP** (Apache Commons Net): the MDTM / MLSD / LIST precision basis, and the breadth-first precision
     sample capped at `PRECISION_SCAN_DIRECTORIES = 16`.
   - **SFTP** (SSHJ): blocking trust-on-first-use with a `SHA256:` fingerprint.
@@ -269,13 +269,13 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
   - **Validation container ports**: `10.0.2.2` FTP 32120, SFTP 32122, WebDAV 32180.
 
   Sources are `.gsd/phases/01-syncscope-v1/S01-T0{3,4,5,8}-SUMMARY.md` and `01-01-RESEARCH.md`.
-- [ ] T023 [P] [US2] Create `docs/scope.md`:
+- [X] T023 [P] [US2] Create `docs/scope.md`:
   - v1 scope in one paragraph: one server, one remote root, one profile, foreground only, local APK;
   - a "Deferred" section with R023, R024 and R025;
   - a "Non-goals" section with R026, R027, R028, R029 and R030.
 
   Each entry keeps its R-ID, its class, its "Why it matters" and the rationale from its Notes.
-- [ ] T024 [US2] Create `DEVELOPMENT.md` with a `## Environment gotchas` section:
+- [X] T024 [US2] Create `DEVELOPMENT.md` with a `## Environment gotchas` section:
   - MEM015: `ANDROID_HOME`/`sdk.dir`, and the JDK 21+ test launcher.
   - MEM016: `robolectric.properties` pins `android.app.Application`.
   - MEM017: run `pnpm install --frozen-lockfile` before Gradle, and export `ANDROID_HOME`. Leave out the
