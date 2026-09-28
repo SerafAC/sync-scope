@@ -2,9 +2,10 @@
 
 Append-only: reverse a decision with a new record that supersedes it; new records continue from 0016.
 
-Each record follows [the decision-record contract](../../specs/001-gsd-speckit-migration/contracts/decision-record.md).
-GSD recorded no calendar dates, so the date column gives the milestone context in which the decision was
-made (the record's "Date / context" field).
+Each record is named `00NN-<kebab-slug>.md` and has the fields Status, Date / context, Scope, Made by and
+Revisable, followed by the sections Context, Decision, Rationale, Alternatives rejected and Related.
+D001–D015 were made before calendar dates were recorded, so their date column gives the milestone context
+in which the decision was made (the record's "Date / context" field).
 
 | ID | Title | Status | Scope | Date |
 | --- | --- | --- | --- | --- |

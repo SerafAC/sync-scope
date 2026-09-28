@@ -470,7 +470,7 @@ Principles VI–IX.
 **⚠️ GATE**: T043 has to end with every pre-removal item marked `[X]`. If any item fails, **stop** and do
 not run T044–T047.
 
-- [ ] T043 [US4] Complete the pre-removal gate in
+- [X] T043 [US4] Complete the pre-removal gate in
   `specs/001-gsd-speckit-migration/checklists/transfer-verification.md`:
   1. Run every check listed under "Items", including the "Neutral wording" dry run.
   2. Tick each item that passes and record its evidence.

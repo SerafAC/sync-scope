@@ -11,14 +11,14 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 
 | Source | Disposition | Destination / Reason | Verified |
 | --- | --- | --- | --- |
-| `.mcp.json` |  |  | [ ] |
-| `.claude/settings.local.json` (GSD entries) |  |  | [ ] |
-| `.gitignore` (GSD block) |  |  | [ ] |
-| `.bg-shell/` |  |  | [ ] |
-| `.gsd-id` |  |  | [ ] |
-| `.gsd-worktrees/` |  |  | [ ] |
-| `milestone/M001` branch |  |  | [ ] |
-| master working-tree script edits (duplicate D015, committed in 769182d) |  |  | [ ] |
+| `.mcp.json` | discard | registered the GSD MCP servers (gsd-workflow, gsd-browser) only; deleted in the removal commit (research R7) | [X] |
+| `.claude/settings.local.json` (GSD entries) | discard | local, never committed; GSD MCP servers disabled after the freeze commit (T009, research R7) | [X] |
+| `.gitignore` (GSD block) | superseded | by `.gitignore` "Editor and operating-system files": generic entries kept there, GSD-only and other-stack entries dropped (research R8) | [X] |
+| `.bg-shell/` | discard | GSD background-shell manifest; no product knowledge (research R7) | [X] |
+| `.gsd-id` | discard | untracked GSD project id; deleted without archive (research R7, T045) | [X] |
+| `.gsd-worktrees/` | discard | empty; `git worktree list` shows only the main worktree (research R7) | [X] |
+| `milestone/M001` branch | discard | fully merged in `82188c4` (`git log master..milestone/M001` empty); deleted with `git branch -d` (research R7, T045) | [X] |
+| master working-tree script edits (duplicate D015, committed in 769182d) | superseded | by milestone/M001's authoritative D015 implementation in `scripts/validation/`, kept by the merge (T011, research R2) | [X] |
 | merge conflict: `.gsd/DECISIONS.md` | transfer | `.gsd/DECISIONS.md` — master's side (ours) won; only copy with D013–D015 (T011, research R2) | [X] |
 | merge conflict: `.gsd/.compat.json` | transfer | `.gsd/.compat.json` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
 | merge conflict: `.gsd/last-snapshot.md` | transfer | `.gsd/last-snapshot.md` — milestone/M001's side (theirs) won (T011, research R2) | [X] |
@@ -49,7 +49,7 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | `.gsd/PREFERENCES.md` → `custom_instructions` | superseded | by the constitution (Principles I KISS, II YAGNI, III DRY, V end-to-end coverage; tests mandatory) | [X] |
 | `.gsd/PREFERENCES.md` → `git.auto_push: true` | discard | conflicts with the constitution's reviewed-commit workflow; not adopted | [X] |
 | `.gsd/PREFERENCES.md` → `git.isolation: worktree` | discard | conflicts with the constitution's reviewed-commit workflow; not adopted | [X] |
-| `.gsd/PREFERENCES.md` → `git.main_branch: master` | transfer | DEVELOPMENT.md (mainline branch section added by T040) | [ ] |
+| `.gsd/PREFERENCES.md` → `git.main_branch: master` | transfer | DEVELOPMENT.md#branches-and-workflow ("The mainline branch is `master`") | [X] |
 | `.gsd/PREFERENCES.md` → `version`, `mode: solo` | discard | GSD tool settings; no meaning outside GSD | [X] |
 | `.gsd/STATE.md` | superseded | by Spec Kit feature status (tasks.md per feature, .specify/feature.json); GSD runtime status snapshot, its S01/T08 status is reconciled in research R3 | [X] |
 | `.gsd/ROADMAP.md` | superseded | by the Spec Kit features 002–008 (see Slice rows); lists only milestone M001 with no further content | [X] |
@@ -57,19 +57,20 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | `.gsd/last-snapshot.md` | discard | GSD auto-generated context snapshot; its memories are covered row by row in the Memory table and its active context by research R3 | [X] |
 | `.gsd/REQUIREMENTS.md` | superseded | by the per-requirement rows in the Requirement table (R001–R022 → specs/002–008, R023–R030 → docs/scope.md) | [X] |
 | `.gsd/DECISIONS.md` | transfer | docs/decisions/README.md (one record per D-ID; see Decision rows) | [X] |
-| `.gsd/phases/01-syncscope-v1/01-ROADMAP.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/01-CONTEXT.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/01-01-RESEARCH.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/01-01-PLAN.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-CONTINUE.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T01-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T02-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T03-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T04-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T05-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T06-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T07-SUMMARY.md` |  |  | [ ] |
-| `.gsd/phases/01-syncscope-v1/S01-T08-SUMMARY.md` |  |  | [ ] |
+| `.gsd/phases/01-syncscope-v1/01-ROADMAP.md` | superseded | by the Spec Kit features 002–008 (see Slice rows); each spec's "Provides" section carries its boundary-map handoff | [X] |
+| `.gsd/phases/01-syncscope-v1/01-CONTEXT.md` | transfer | specs/002-native-cloudsync-connect/research.md#milestone-discussion-context-that-still-applies; architectural decisions in docs/decisions/, scope in docs/scope.md | [X] |
+| `.gsd/phases/01-syncscope-v1/01-01-RESEARCH.md` | transfer | specs/002-native-cloudsync-connect/research.md#findings-from-the-pre-build-research | [X] |
+| `.gsd/phases/01-syncscope-v1/01-01-PLAN.md` | transfer | specs/002-native-cloudsync-connect/plan.md | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-CONTINUE.md` | discard | GSD auto-compaction resume note for S01/T08; T08 is complete (see specs/002-native-cloudsync-connect/tasks.md) | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T01-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T001, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T02-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T002, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T03-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T003, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T04-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T004, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T05-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T005, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T06-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T006, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T07-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T007, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/S01-T08-SUMMARY.md` | transfer | specs/002-native-cloudsync-connect/tasks.md (T008, commit refs) and specs/002-native-cloudsync-connect/research.md#key-decisions-recorded-per-task | [X] |
+| `.gsd/phases/01-syncscope-v1/*-VERIFY.json` (9 files) | superseded | by the gate evidence in specs/002-native-cloudsync-connect/tasks.md and specs/002-native-cloudsync-connect/spec.md#validation-evidence | [X] |
 | `.gsd/forensics/report-2026-09-21-21-15-37.md` | discard | GSD auto-mode tooling failures (dispatch loops, worktree orphans); no product knowledge | [X] |
 
 ## Requirement
@@ -183,16 +184,17 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 
 | Source | Disposition | Destination / Reason | Verified |
 | --- | --- | --- | --- |
-| `.gsd/gsd.db*` |  |  | [ ] |
-| `.gsd/activity/` |  |  | [ ] |
-| `.gsd/journal/` |  |  | [ ] |
-| `.gsd/audit/` |  |  | [ ] |
-| `.gsd/event-log.jsonl` |  |  | [ ] |
-| `.gsd/runtime/` |  |  | [ ] |
-| `.gsd/quarantine/` |  |  | [ ] |
-| `.gsd/backups/` |  |  | [ ] |
-| `.gsd/recovery-applications/` |  |  | [ ] |
-| `.gsd/exec/` |  |  | [ ] |
-| `.gsd/migration/` |  |  | [ ] |
-| `.gsd/*.json` |  |  | [ ] |
-| `.gsd/*.jsonl` |  |  | [ ] |
+| `.gsd/gsd.db*` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/activity/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/journal/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/audit/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/event-log.jsonl` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/runtime/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/quarantine/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/backups/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/recovery-applications/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/exec/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/migration/` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/milestones/` | discard | untracked GSD milestone scaffold (empty `M001/slices/`); no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/*.json` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |
+| `.gsd/*.jsonl` | discard | GSD runtime state; no product knowledge; deleted without archive (research R7, T044/T045) | [X] |

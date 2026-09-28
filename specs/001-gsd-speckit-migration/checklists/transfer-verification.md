@@ -11,27 +11,27 @@ it.
       `.claude/settings.local.json` enables no GSD MCP server. Done right after the freeze commit.
 - [X] **Consolidated**: `git branch --merged master` lists `milestone/M001`, `git log master..milestone/M001`
       is empty, and `git status --porcelain` is empty.
-- [ ] **No stray work**: `git worktree list` shows only the main worktree, and `.gsd-worktrees/` is empty.
+- [X] **No stray work**: `git worktree list` shows only the main worktree, and `.gsd-worktrees/` is empty.
 - [X] **Gates green on the staged merge, before the merge commit**: `pnpm lint`, `pnpm typecheck`,
       `pnpm test:ci`, `pnpm test:android:unit`, and the S01 live gate
       (`pnpm validation:services:start && pnpm validation:services:health && pnpm validation:android:api31 && pnpm validation:services:stop`)
       all exit 0. Record the output tails and the live-gate test count.
 - [X] **Docs in the merge commit**: `git show --stat <merge-sha>` includes `CHANGELOG.md`, `docs/README.md`
       and `docs/architecture.md`.
-- [ ] **Map complete**: every inventory item in [migration-map.md](../contracts/migration-map.md) has a row, and every
+- [X] **Map complete**: every inventory item in [migration-map.md](../contracts/migration-map.md) has a row, and every
       row is `Verified [X]`.
-- [ ] **Requirements traced**: all 30 R-IDs resolve (`git grep -w R0NN` finds each one in `specs/` or
+- [X] **Requirements traced**: all 30 R-IDs resolve (`git grep -w R0NN` finds each one in `specs/` or
       `docs/scope.md`). Each active R-ID has exactly one primary FR, and that FR states its class.
-- [ ] **Decisions traced**: 15 files `docs/decisions/0001-*.md` to `0015-*.md` exist and are listed in the
+- [X] **Decisions traced**: 15 files `docs/decisions/0001-*.md` to `0015-*.md` exist and are listed in the
       index.
-- [ ] **Memories reviewed**: every MEM row in `gsd-export.md` has a disposition in the map.
-- [ ] **S01 captured**: `specs/002-*/tasks.md` shows T001–T008 `[X]`, with commit refs and both pieces of
+- [X] **Memories reviewed**: every MEM row in `gsd-export.md` has a disposition in the map.
+- [X] **S01 captured**: `specs/002-*/tasks.md` shows T001–T008 `[X]`, with commit refs and both pieces of
       gate evidence. `specs/002-*/spec.md` marks R001–R004 and R018 validated.
-- [ ] **S02–S07 seeded**: `specs/003-*` to `specs/008-*` each have a `spec.md` with status `Draft (seeded)`,
+- [X] **S02–S07 seeded**: `specs/003-*` to `specs/008-*` each have a `spec.md` with status `Draft (seeded)`,
       and `.specify/feature.json` points at `specs/003-local-source-selection`.
-- [ ] **Docs baseline**: `README.md`, `DEVELOPMENT.md`, `CHANGELOG.md` and `docs/README.md` exist.
+- [X] **Docs baseline**: `README.md`, `DEVELOPMENT.md`, `CHANGELOG.md` and `docs/README.md` exist.
       `CHANGELOG.md` has an `Unreleased` migration entry.
-- [ ] **Neutral wording**: the post-removal search below, run now with `':!.gsd' ':!.gitignore' ':!.mcp.json' ':!.bg-shell'`
+- [X] **Neutral wording**: the post-removal search below, run now with `':!.gsd' ':!.gitignore' ':!.mcp.json' ':!.bg-shell'`
       added to its exclusions, already returns nothing.
 
 ## Post-removal checks (recorded after the removal commit)
@@ -530,3 +530,28 @@ LIVE_EXIT=0
 
 - `git branch --merged master` lists `milestone/M001`, and `git log --oneline master..milestone/M001` is empty.
 - `git show --stat 82188c4` lists `CHANGELOG.md` (+16), `docs/README.md` (+3) and `docs/architecture.md` (+53).
+
+## Pre-removal gate evidence (2026-09-28, T043)
+
+Run on `master` at `63e01e6` plus the T043 edits.
+
+- **No stray work**: `git worktree list` shows only `/home/adi/projects/sync-scope 63e01e6 [master]`, and
+  `.gsd-worktrees/` holds 0 entries.
+- **Map complete**: every inventory kind in the contract has its rows (30 requirements, 15 decisions,
+  22 memories, 7 slices, 8 tasks, plus the document, tooling and runtime rows). `grep -c '\[ \]'` on
+  `migration-map.md` returns 0. T043 filled the 8 tooling rows, 13 runtime rows and 13 phase-document rows,
+  verified the `git.main_branch` row against `DEVELOPMENT.md#branches-and-workflow`, and added rows for the
+  tracked `*-VERIFY.json` files and the untracked `.gsd/milestones/`.
+- **Requirements traced**: `git grep -qw R0NN -- specs docs/scope.md` succeeds for R001–R030.
+- **Decisions traced**: 15 files `docs/decisions/0001-*.md` to `0015-*.md`, each listed in
+  `docs/decisions/README.md`.
+- **Memories reviewed**: the 22 distinct MEM IDs in `gsd-export.md` each have a Memory row with a disposition.
+- **S01 captured**: `specs/002-*/tasks.md` has T001–T008 `[X]` with commit refs and both live-gate runs;
+  `spec.md` marks the primary requirements Validated.
+- **S02–S07 seeded**: `specs/003-*` to `specs/008-*` each say `Draft (seeded)`; `.specify/feature.json`
+  points at `specs/003-local-source-selection`.
+- **Docs baseline**: `README.md`, `DEVELOPMENT.md`, `CHANGELOG.md` and `docs/README.md` exist;
+  `CHANGELOG.md` has `## [Unreleased]`.
+- **Neutral wording**: the dry run first returned `docs/decisions/README.md:5-6` (a link into this spec's
+  directory and a sentence naming GSD). T043 reworded the index introduction to describe the record format
+  inline. The rerun returns nothing (exit 1).
