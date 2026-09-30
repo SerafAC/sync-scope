@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -145,6 +146,114 @@ test('generates deterministic representative fixture metadata', async t => {
   );
   assert.equal(second.status, 0, second.stderr);
   assert.match(second.stdout, /zero unexpected remote changes/);
+});
+
+const SCAN_FIXTURES = new Map([
+  ['scan/clean/exact.txt', 'exact metadata fixture\n'],
+  ['scan/clean/a/reusable.jpg', 'reusable duplicate payload\n'],
+  ['scan/clean/b/reusable.jpg', 'reusable duplicate payload\n'],
+  ['scan/clean/é-decomposed.txt', 'decomposed unicode metadata\n'],
+  ['scan/clean/size-mismatch.txt', 'intentionally different size\n'],
+  ['scan/partial/readable/exact.txt', 'exact metadata fixture\n'],
+  ['scan/partial/restricted/only-here.txt', 'only in restricted\n'],
+]);
+
+async function directoryModes(directory, prefix = '') {
+  const modes = new Map();
+  for (const entry of await readdir(directory, {withFileTypes: true})) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolute = join(directory, entry.name);
+    modes.set(relative, (await lstat(absolute)).mode & 0o777);
+    for (const [child, mode] of await directoryModes(absolute, relative)) {
+      modes.set(child, mode);
+    }
+  }
+  return modes;
+}
+
+test('seeds the scan fixtures with NFD names, fixed mtimes and one restricted directory', async t => {
+  const state = await mkdtemp(
+    join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
+  );
+  t.after(async () => {
+    await chmod(join(state, 'fixtures/scan/partial/restricted'), 0o755).catch(
+      () => {},
+    );
+    await rm(state, {recursive: true, force: true});
+  });
+  const fixtures = join(state, 'fixtures');
+
+  const seed = spawnSync(
+    'sh',
+    [new URL('fixture-seed.sh', import.meta.url).pathname, '--root', fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(seed.status, 0, seed.stderr);
+
+  for (const [relative, contents] of SCAN_FIXTURES) {
+    const absolute = join(fixtures, relative);
+    const metadata = await lstat(absolute, {bigint: true});
+    assert.ok(metadata.isFile(), `${relative} must be a regular file`);
+    assert.equal(await readFile(absolute, 'utf8'), contents, relative);
+    assert.equal(
+      metadata.mtimeNs,
+      1704067200000000000n,
+      `${relative} must have the fixed mtime`,
+    );
+  }
+
+  const clean = await readdir(join(fixtures, 'scan/clean'), {
+    encoding: 'buffer',
+  });
+  const decomposed = clean.find(name =>
+    name.toString('utf8').endsWith('-decomposed.txt'),
+  );
+  assert.ok(decomposed, 'the decomposed fixture must exist');
+  assert.deepEqual(
+    [...decomposed.subarray(0, 3)],
+    [0x65, 0xcc, 0x81],
+    'the decomposed name must be stored in NFD',
+  );
+
+  const modes = await directoryModes(fixtures);
+  assert.equal(
+    modes.get('scan/partial/restricted'),
+    0o700,
+    'scan/partial/restricted must be 0700',
+  );
+  for (const [relative, mode] of modes) {
+    if (relative !== 'scan/partial/restricted') {
+      assert.equal(mode, 0o755, `${relative} must be 0755`);
+    }
+  }
+  assert.equal((await lstat(fixtures)).mode & 0o777, 0o755);
+
+  const manifest = spawnSync(
+    process.execPath,
+    [new URL('fixture-manifest.mjs', import.meta.url).pathname, fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(manifest.status, 0, manifest.stderr);
+  const listed = new Set(
+    manifest.stdout
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line).path),
+  );
+  for (const relative of [
+    'flat/exact.txt',
+    'non-regular/escape-link',
+    'scan',
+    'scan/clean',
+    'scan/partial',
+    'scan/partial/restricted',
+    ...SCAN_FIXTURES.keys(),
+  ]) {
+    assert.ok(listed.has(relative), `the manifest must list ${relative}`);
+  }
 });
 
 test('exposes bounded owned service and serial validator entry points', async () => {
@@ -414,6 +523,97 @@ test('device fixture script seeds primary and removable storage idempotently', a
   assert.doesNotMatch(commands, />>/);
 });
 
+const DEVICE_SCAN = '/sdcard/SyncScopeE2E/Scan';
+const DEVICE_SCAN_FILES = new Map([
+  ['exact.txt', 'exact metadata fixture'],
+  ['a/reusable.jpg', 'reusable duplicate payload'],
+  ['b/reusable.jpg', 'reusable duplicate payload'],
+  ['é-decomposed.txt', 'decomposed unicode metadata'],
+  ['size-mismatch.txt', 'local size differs'],
+  ['local-only.txt', 'only on the device'],
+  ['only-here.txt', 'only in restricted'],
+]);
+
+async function seededDeviceCommands(t, extraEnv = {}) {
+  const {sdk, log} = await fakeAdbSdk(
+    t,
+    'public:179,1 mounted 1A2B-3C4D\\n',
+  );
+  const env = {
+    ...process.env,
+    ANDROID_HOME: sdk,
+    ANDROID_SERIAL: 'emulator-5554',
+    ...extraEnv,
+  };
+  if (!('BULK_FILES' in extraEnv)) {
+    delete env.BULK_FILES;
+  }
+  const seeded = runDeviceFixtures(env);
+  const calls = (await readFile(log, 'utf8').catch(() => ''))
+    .trim()
+    .split('\n');
+  return {seeded, calls};
+}
+
+test('device fixture script seeds the scan source with NFC names and fixed mtimes', async t => {
+  const {seeded, calls} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const commands = calls.join('\n');
+
+  for (const dir of [DEVICE_SCAN, `${DEVICE_SCAN}/a`, `${DEVICE_SCAN}/b`]) {
+    assert.ok(commands.includes(`mkdir -p ${dir}`), `${dir} must be created`);
+  }
+  for (const [relative, contents] of DEVICE_SCAN_FILES) {
+    const path = `${DEVICE_SCAN}/${relative}`;
+    assert.ok(
+      commands.includes(`printf '${contents}\\n' > ${path}`),
+      `${path} must be overwritten with its fixture contents`,
+    );
+    assert.ok(
+      commands.includes(`touch -d @1704067200 ${path}`),
+      `${path} must get the fixed mtime`,
+    );
+  }
+  assert.ok(
+    Buffer.from(commands).includes(Buffer.from([0xc3, 0xa9, 0x2d])),
+    'the device copy of the decomposed fixture must use the NFC name',
+  );
+  assert.ok(
+    !commands.includes('é'),
+    'the device fixtures must not contain an NFD name',
+  );
+  assert.doesNotMatch(commands, />>/);
+});
+
+test('device fixture script generates the bulk source in one adb shell loop', async t => {
+  const {seeded, calls} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+
+  const bulk = calls.filter(call => call.includes('SyncScopeE2E/Bulk'));
+  assert.equal(bulk.length, 1, 'the bulk tree is generated in one adb call');
+  assert.match(bulk[0], /while /);
+  assert.match(bulk[0], /\b20000\b/, 'BULK_FILES defaults to 20000');
+  assert.match(bulk[0], /% 200\b/, 'files are spread over 200 directories');
+  assert.match(bulk[0], /\/sdcard\/SyncScopeE2E\/Bulk\/d/);
+  assert.match(bulk[0], /\/f/);
+  assert.match(bulk[0], /\.txt/);
+
+  const custom = await seededDeviceCommands(t, {BULK_FILES: '37'});
+  assert.equal(custom.seeded.status, 0, custom.seeded.stderr);
+  const customBulk = custom.calls.filter(call =>
+    call.includes('SyncScopeE2E/Bulk'),
+  );
+  assert.equal(customBulk.length, 1);
+  assert.match(customBulk[0], /\b37\b/);
+  assert.doesNotMatch(customBulk[0], /\b20000\b/);
+
+  for (const invalid of ['abc', '0', '-5', '100000']) {
+    const rejected = await seededDeviceCommands(t, {BULK_FILES: invalid});
+    assert.notEqual(rejected.seeded.status, 0, invalid);
+    assert.match(rejected.seeded.stderr, /BULK_FILES/, invalid);
+  }
+});
+
 test('device fixture script fails loudly without a public removable volume', async t => {
   const {sdk, log} = await fakeAdbSdk(t, '');
   const env = {...process.env, ANDROID_HOME: sdk, ANDROID_SERIAL: 'emulator-5554'};
@@ -440,7 +640,7 @@ test('e2e mode seeds device fixtures after the APK install and before Maestro', 
   const source = await text('scripts/validation/android-flow.sh');
   const install = source.indexOf('app-debug.apk');
   const fixtures = source.indexOf('scripts/validation/device-fixtures.sh');
-  const maestro = source.indexOf('test "$repo/validation/maestro"');
+  const maestro = source.indexOf('"$repo/validation/maestro"');
 
   assert.ok(install !== -1, 'e2e mode must install the debug APK');
   assert.ok(fixtures !== -1, 'e2e mode must run device-fixtures.sh');
@@ -456,4 +656,46 @@ test('e2e mode seeds device fixtures after the APK install and before Maestro', 
     source.lastIndexOf('for api in $apis', fixtures) !== -1,
     'fixtures must be seeded for each API level',
   );
+});
+
+test('e2e mode passes the per-run container credentials to Maestro without logging them', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const maestro = source.indexOf('"$repo/validation/maestro"');
+  const e2e = source.lastIndexOf('if [ "$mode" = e2e ]; then', maestro);
+  assert.ok(e2e !== -1 && maestro !== -1);
+  const block = source.slice(e2e, maestro);
+
+  for (const [prefix, variable, port, remoteRoot] of [
+    ['FTP', 'SYNCSCOPE_FTP_CREDENTIAL_FILE', '32120', '/'],
+    ['SFTP', 'SYNCSCOPE_SFTP_CREDENTIAL_FILE', '32122', '/srv/fixtures'],
+    ['WEBDAV', 'SYNCSCOPE_WEBDAV_CREDENTIAL_FILE', '32180', '/webdav'],
+  ]) {
+    assert.match(
+      block,
+      new RegExp(
+        `prefix=${prefix}; port=${port}; remote_root=${remoteRoot.replace(
+          /\//g,
+          '\\/',
+        )}; credential_file=\\$${variable}\\b`,
+      ),
+      `${prefix} must read ${variable} with port ${port} and root ${remoteRoot}`,
+    );
+  }
+  for (const key of ['HOST', 'PORT', 'USER', 'PASSWORD', 'ROOT']) {
+    assert.ok(
+      block.includes(`-e "\${prefix}_${key}=`),
+      `${key} must be passed to maestro with -e`,
+    );
+  }
+  assert.match(block, /_HOST=10\.0\.2\.2"/);
+  assert.match(block, /sed -n 's\/\^username=\/\/p'/);
+  assert.match(block, /sed -n 's\/\^password=\/\/p'/);
+  assert.match(source, /maestro\/bin\/maestro \\\n\s+test "\$@" "\$repo\/validation\/maestro"/);
+
+  assert.doesNotMatch(source, /set -[a-z]*x/, 'tracing would log the password');
+  for (const line of source.split('\n')) {
+    if (/\b(?:printf|echo)\b/.test(line)) {
+      assert.doesNotMatch(line, /\$\{?password\b|_PASSWORD/, line.trim());
+    }
+  }
 });

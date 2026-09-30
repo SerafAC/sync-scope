@@ -110,9 +110,35 @@ for api in $apis; do
       "$ANDROID_HOME/platform-tools/adb" -s "$serial" install -r \
       "$repo/android/app/build/outputs/apk/debug/app-debug.apk"
     "$repo/scripts/validation/device-fixtures.sh"
+    # Per-run container credentials for the scan flows (D014). Ports match the
+    # service table above, roots match ProtocolConnectInstrumentedTest, and the
+    # emulator reaches the host loopback services at 10.0.2.2. The values are
+    # only ever passed as maestro arguments, never printed.
+    set --
+    for protocol in ftp sftp webdav; do
+      case "$protocol" in
+        ftp) prefix=FTP; port=32120; remote_root=/; credential_file=$SYNCSCOPE_FTP_CREDENTIAL_FILE ;;
+        sftp) prefix=SFTP; port=32122; remote_root=/srv/fixtures; credential_file=$SYNCSCOPE_SFTP_CREDENTIAL_FILE ;;
+        webdav) prefix=WEBDAV; port=32180; remote_root=/webdav; credential_file=$SYNCSCOPE_WEBDAV_CREDENTIAL_FILE ;;
+      esac
+      user=$(sed -n 's/^username=//p' "$credential_file")
+      password=$(sed -n 's/^password=//p' "$credential_file")
+      if [ -z "$user" ] || [ -z "$password" ]; then
+        printf 'Missing %s credentials in %s.\n' "$protocol" "$credential_file" >&2
+        exit 1
+      fi
+      set -- "$@" \
+        -e "${prefix}_HOST=10.0.2.2" \
+        -e "${prefix}_PORT=$port" \
+        -e "${prefix}_USER=$user" \
+        -e "${prefix}_PASSWORD=$password" \
+        -e "${prefix}_ROOT=$remote_root"
+    done
+    user=
+    password=
     timeout --signal=TERM --kill-after=10 600 \
       /home/adi/.cache/cloud-sync-checker-toolchain/maestro-2.10.0/maestro/bin/maestro \
-      test "$repo/validation/maestro"
+      test "$@" "$repo/validation/maestro"
   fi
 
   "$repo/scripts/validation/android-validator.sh" stop \
