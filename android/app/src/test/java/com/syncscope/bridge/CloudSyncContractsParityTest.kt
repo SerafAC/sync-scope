@@ -43,12 +43,12 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
-  fun contractVersionIsTwo() {
-    assertEquals(2, CloudSyncContracts.CONTRACT_VERSION)
+  fun contractVersionIsThree() {
+    assertEquals(3, CloudSyncContracts.CONTRACT_VERSION)
   }
 
   @Test
-  fun sourceErrorCodesSitJustBeforeInternalErrorInOrder() {
+  fun sourceAndScanErrorCodesSitJustBeforeInternalErrorInOrder() {
     val names = CloudSyncErrorCode.entries.map { it.name }
     assertEquals(
       listOf(
@@ -57,34 +57,68 @@ class CloudSyncContractsParityTest {
         "SOURCE_REGRANT_MISMATCH",
         "SOURCE_NOT_FOUND",
         "PICKER_BUSY",
+        "NO_SOURCES_SELECTED",
+        "SCAN_IN_PROGRESS",
+        "SCAN_NOT_FOUND",
+        "REFRESH_UNAVAILABLE",
         "INTERNAL_ERROR",
       ),
-      names.takeLast(6),
+      names.takeLast(10),
     )
   }
 
-  @Test
-  fun sourceErrorTextMatchesTsExactly() {
-    val block = Regex("""export const SOURCE_ERROR_TEXT[^=]*= \{(.*?)\n\};""", RegexOption.DOT_MATCHES_ALL)
+  private fun tsErrorText(recordName: String): Map<String, Pair<String, String>> {
+    val block = Regex("""export const $recordName[^=]*= \{(.*?)\n\};""", RegexOption.DOT_MATCHES_ALL)
       .find(tsSource)!!
       .groupValues[1]
-    val tsText = Regex("""(\w+): \{\s*message:\s*'([^']*)',\s*action:\s*'([^']*)',?\s*\}""")
+    return Regex("""(\w+): \{\s*message:\s*'([^']*)',\s*action:\s*'([^']*)',?\s*\}""")
       .findAll(block)
       .associate { it.groupValues[1] to (it.groupValues[2] to it.groupValues[3]) }
+  }
+
+  @Test
+  fun fixedErrorTextMatchesTsExactly() {
+    val sourceText = tsErrorText("SOURCE_ERROR_TEXT")
+    val scanText = tsErrorText("SCAN_ERROR_TEXT")
     val ktText = CloudSyncErrorCode.entries
       .filter { it.defaultMessage != null }
       .associate { it.name to (it.defaultMessage!! to it.defaultAction!!) }
 
     assertEquals(
       setOf("SOURCE_OVERLAP", "SOURCE_UNSUPPORTED", "SOURCE_REGRANT_MISMATCH", "SOURCE_NOT_FOUND", "PICKER_BUSY"),
-      ktText.keys,
+      sourceText.keys,
     )
-    assertEquals(tsText, ktText)
+    assertEquals(
+      setOf("NO_SOURCES_SELECTED", "SCAN_IN_PROGRESS", "SCAN_NOT_FOUND", "REFRESH_UNAVAILABLE"),
+      scanText.keys,
+    )
+    assertEquals(sourceText + scanText, ktText)
+    assertEquals(
+      "No folders are selected to check." to "Add a folder in Settings › Folders.",
+      ktText["NO_SOURCES_SELECTED"],
+    )
     assertEquals(
       "This folder overlaps a folder you already added." to
         "Pick a folder that is not inside, or around, an existing one.",
       ktText["SOURCE_OVERLAP"],
     )
+  }
+
+  @Test
+  fun fileIssueTextMatchesTsExactly() {
+    val block = Regex("""export const FILE_ISSUE_TEXT[^=]*= \{(.*?)\n\};""", RegexOption.DOT_MATCHES_ALL)
+      .find(tsSource)!!
+      .groupValues[1]
+    val tsText = Regex("""(\w+):\s*'([^']*)',""")
+      .findAll(block)
+      .associate { it.groupValues[1] to it.groupValues[2] }
+
+    assertEquals(FileIssueCode.entries.associate { it.name to it.text }, tsText)
+    assertEquals(
+      "The backup has this file but no modified time, so it could not be compared.",
+      FileIssueCode.REMOTE_MTIME_MISSING.text,
+    )
+    assertEquals("This file could not be read on the device.", FileIssueCode.LOCAL_UNAVAILABLE.text)
   }
 
   @Test

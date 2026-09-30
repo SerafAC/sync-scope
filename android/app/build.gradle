@@ -135,6 +135,12 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
+    sourceSets {
+        // MigrationTestHelper reads the exported schemas as assets. Robolectric JVM tests only see the
+        // tested variant's merged assets (AGP ignores src/test assets), so they ride in debug only;
+        // the release APK never carries them.
+        debug.assets.srcDirs += files("$projectDir/schemas")
+    }
     testOptions {
         unitTests {
             // Room JVM tests run under Robolectric against real SQLite.
@@ -193,6 +199,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")
+    // Room MigrationTestHelper for the exported-schema migration tests.
+    testImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }

@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 2;
+export const CLOUD_SYNC_CONTRACT_VERSION = 3;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -49,6 +49,14 @@ export const CloudSyncErrorCode = {
   SOURCE_NOT_FOUND: 'SOURCE_NOT_FOUND',
   /** The folder picker is already open, or there is no foreground activity. */
   PICKER_BUSY: 'PICKER_BUSY',
+  /** startScan was asked to run with no folder selected. */
+  NO_SOURCES_SELECTED: 'NO_SOURCES_SELECTED',
+  /** startScan was asked to run while another scan is active. */
+  SCAN_IN_PROGRESS: 'SCAN_IN_PROGRESS',
+  /** cancelScan named a run ID that is not known. */
+  SCAN_NOT_FOUND: 'SCAN_NOT_FOUND',
+  /** LOCAL_REFRESH has no current remote listing to reuse. */
+  REFRESH_UNAVAILABLE: 'REFRESH_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -90,6 +98,51 @@ export const SOURCE_ERROR_TEXT: Readonly<
     message: 'The folder picker is already open.',
     action: 'Finish or close the picker, then try again.',
   },
+};
+
+export type ScanErrorCode =
+  | 'NO_SOURCES_SELECTED'
+  | 'SCAN_IN_PROGRESS'
+  | 'SCAN_NOT_FOUND'
+  | 'REFRESH_UNAVAILABLE';
+
+/**
+ * Exact redacted message and recovery action for the scan error codes
+ * (contract version 3). Mirrored by the Kotlin `CloudSyncErrorCode` entries and
+ * checked by CloudSyncContractsParityTest.
+ */
+export const SCAN_ERROR_TEXT: Readonly<
+  Record<ScanErrorCode, {message: string; action: string}>
+> = {
+  NO_SOURCES_SELECTED: {
+    message: 'No folders are selected to check.',
+    action: 'Add a folder in Settings › Folders.',
+  },
+  SCAN_IN_PROGRESS: {
+    message: 'A scan is already running.',
+    action: 'Wait for it to finish, or cancel it.',
+  },
+  SCAN_NOT_FOUND: {
+    message: 'That scan is no longer known.',
+    action: 'Refresh the scan screen.',
+  },
+  REFRESH_UNAVAILABLE: {
+    message: 'There is no up-to-date remote listing to refresh against.',
+    action: 'Run a full scan.',
+  },
+};
+
+/**
+ * User-facing text of the file issue codes that are not error codes. Mirrored
+ * by the Kotlin `enum class FileIssueCode` under the parity test. A remote
+ * cause reuses the matching `CloudSyncErrorCode` value and its text instead.
+ */
+export const FILE_ISSUE_TEXT: Readonly<
+  Record<Extract<FileIssueCode, 'REMOTE_MTIME_MISSING' | 'LOCAL_UNAVAILABLE'>, string>
+> = {
+  REMOTE_MTIME_MISSING:
+    'The backup has this file but no modified time, so it could not be compared.',
+  LOCAL_UNAVAILABLE: 'This file could not be read on the device.',
 };
 
 export interface CloudSyncError {
@@ -242,6 +295,102 @@ export interface LaunchSourcePickerOk {
 }
 
 export type LaunchSourcePickerResult = LaunchSourcePickerOk | OperationError;
+
+export type ScanMode = 'FULL' | 'LOCAL_REFRESH';
+
+export type ScanPhase =
+  | 'CONNECTING'
+  | 'LISTING_REMOTE'
+  | 'COPYING_REMOTE'
+  | 'ENUMERATING_LOCAL'
+  | 'PUBLISHING'
+  | 'PUBLISHED'
+  | 'CANCELLED'
+  | 'FAILED'
+  | 'ABORTED';
+
+export type ScanTerminalState = 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'ABORTED';
+
+export interface ScanProgressDto {
+  remoteDirectoriesListed: number;
+  remoteFilesListed: number;
+  localFilesEnumerated: number;
+  localFilesMatched: number;
+}
+
+export interface ScanRunDto {
+  runId: string;
+  generation: number;
+  mode: ScanMode;
+  phase: ScanPhase;
+  /** null while running. */
+  terminalState: ScanTerminalState | null;
+  startedAtMillis: number;
+  finishedAtMillis: number | null;
+  progress: ScanProgressDto;
+  /** FAILED only: the typed cause with its recovery action (FR-006). */
+  error: CloudSyncError | null;
+  /** CANCELLED only. */
+  cancelReason: 'USER' | 'BACKGROUNDED' | null;
+}
+
+export interface SkippedSourceDto {
+  sourceId: string;
+  alias: string;
+  reason: 'GRANT_REVOKED' | 'STORAGE_MISSING' | 'LOCAL_UNAVAILABLE';
+}
+
+export interface ScanSummaryDto {
+  synced: number;
+  unsynced: number;
+  /** "Files that could not be checked" (FR-005, FR-007). */
+  unknown: number;
+  unreadableRemoteDirectories: number;
+  /** Code of the transient failure that stopped the remote walk, or null. */
+  remoteListingInterruptedBy: string | null;
+  skippedSources: SkippedSourceDto[];
+}
+
+export interface ActiveSnapshotDto {
+  snapshotId: string;
+  completedAtMillis: number;
+  /** Age anchor for the staleness hint; a LOCAL_REFRESH does not move it (FR-003). */
+  remoteListedAtMillis: number;
+  precisionMillis: number;
+  coverage: 'COMPLETE' | 'INCOMPLETE';
+  summary: ScanSummaryDto;
+}
+
+export interface ScanStateOk {
+  contractVersion: number;
+  status: 'ok';
+  /** The running run, else the most recent one, else null. */
+  run: ScanRunDto | null;
+  active: ActiveSnapshotDto | null;
+}
+
+export type ScanStateResult = ScanStateOk | OperationError;
+
+export interface StartScanOk {
+  contractVersion: number;
+  status: 'ok';
+  runId: string;
+  generation: number;
+}
+
+export type StartScanResult = StartScanOk | OperationError;
+
+/** Suggest (never force) a rescan once the remote listing is older than this (FR-003, D009). */
+export const STALE_REMOTE_LISTING_MILLIS = 7 * 24 * 60 * 60 * 1000;
+
+/** Values of `FileEntryDto.issueCode`. Remote causes reuse CloudSyncErrorCode values. */
+export type FileIssueCode =
+  | 'DIRECTORY_UNREADABLE'
+  | 'CONNECTION_LOST'
+  | 'CONNECTION_TIMEOUT'
+  | 'SERVER_ERROR'
+  | 'REMOTE_MTIME_MISSING'
+  | 'LOCAL_UNAVAILABLE';
 
 export function isErrorResult(
   result: OperationResult | QueryFilesResult,

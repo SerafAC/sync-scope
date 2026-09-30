@@ -137,7 +137,7 @@ class CloudSyncModule(
   override fun setIncludeHidden(includeHidden: Boolean, promise: Promise) =
     notImplemented("setIncludeHidden", promise)
 
-  override fun startScan(promise: Promise) = notImplemented("startScan", promise)
+  override fun startScan(mode: String?, promise: Promise) = notImplemented("startScan", promise)
 
   override fun cancelScan(runId: String, promise: Promise) = notImplemented("cancelScan", promise)
 

@@ -5,6 +5,7 @@ fun scanRun(
   generation: Long,
   configRevision: Long = 1,
   includeHidden: Boolean = false,
+  mode: String = "FULL",
 ) =
   ScanRunEntity(
     runId = runId,
@@ -17,9 +18,15 @@ fun scanRun(
     terminalState = null,
     errorCode = null,
     errorSummary = null,
+    mode = mode,
   )
 
-fun stagingSnapshot(snapshotId: String, runId: String, configRevision: Long = 1) =
+fun stagingSnapshot(
+  snapshotId: String,
+  runId: String,
+  configRevision: Long = 1,
+  remoteListedAtMillis: Long? = null,
+) =
   SnapshotEntity(
     snapshotId = snapshotId,
     scanRunId = runId,
@@ -28,6 +35,7 @@ fun stagingSnapshot(snapshotId: String, runId: String, configRevision: Long = 1)
     configRevision = configRevision,
     includeHidden = false,
     publishable = false,
+    remoteListedAtMillis = remoteListedAtMillis,
   )
 
 fun sourceRoot(sourceId: String, canonicalRoot: String = "primary:$sourceId") =

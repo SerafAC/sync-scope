@@ -1,5 +1,6 @@
 package com.syncscope.persistence
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -24,6 +25,8 @@ data class ScanRunEntity(
   val terminalState: String?,
   val errorCode: String?,
   val errorSummary: String?,
+  /** `FULL` or `LOCAL_REFRESH` (schema version 2; version 1 rows read `FULL`). */
+  @ColumnInfo(defaultValue = "FULL") val mode: String = "FULL",
 )
 
 /**
@@ -50,6 +53,11 @@ data class SnapshotEntity(
   val configRevision: Long,
   val includeHidden: Boolean,
   val publishable: Boolean,
+  /**
+   * When the remote listing this snapshot matches against finished (schema version 2). A LOCAL_REFRESH
+   * copies it from the snapshot it refreshes; null for version 1 rows.
+   */
+  val remoteListedAtMillis: Long?,
 )
 
 /** A user-granted SAF tree. `canonicalRoot` collapses aliases of one location. */
@@ -190,7 +198,18 @@ data class RemoteAmbiguityEntity(
   val entryId: String?,
   val matchKeyId: Long?,
   val reason: String,
-)
+) {
+  companion object {
+    /** A non-root remote directory could not be listed; `reason` is the error code. */
+    const val SCOPE_REMOTE_DIRECTORY: String = "REMOTE_DIRECTORY"
+
+    /** The remote walk stopped after its retries; `reason` is the error code. */
+    const val SCOPE_REMOTE_LISTING: String = "REMOTE_LISTING"
+
+    /** A source was skipped or failed mid-walk; `reason` is `GRANT_REVOKED`, `STORAGE_MISSING` or `LOCAL_UNAVAILABLE`. */
+    const val SCOPE_SOURCE: String = "SOURCE"
+  }
+}
 
 @Entity(
   tableName = "snapshot_counts",
