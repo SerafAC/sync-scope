@@ -1,0 +1,60 @@
+# Subflow: drive the system folder picker (DocumentsUI) after the app opened it.
+#
+# Params (runFlow env):
+#   VOLUME  the storage root as the user sees it: "Internal storage", or the
+#           removable volume's label (the emulator SD card is "SDCARD")
+#   PATH    folder path on that volume, segments separated by "/",
+#           for example "SyncScopeE2E/Camera"
+#
+# System UI is selected by visible text (research R11); DocumentsUI resource
+# IDs are not a public contract. Every API 31 / API 36 difference is handled
+# here with runFlow `when:` branches so feature flows stay identical.
+appId: com.syncscope
+---
+# The picker covers the app once it is open.
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.add"
+    timeout: 15000
+- waitForAnimationToEnd
+
+# Internal storage is listed under the device model name on the emulator
+# images (sdk_gphone64_x86_64) and as "Internal storage" on some builds.
+- evalScript: "${output.pickVolume = VOLUME == 'Internal storage' ? '(Internal storage|sdk_gphone.*)' : VOLUME}"
+- evalScript: "${output.pickSegments = PATH.split('/').filter(function (s) { return s.length > 0 })}"
+- evalScript: "${output.pickIndex = 0}"
+
+# Open the roots drawer. On a narrow screen it is behind the "Show roots"
+# button; if the drawer is already shown there is no such button.
+- runFlow:
+    when:
+      visible: "Show roots"
+    commands:
+      - tapOn: "Show roots"
+- tapOn: "${output.pickVolume}"
+- waitForAnimationToEnd
+
+# Walk the path one folder at a time from the volume root.
+- repeat:
+    while:
+      true: "${output.pickIndex < output.pickSegments.length}"
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: "${output.pickSegments[output.pickIndex]}"
+          direction: DOWN
+          timeout: 20000
+      - tapOn: "${output.pickSegments[output.pickIndex]}"
+      - waitForAnimationToEnd
+      - evalScript: "${output.pickIndex = output.pickIndex + 1}"
+
+# The button reads "USE THIS FOLDER" (all caps) on API 31 and
+# "Use this folder" on newer DocumentsUI; the confirmation button likewise.
+- tapOn: "(?i)use this folder"
+- tapOn: "(?i)allow"
+
+# Back in the app.
+- extendedWaitUntil:
+    visible:
+      id: "sources.add"
+    timeout: 15000

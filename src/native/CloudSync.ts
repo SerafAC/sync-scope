@@ -5,8 +5,15 @@ import {
   CLOUD_SYNC_MODULE_NAME,
   CloudSyncErrorCode,
   clampPageSize,
+  type CloudSyncError,
+  type LaunchSourcePickerResult,
+  type ListSourcesResult,
+  type OperationError,
+  type OperationResult,
   type QueryFilesResult,
   type QuerySpec,
+  type SourceDto,
+  type SourcePickerOutcome,
 } from './CloudSyncContracts';
 import type {Spec} from './specs/NativeCloudSync';
 
@@ -91,9 +98,117 @@ function normalizePageResult(result: {
   };
 }
 
+/**
+ * Plain envelope as the generated bridge returns it. Source methods carry
+ * payload fields (`sources`, `outcome`, `source`) beyond the Codegen
+ * `OperationResultDto`, so they are read defensively here.
+ */
+type NativeEnvelope = {
+  contractVersion?: number | null;
+  status: string;
+  error?: unknown;
+  sources?: unknown;
+  outcome?: unknown;
+  source?: unknown;
+};
+
+type NativeErrorShape = {
+  code?: unknown;
+  message?: unknown;
+  action?: unknown;
+  conflictingSource?: {sourceId?: unknown; alias?: unknown} | null;
+};
+
+function contractVersionOf(result: NativeEnvelope): number {
+  return typeof result.contractVersion === 'number'
+    ? result.contractVersion
+    : CLOUD_SYNC_CONTRACT_VERSION;
+}
+
+function normalizeOperationError(result: NativeEnvelope): OperationError {
+  const nativeError = result.error as NativeErrorShape | null | undefined;
+  if (nativeError == null || typeof nativeError.code !== 'string') {
+    return {
+      contractVersion: contractVersionOf(result),
+      status: 'error',
+      error: {
+        code: CloudSyncErrorCode.INTERNAL_ERROR,
+        message: 'Native operation failed without a typed error.',
+        action: null,
+        conflictingSource: null,
+      },
+    };
+  }
+  const conflict = nativeError.conflictingSource;
+  const error: CloudSyncError = {
+    code: nativeError.code,
+    message: typeof nativeError.message === 'string' ? nativeError.message : '',
+    action: typeof nativeError.action === 'string' ? nativeError.action : null,
+    conflictingSource:
+      conflict != null &&
+      typeof conflict.sourceId === 'string' &&
+      typeof conflict.alias === 'string'
+        ? {sourceId: conflict.sourceId, alias: conflict.alias}
+        : null,
+  };
+  return {contractVersion: contractVersionOf(result), status: 'error', error};
+}
+
+export async function listSources(): Promise<ListSourcesResult> {
+  const result = (await nativeModule().listSources()) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    sources: Array.isArray(result.sources)
+      ? (result.sources as SourceDto[])
+      : [],
+  };
+}
+
+/**
+ * Opens the system folder picker. With [regrantSourceId] it re-grants that
+ * source (the same folder only); without it the pick adds a new source.
+ */
+export async function launchSourcePicker(
+  regrantSourceId?: string | null,
+): Promise<LaunchSourcePickerResult> {
+  const result = (await nativeModule().launchSourcePicker(
+    regrantSourceId ?? null,
+  )) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const outcome = result.outcome as SourcePickerOutcome;
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    outcome,
+    source:
+      outcome === 'CANCELLED' || result.source == null
+        ? null
+        : (result.source as SourceDto),
+  };
+}
+
+export async function removeSource(sourceId: string): Promise<OperationResult> {
+  const result = (await nativeModule().removeSource(
+    sourceId,
+  )) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok'};
+}
+
 export const CloudSync = {
   isAvailable: isCloudSyncAvailable,
   getContractVersion,
   queryFiles,
   queryTreeChildren,
+  listSources,
+  launchSourcePicker,
+  removeSource,
 };

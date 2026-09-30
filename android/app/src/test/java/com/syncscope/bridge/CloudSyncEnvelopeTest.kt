@@ -120,4 +120,55 @@ class CloudSyncEnvelopeTest {
 
     assertNull(Regex("""\d+\.\d+""").find(err.getMap("error")!!.getString("action")!!))
   }
+
+  @Test
+  fun sourceOverlapCarriesStructuredConflictingSource() {
+    val err = envelope.sourceError(
+      CloudSyncErrorCode.SOURCE_OVERLAP,
+      ConflictingSource(sourceId = "src-1", alias = "Camera"),
+    )
+
+    val body = err.getMap("error")!!
+    assertEquals("SOURCE_OVERLAP", body.getString("code"))
+    assertEquals("This folder overlaps a folder you already added.", body.getString("message"))
+    assertEquals("Pick a folder that is not inside, or around, an existing one.", body.getString("action"))
+    val conflict = body.getMap("conflictingSource")!!
+    assertEquals("src-1", conflict.getString("sourceId"))
+    assertEquals("Camera", conflict.getString("alias"))
+  }
+
+  @Test
+  fun conflictingSourceAliasIsNotRedacted() {
+    // An alias that the message redaction rules would scrub if it went through them.
+    val alias = "DCIM/Camera (photos.example.com)"
+    val err = envelope.error(
+      CloudSyncErrorCode.SOURCE_OVERLAP,
+      "This folder overlaps a folder you already added.",
+      sensitive = listOf("DCIM"),
+      conflictingSource = ConflictingSource("src-1", alias),
+    )
+
+    assertEquals(alias, err.getMap("error")!!.getMap("conflictingSource")!!.getString("alias"))
+  }
+
+  @Test
+  fun conflictingSourceIsAbsentOnEveryOtherCode() {
+    val conflict = ConflictingSource("src-1", "Camera")
+    for (code in CloudSyncErrorCode.entries.filter { it != CloudSyncErrorCode.SOURCE_OVERLAP }) {
+      val body = envelope.error(code, "Message.", conflictingSource = conflict).getMap("error")!!
+      assertFalse(code.name, body.hasKey("conflictingSource"))
+    }
+    val plainOverlap = envelope.sourceError(CloudSyncErrorCode.SOURCE_OVERLAP).getMap("error")!!
+    assertFalse(plainOverlap.hasKey("conflictingSource"))
+  }
+
+  @Test
+  fun sourceErrorsUseTheirContractText() {
+    val body = envelope.sourceError(CloudSyncErrorCode.PICKER_BUSY).getMap("error")!!
+
+    assertEquals("PICKER_BUSY", body.getString("code"))
+    assertEquals("The folder picker is already open.", body.getString("message"))
+    assertEquals("Finish or close the picker, then try again.", body.getString("action"))
+    assertFalse(body.hasKey("conflictingSource"))
+  }
 }

@@ -1,0 +1,21 @@
+# Maestro workspace for `pnpm e2e:android` (conventions:
+# specs/003-local-source-selection/contracts/maestro-conventions.md).
+#
+# Only feature directories are run as flows; subflows/ holds reusable steps
+# that are never run on their own. Each flow declares `name: <dir>/<file>`
+# (for example `name: sources/01-add-internal`) so it matches flowsOrder.
+# Later flows depend on state from earlier ones, so the order is pinned and
+# the run stops at the first failure.
+flows:
+  - "sources/*"
+
+executionOrder:
+  continueOnFailure: false
+  flowsOrder:
+    - sources/01-add-internal
+    - sources/02-add-removable
+    - sources/03-reject-overlap
+    - sources/04-restart-persists
+    - sources/05-revoked-unavailable
+    - sources/06-regrant
+    - sources/07-remove

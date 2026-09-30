@@ -341,3 +341,119 @@ test('resolves the SDK before any script dereferences ANDROID_HOME', async () =>
     assert.ok(used === -1 || resolved < used, `${script} dereferences ANDROID_HOME too early`);
   }
 });
+
+async function fakeAdbSdk(t, publicVolumes) {
+  const {home, sdk} = await fakeSdk(t);
+  const log = join(home, 'adb.log');
+  await writeFile(
+    join(sdk, 'platform-tools/adb'),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> '${log}'
+case "$*" in
+  *"sm list-volumes public"*)
+    printf '%b' '${publicVolumes}'
+    ;;
+esac
+exit 0
+`,
+  );
+  return {home, sdk, log};
+}
+
+function runDeviceFixtures(env) {
+  return spawnSync(
+    'sh',
+    [new URL('device-fixtures.sh', import.meta.url).pathname],
+    {encoding: 'utf8', env},
+  );
+}
+
+test('device fixture script follows the validation script contract', async () => {
+  const path = new URL('device-fixtures.sh', import.meta.url);
+  const mode = (await lstat(path)).mode;
+  const source = await readFile(path, 'utf8');
+
+  assert.ok(mode & 0o111, 'device-fixtures.sh must be executable');
+  assert.match(source, /^set -eu$/m);
+  assert.match(source, /android_sdk_resolve/);
+  assert.match(source, /ANDROID_SERIAL/);
+  assert.match(source, /sm list-volumes public/);
+  assert.match(source, /mkdir -p/);
+});
+
+test('device fixture script seeds primary and removable storage idempotently', async t => {
+  const {sdk, log} = await fakeAdbSdk(
+    t,
+    'public:179,1 mounted 1A2B-3C4D\\n',
+  );
+  const env = {...process.env, ANDROID_HOME: sdk, ANDROID_SERIAL: 'emulator-5554'};
+
+  for (let run = 0; run < 2; run += 1) {
+    const seeded = runDeviceFixtures(env);
+    assert.equal(seeded.status, 0, seeded.stderr);
+  }
+
+  const calls = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.ok(
+    calls.every(call => call.startsWith('-s emulator-5554 shell ')),
+    'every adb call must target ANDROID_SERIAL',
+  );
+  const commands = calls.join('\n');
+  for (const dir of [
+    '/sdcard/SyncScopeE2E/Camera',
+    '/sdcard/SyncScopeE2E/Camera/Nested',
+    '/storage/1A2B-3C4D/SyncScopeE2E/Camera',
+  ]) {
+    assert.ok(commands.includes(`mkdir -p ${dir}`), `${dir} must be created`);
+    assert.match(
+      commands,
+      new RegExp(`> ${dir.replace(/[/.-]/g, '\\$&')}/[^/\\s]+\\.txt`),
+      `${dir} must get a fixture file that is overwritten, not appended`,
+    );
+  }
+  assert.doesNotMatch(commands, />>/);
+});
+
+test('device fixture script fails loudly without a public removable volume', async t => {
+  const {sdk, log} = await fakeAdbSdk(t, '');
+  const env = {...process.env, ANDROID_HOME: sdk, ANDROID_SERIAL: 'emulator-5554'};
+
+  const seeded = runDeviceFixtures(env);
+
+  assert.notEqual(seeded.status, 0);
+  assert.match(seeded.stderr, /no public removable volume/i);
+  assert.doesNotMatch(await readFile(log, 'utf8'), /\/storage\//);
+});
+
+test('device fixture script requires ANDROID_SERIAL', async t => {
+  const {sdk} = await fakeAdbSdk(t, 'public:179,1 mounted 1A2B-3C4D\\n');
+  const env = {...process.env, ANDROID_HOME: sdk};
+  delete env.ANDROID_SERIAL;
+
+  const seeded = runDeviceFixtures(env);
+
+  assert.notEqual(seeded.status, 0);
+  assert.match(seeded.stderr, /ANDROID_SERIAL/);
+});
+
+test('e2e mode seeds device fixtures after the APK install and before Maestro', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const install = source.indexOf('app-debug.apk');
+  const fixtures = source.indexOf('scripts/validation/device-fixtures.sh');
+  const maestro = source.indexOf('test "$repo/validation/maestro"');
+
+  assert.ok(install !== -1, 'e2e mode must install the debug APK');
+  assert.ok(fixtures !== -1, 'e2e mode must run device-fixtures.sh');
+  assert.ok(maestro !== -1, 'e2e mode must run maestro test');
+  assert.ok(install < fixtures, 'fixtures must be seeded after the APK install');
+  assert.ok(fixtures < maestro, 'fixtures must be seeded before maestro test');
+  assert.equal(
+    source.indexOf('scripts/validation/device-fixtures.sh', fixtures + 1),
+    -1,
+    'fixtures are seeded in one place, inside the per-API loop',
+  );
+  assert.ok(
+    source.lastIndexOf('for api in $apis', fixtures) !== -1,
+    'fixtures must be seeded for each API level',
+  );
+});

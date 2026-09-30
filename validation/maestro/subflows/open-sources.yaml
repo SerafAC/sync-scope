@@ -1,0 +1,13 @@
+# Subflow: launch SyncScope without clearing state and open Settings › Folders.
+# Never run on its own; feature flows call it with runFlow.
+appId: com.syncscope
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible:
+      id: "sources.add"
+    timeout: 30000

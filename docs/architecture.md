@@ -27,6 +27,7 @@ record that holds its rationale, which this page does not repeat.
 | Snapshot-scoped opaque paging, clamped to 200 | [D010](./decisions/0010-snapshot-paging-and-origin-badge.md) |
 | Two-phase deletion | [D008](./decisions/0008-two-phase-local-deletion.md) |
 | Typed envelopes; partial scans stay visibly partial | [D011](./decisions/0011-typed-error-envelopes-partial-scans.md) |
+| Sources are SAF grants with a canonical root; availability is computed | [D016](./decisions/0016-saf-source-identity-and-availability.md) |
 | Verification against real servers, not mocks | [D012](./decisions/0012-maestro-e2e-proof-bar.md) |
 
 ### One TurboModule boundary
@@ -45,6 +46,9 @@ record that holds its rationale, which this page does not repeat.
   background dispatcher, and any throwable becomes a redacted `INTERNAL_ERROR` envelope, so no Kotlin
   exception crosses the bridge. The Kotlin and TypeScript error-code lists are kept in the same order, and a
   parity test compares them.
+- The contract is at version 2 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
+  Kotlin). Version 2 added the optional re-grant source ID to `launchSourcePicker`; the parity test checks
+  that both sides carry the same version.
 
 ### Room scan store; credentials never touch it
 
@@ -96,6 +100,17 @@ per-file outcomes into `local_deletion_overlay`, recording successes only
 ([D006](./decisions/0006-unknown-status-never-deletable.md)). Both methods are declared in the contract and
 are delivered by feature 007.
 
+### Local sources through the Storage Access Framework
+
+The user's folders are `source_root` rows, each holding a persisted SAF tree-URI grant
+([D016](./decisions/0016-saf-source-identity-and-availability.md)). Only on-device and removable storage
+(`com.android.externalstorage.documents`) is accepted. Each row has a `canonicalRoot` built from the tree
+document ID, and a new pick that equals, contains or is nested in an existing root is rejected. Availability
+(Available, Access lost, Storage missing) is computed on every `listSources` call and never stored. A
+re-grant must pick the same folder, and removal deletes the row with all its scan data in one transaction
+before releasing the grant. `treeUri` and `canonicalRoot` stay native; no raw path crosses the bridge. The
+user-facing screen is **Settings › Folders** (`src/sources/`).
+
 ### Verification against real servers, not mocks
 
 Robolectric + Room for unit logic, `androidTest` against live containers for protocol clients, and Maestro on
@@ -112,6 +127,7 @@ All under `android/app/src/main/java/com/syncscope/`:
 | `persistence` | The Room database (`SyncScopeDatabase`), its entities and DAOs, `SnapshotStore`, snapshot queries and the opaque page-token codec. |
 | `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
 | `credential` | `CredentialStore`: the repository password in `EncryptedSharedPreferences` under an Android Keystore `AES256_GCM` master key. |
+| `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract feature 004 consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
 
 ## Remote clients
 
@@ -130,12 +146,15 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | --- | --- |
 | `App.tsx`, `index.js` | App entry point. |
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
-| `src/navigation/`, `src/screens/` | The navigation shell and placeholder screens. |
+| `src/navigation/`, `src/screens/` | The navigation shell and screens; `SettingsScreen` is real, the others are still placeholders. |
+| `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
+| `android/app/src/debug/` | Debug-only code, currently the `ReleaseGrantsActivity` test seam ([D017](./decisions/0017-debug-grant-release-seam.md)); not in the release build. |
 | `android/app/src/test/` | JVM unit tests (Robolectric + Room), including the persistence contract tests and `robolectric.properties`. |
 | `android/app/src/androidTest/` | Instrumented tests, including `ProtocolConnectInstrumentedTest` against the live containers. |
 | `scripts/validation/` | Container, emulator, fixture and audit orchestration, with its `node --test` suites. |
 | `validation/services/` | The Compose file and server configs for the protocol containers. |
+| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area, with shared `subflows/` and a pinned `config.yaml` order. |
 
 ## Validation infrastructure
 
@@ -158,6 +177,10 @@ The validation stack proves behaviour against real servers and real emulators.
   emulator, install the APK and run the instrumented tests (`pnpm validation:android:api31`,
   `pnpm validation:android:api36`) or Maestro flows (`pnpm e2e:android`). `android-sdk.sh` resolves
   `ANDROID_HOME`.
+- **Maestro flows.** `validation/maestro/` holds the end-to-end flows; `pnpm e2e:android` runs them on
+  API 31 and then API 36, after `device-fixtures.sh` seeds the `SyncScopeE2E/` folders on internal storage
+  and the SD card. The layout, selector, assertion, seam and fixture conventions are in
+  [DEVELOPMENT.md](../DEVELOPMENT.md#end-to-end-flows-maestro).
 - **Credentials to the device.** Gradle forwards the per-run container credentials into
   `testInstrumentationRunnerArguments`, and the emulator reaches the host at `10.0.2.2`
   ([D014](./decisions/0014-container-credentials-via-runner-args.md)).
@@ -174,7 +197,6 @@ Environment prerequisites and known pitfalls are in [DEVELOPMENT.md](../DEVELOPM
 
 ## Not yet implemented
 
-13 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope: `queryFiles`, `queryTreeChildren`,
-`listSources`, `launchSourcePicker`, `removeSource`, `getSettings`, `setIncludeHidden`, `startScan`,
-`cancelScan`, `getScanState`, `getLocalImageHandle`, `prepareLocalDeletion` and `executeLocalDeletion`.
-`validation/maestro/` does not exist yet; the first feature that needs a flow creates it.
+10 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope: `queryFiles`, `queryTreeChildren`,
+`getSettings`, `setIncludeHidden`, `startScan`, `cancelScan`, `getScanState`, `getLocalImageHandle`,
+`prepareLocalDeletion` and `executeLocalDeletion`.

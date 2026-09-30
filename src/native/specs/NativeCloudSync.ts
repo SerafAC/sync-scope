@@ -97,7 +97,10 @@ export interface Spec extends TurboModule {
   approveSftpHostKey(challengeId: string): Promise<OperationResultDto>;
   rejectSftpHostKey(challengeId: string): Promise<OperationResultDto>;
   listSources(): Promise<OperationResultDto>;
-  launchSourcePicker(): Promise<OperationResultDto>;
+  /** Opens the SAF folder picker; with an ID it re-grants that source. */
+  launchSourcePicker(
+    regrantSourceId?: string | null,
+  ): Promise<OperationResultDto>;
   removeSource(sourceId: string): Promise<OperationResultDto>;
   getSettings(): Promise<OperationResultDto>;
   setIncludeHidden(includeHidden: boolean): Promise<OperationResultDto>;

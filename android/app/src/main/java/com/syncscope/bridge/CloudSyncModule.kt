@@ -8,10 +8,15 @@ import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
 import com.syncscope.credential.CredentialStore
 import com.syncscope.persistence.RepositoryConfigDao
+import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.source.ContentResolverSafAccess
+import com.syncscope.source.SafAccess
+import com.syncscope.source.SourceOperations
+import com.syncscope.source.SourcePicker
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +30,13 @@ import kotlinx.coroutines.launch
  * Every method resolves a versioned envelope and never rejects: all work runs
  * on a background dispatcher, and any throwable is converted into a redacted
  * INTERNAL_ERROR envelope so no Kotlin exception ever reaches JS.
- * Methods not yet built resolve a typed NOT_IMPLEMENTED envelope.
+ *
+ * Repository methods delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
+ * `removeSource` delegate to [SourceOperations] and [SourcePicker], whose activity results arrive
+ * through an `ActivityEventListener` registered here for the module's lifetime.
+ * Methods not yet built (`queryFiles`, `queryTreeChildren`, `getSettings`, `setIncludeHidden`,
+ * `startScan`, `cancelScan`, `getScanState`, `getLocalImageHandle`, `prepareLocalDeletion`,
+ * `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -35,6 +46,8 @@ class CloudSyncModule(
   repositoryConfig: () -> RepositoryConfigDao = { SyncScopeDatabase.get(reactContext).repositoryConfigDao() },
   credentialStore: () -> CredentialStore = { CredentialStore.shared(reactContext) },
   remoteClients: RemoteClientFactory? = null,
+  safAccess: () -> SafAccess = { ContentResolverSafAccess(reactContext) },
+  sourceRoots: () -> SourceRootDao = { SyncScopeDatabase.get(reactContext).sourceRootDao() },
 ) : NativeCloudSyncSpec(reactContext) {
 
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -53,9 +66,18 @@ class CloudSyncModule(
 
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
+  private val sources = SourceOperations(saf = memoize(safAccess), sources = memoize(sourceRoots), envelope = envelope)
+
+  private val picker = SourcePicker(sources, envelope) { reactContext.currentActivity }
+
+  init {
+    reactContext.addActivityEventListener(picker)
+  }
+
   override fun getName(): String = NAME
 
   override fun invalidate() {
+    reactApplicationContext.removeActivityEventListener(picker)
     scope.cancel()
     super.invalidate()
   }
@@ -101,11 +123,14 @@ class CloudSyncModule(
       envelope.ok()
     }
 
-  override fun listSources(promise: Promise) = notImplemented("listSources", promise)
+  override fun listSources(promise: Promise) = runOperation("listSources", promise) { sources.list() }
 
-  override fun launchSourcePicker(promise: Promise) = notImplemented("launchSourcePicker", promise)
+  /** Resolves when the picker closes; SOURCE_NOT_FOUND for an unknown [regrantSourceId] is decided first. */
+  override fun launchSourcePicker(regrantSourceId: String?, promise: Promise) =
+    runOperation("launchSourcePicker", promise) { picker.launch(regrantSourceId) }
 
-  override fun removeSource(sourceId: String, promise: Promise) = notImplemented("removeSource", promise)
+  override fun removeSource(sourceId: String, promise: Promise) =
+    runOperation("removeSource", promise) { sources.remove(sourceId) }
 
   override fun getSettings(promise: Promise) = notImplemented("getSettings", promise)
 

@@ -43,6 +43,51 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
+  fun contractVersionIsTwo() {
+    assertEquals(2, CloudSyncContracts.CONTRACT_VERSION)
+  }
+
+  @Test
+  fun sourceErrorCodesSitJustBeforeInternalErrorInOrder() {
+    val names = CloudSyncErrorCode.entries.map { it.name }
+    assertEquals(
+      listOf(
+        "SOURCE_OVERLAP",
+        "SOURCE_UNSUPPORTED",
+        "SOURCE_REGRANT_MISMATCH",
+        "SOURCE_NOT_FOUND",
+        "PICKER_BUSY",
+        "INTERNAL_ERROR",
+      ),
+      names.takeLast(6),
+    )
+  }
+
+  @Test
+  fun sourceErrorTextMatchesTsExactly() {
+    val block = Regex("""export const SOURCE_ERROR_TEXT[^=]*= \{(.*?)\n\};""", RegexOption.DOT_MATCHES_ALL)
+      .find(tsSource)!!
+      .groupValues[1]
+    val tsText = Regex("""(\w+): \{\s*message:\s*'([^']*)',\s*action:\s*'([^']*)',?\s*\}""")
+      .findAll(block)
+      .associate { it.groupValues[1] to (it.groupValues[2] to it.groupValues[3]) }
+    val ktText = CloudSyncErrorCode.entries
+      .filter { it.defaultMessage != null }
+      .associate { it.name to (it.defaultMessage!! to it.defaultAction!!) }
+
+    assertEquals(
+      setOf("SOURCE_OVERLAP", "SOURCE_UNSUPPORTED", "SOURCE_REGRANT_MISMATCH", "SOURCE_NOT_FOUND", "PICKER_BUSY"),
+      ktText.keys,
+    )
+    assertEquals(tsText, ktText)
+    assertEquals(
+      "This folder overlaps a folder you already added." to
+        "Pick a folder that is not inside, or around, an existing one.",
+      ktText["SOURCE_OVERLAP"],
+    )
+  }
+
+  @Test
   fun clampPageSizeMatchesTsSemantics() {
     assertEquals(50, CloudSyncContracts.clampPageSize(null))
     assertEquals(50, CloudSyncContracts.clampPageSize(Double.NaN))

@@ -42,9 +42,12 @@ class CloudSyncEnvelope(
     )
 
   /**
-   * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?}}`.
+   * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?,
+   * conflictingSource?}}`.
    * The challenge's host/port are the user's own input, carried as structured fields so the
    * prompt can be checked against `ssh-keyscan`; they are never placed in the message.
+   * [conflictingSource] follows the same precedent (its alias never passes through [redact])
+   * and is written for [CloudSyncErrorCode.SOURCE_OVERLAP] only.
    */
   fun error(
     code: CloudSyncErrorCode,
@@ -53,6 +56,7 @@ class CloudSyncEnvelope(
     sensitive: Collection<String> = emptyList(),
     hostKeyChallenge: HostKeyChallenge? = null,
     field: String? = null,
+    conflictingSource: ConflictingSource? = null,
   ): WritableMap =
     base(CloudSyncContracts.STATUS_ERROR).apply {
       putMap(
@@ -63,9 +67,22 @@ class CloudSyncEnvelope(
           if (action == null) putNull("action") else putString("action", redact(action, sensitive))
           hostKeyChallenge?.let { putMap("hostKeyChallenge", challengeMap(it)) }
           field?.let { putString("field", it) }
+          if (code == CloudSyncErrorCode.SOURCE_OVERLAP && conflictingSource != null) {
+            putMap("conflictingSource", conflictingSourceMap(conflictingSource))
+          }
         },
       )
     }
+
+  /**
+   * A source-selection error with the code's fixed contract text
+   * ([CloudSyncErrorCode.defaultMessage]/[CloudSyncErrorCode.defaultAction]).
+   * [conflictingSource] is carried for [CloudSyncErrorCode.SOURCE_OVERLAP] only.
+   */
+  fun sourceError(code: CloudSyncErrorCode, conflictingSource: ConflictingSource? = null): WritableMap {
+    val message = requireNotNull(code.defaultMessage) { "${code.name} has no fixed contract text" }
+    return error(code, message, code.defaultAction, conflictingSource = conflictingSource)
+  }
 
   /** A connect that stopped at an unapproved SFTP host key (blocking TOFU prompt). */
   fun hostKeyApprovalRequired(challenge: HostKeyChallenge): WritableMap =
@@ -136,6 +153,12 @@ class CloudSyncEnvelope(
       if (previous == null) putNull("previousFingerprint") else putString("previousFingerprint", previous)
     }
 
+  private fun conflictingSourceMap(source: ConflictingSource): WritableMap =
+    newMap().apply {
+      putString("sourceId", source.sourceId)
+      putString("alias", source.alias)
+    }
+
   private fun base(status: String): WritableMap =
     newMap().apply {
       putInt("contractVersion", CloudSyncContracts.CONTRACT_VERSION)
@@ -178,3 +201,6 @@ class CloudSyncEnvelope(
     }
   }
 }
+
+/** The already-added source a rejected pick overlaps (`error.conflictingSource`, SOURCE_OVERLAP only). */
+data class ConflictingSource(val sourceId: String, val alias: String)

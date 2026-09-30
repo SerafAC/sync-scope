@@ -32,6 +32,9 @@ key.properties
 *.jks
 *.p12
 
+# speckit-eye static snapshot
+_site/
+
 # Readiness and local validation output
 .readiness/
 readiness/

@@ -1,0 +1,40 @@
+# requires: 02-add-removable
+# US1-3 / SC-002: saved sources survive an app restart, in the same order.
+appId: com.syncscope
+name: sources/04-restart-persists
+---
+- stopApp
+# open-sources launches the app without clearState.
+- runFlow: ../subflows/open-sources.yaml
+- extendedWaitUntil:
+    visible:
+      id: "sources.row"
+      index: 1
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.status"
+    text: "Available"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertVisible:
+    id: "sources.row.alias"
+    text: "Camera \\(SDCARD\\)"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertVisible:
+    id: "sources.row.status"
+    text: "Available"
+    childOf:
+      id: "sources.row"
+      index: 1
+- assertNotVisible:
+    id: "sources.row"
+    index: 2
