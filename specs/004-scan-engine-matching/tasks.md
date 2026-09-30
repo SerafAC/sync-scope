@@ -77,15 +77,15 @@ the pure, device-free scan rules that the engine, the bridge and the UI all depe
 
 ### Pure scan rules (JVM, no I/O)
 
-- [ ] T017 [P] Write `KTEST/scan/MatchIndexTest.kt` first:
+- [X] T017 [P] Write `KTEST/scan/MatchIndexTest.kt` first:
   - The `timestamps/bucket-start.bin` / `bucket-end.bin` fixture values: `bucketOf(1704067200000, 1000) == bucketOf(1704067200999, 1000)` (same bucket), but `bucketOf(1704067200999, 1000) != bucketOf(1704067201000, 1000)` (straddling the edge). At FTP's day precision (`86400000`) all three share a bucket.
   - `bucketOf` uses `Math.floorDiv`, so `-1` at precision 1000 gives bucket `-1`.
   - NFD `"é-decomposed.txt"` and NFC `"é-decomposed.txt"` produce the same key; `IMG.jpg` and `img.jpg` produce different keys.
   - The `duplicates/{a,b}/reusable.jpg` pair (same name, size and mtime) collapses to one key with `duplicateCount = 2`.
   - A remote file with `modifiedUtcMillis = null` is keyed with `MTIME_UNKNOWN_BUCKET = Long.MIN_VALUE`.
   - Round trip: `toRows(snapshotId)` → `fromRows(rows)` rebuilds an equal index.
-- [ ] T018 Implement `KT/scan/MatchIndex.kt` (research R3, R4): the key `(nfcName, sizeBytes, bucket)` → count, `add(RemoteEntry)` for `REGULAR_FILE` only, `const val MTIME_UNKNOWN_BUCKET = Long.MIN_VALUE`, `fun bucketOf(mtimeMillis, precisionMillis) = Math.floorDiv(...)`, `fun nfc(name) = Normalizer.normalize(name, Normalizer.Form.NFC)`, `toRows` / `fromRows` for `RemoteMatchKeyEntity`. This is the **only** place bucket and normalization rules are defined (Principle III). Make T017 pass.
-- [ ] T019 [P] Write `KTEST/scan/MatcherTest.kt` first, one test per row of the data-model "Matching rules" table plus order tests:
+- [X] T018 Implement `KT/scan/MatchIndex.kt` (research R3, R4): the key `(nfcName, sizeBytes, bucket)` → count, `add(RemoteEntry)` for `REGULAR_FILE` only, `const val MTIME_UNKNOWN_BUCKET = Long.MIN_VALUE`, `fun bucketOf(mtimeMillis, precisionMillis) = Math.floorDiv(...)`, `fun nfc(name) = Normalizer.normalize(name, Normalizer.Form.NFC)`, `toRows` / `fromRows` for `RemoteMatchKeyEntity`. This is the **only** place bucket and normalization rules are defined (Principle III). Make T017 pass.
+- [X] T019 [P] Write `KTEST/scan/MatcherTest.kt` first, one test per row of the data-model "Matching rules" table plus order tests:
   - rule 1: null size or null mtime → `UNKNOWN` / `LOCAL_UNAVAILABLE`, even when an exact key exists;
   - rule 2: an exact key → `SYNCED`, also when the listing is incomplete (clarification 1);
   - rule 3: only an `MTIME_UNKNOWN_BUCKET` key for `(name, size)` → `UNKNOWN` / `REMOTE_MTIME_MISSING`;
@@ -93,10 +93,10 @@ the pure, device-free scan rules that the engine, the bridge and the UI all depe
   - rule 5: no key and a complete listing → `UNSYNCED` / null;
   - `(name, size)` present only in the adjacent bucket → not matched (`UNSYNCED` on a complete listing; clarification 2);
   - a case-only name difference → not matched (clarification 3).
-- [ ] T020 Implement `KT/scan/Matcher.kt` as a pure function `verdict(file: LocalFile, precisionMillis: Long, index: MatchIndex, listing: ListingState): Verdict(status, issueCode)`, where `ListingState` is either `Complete` or `Incomplete(firstFailureCode)`. It evaluates the five rules in order. Make T019 pass.
-- [ ] T021 [P] Write `KTEST/scan/DirectoryRollupTest.kt` first: worst-of `UNKNOWN > UNSYNCED > SYNCED` propagates from files through every ancestor; an empty directory is `SYNCED`; sibling subtrees do not affect each other; a directory's `issueCode` is always null.
-- [ ] T022 Implement `KT/scan/DirectoryRollup.kt`: register directories (`entryId`, `parentEntryId`), record file statuses, and emit the final status per directory. Make T021 pass.
-- [ ] T023 [P] Write `KTEST/scan/RemoteWalkerTest.kt` first, with a fake `RemoteClient` scripted per directory:
+- [X] T020 Implement `KT/scan/Matcher.kt` as a pure function `verdict(file: LocalFile, precisionMillis: Long, index: MatchIndex, listing: ListingState): Verdict(status, issueCode)`, where `ListingState` is either `Complete` or `Incomplete(firstFailureCode)`. It evaluates the five rules in order. Make T019 pass.
+- [X] T021 [P] Write `KTEST/scan/DirectoryRollupTest.kt` first: worst-of `UNKNOWN > UNSYNCED > SYNCED` propagates from files through every ancestor; an empty directory is `SYNCED`; sibling subtrees do not affect each other; a directory's `issueCode` is always null.
+- [X] T022 Implement `KT/scan/DirectoryRollup.kt`: register directories (`entryId`, `parentEntryId`), record file statuses, and emit the final status per directory. Make T021 pass.
+- [X] T023 [P] Write `KTEST/scan/RemoteWalkerTest.kt` first, with a fake `RemoteClient` scripted per directory:
   - A complete walk returns every `REGULAR_FILE` in the index, ignores `OTHER` and never lists through it.
   - The root failing (`AUTH_FAILED`, `CONNECTION_REFUSED`, `DIRECTORY_UNREADABLE` on root) raises `RootListingFailed(code)`.
   - A non-root `DIRECTORY_UNREADABLE` adds one `REMOTE_DIRECTORY` ambiguity and the walk continues.
@@ -105,7 +105,7 @@ the pure, device-free scan rules that the engine, the bridge and the UI all depe
   - `AUTH_FAILED` during a reconnect is never retried.
   - Hidden remote entries are included.
   - Progress callbacks report directories and files listed.
-- [ ] T024 Implement `KT/scan/RemoteWalker.kt` (research R5): a breadth-first walk from the root, with an injected `delay` for the backoff, the retry policy (3 attempts, transient codes `CONNECTION_LOST` and `CONNECTION_TIMEOUT` only), and a result of `(MatchIndex, ListingState, ambiguities)`. Make T023 pass.
+- [X] T024 Implement `KT/scan/RemoteWalker.kt` (research R5): a breadth-first walk from the root, with an injected `delay` for the backoff, the retry policy (3 attempts, transient codes `CONNECTION_LOST` and `CONNECTION_TIMEOUT` only), and a result of `(MatchIndex, ListingState, ambiguities)`. Make T023 pass.
 
 **Checkpoint**: contract v3 compiles on both sides, schema v2 migrates, and every matching rule is proven by JVM tests (SC-001). `pnpm test:ci` and `pnpm test:android:unit` are green.
 
