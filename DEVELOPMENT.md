@@ -40,6 +40,17 @@ Every script in `package.json`, grouped by purpose. Run them with `pnpm <script>
 | `assemble:debug` | Builds `android/app/build/outputs/apk/debug/app-debug.apk` with Gradle. |
 | `assemble:release` | Builds the release APK with Gradle. |
 
+### Project progress
+
+| Script | What it does |
+| --- | --- |
+| `speckit:serve` | Serves the [speckit-eye](https://www.npmjs.com/package/speckit-eye) progress dashboard for `specs/` at http://127.0.0.1:4747/, with live updates. |
+| `speckit:build` | Builds the same dashboard as a static site in `_site/` (git-ignored). Pass `--base /<path>/` when it is hosted under a sub-path. |
+
+`.github/workflows/speckit-eye.yml` builds the snapshot on every push to `master` and publishes it to
+GitHub Pages at https://serafac.github.io/sync-scope/. The site is public: every spec, plan, research note
+and the constitution are readable by anyone.
+
 ### Quality gates
 
 | Script | What it does |

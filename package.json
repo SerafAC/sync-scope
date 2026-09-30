@@ -23,7 +23,9 @@
     "validation:services:stop": "scripts/validation/protocol-services.sh stop",
     "validation:android:api31": "scripts/validation/android-flow.sh connected --api 31",
     "validation:android:api36": "scripts/validation/android-flow.sh connected --api 36",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "speckit:serve": "speckit-eye --serve .",
+    "speckit:build": "speckit-eye --build . --out _site"
   },
   "dependencies": {
     "@react-native-vector-icons/material-design-icons": "12.5.0",
@@ -58,6 +60,7 @@
     "jest": "29.7.0",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
+    "speckit-eye": "1.0.0",
     "typescript": "6.0.3"
   },
   "engines": {
