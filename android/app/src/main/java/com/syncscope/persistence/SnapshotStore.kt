@@ -34,7 +34,7 @@ data class FilePage(
  * terminal state, cannot publish and cannot disturb the last known good
  * pointer.
  */
-class SnapshotStore(private val db: SyncScopeDatabase) {
+open class SnapshotStore(private val db: SyncScopeDatabase) {
 
   /**
    * Creates a run with generation `maxGeneration() + 1`, read and inserted in one transaction so two
@@ -69,16 +69,36 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
   /** The running run, else the most recent one. */
   suspend fun latestRun(): ScanRunEntity? = db.scanRunDao().latest()
 
+  suspend fun run(runId: String): ScanRunEntity? = db.scanRunDao().byId(runId)
+
+  suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
+
+  /** `INCOMPLETE` once any remote-scope or `SOURCE` gap was recorded (data-model "Snapshot"). */
+  suspend fun setCoverage(snapshotId: String, coverage: String) {
+    db.snapshotDao().setCoverage(snapshotId, coverage)
+  }
+
+  suspend fun setRemoteListedAt(snapshotId: String, remoteListedAtMillis: Long) {
+    db.snapshotDao().setRemoteListedAt(snapshotId, remoteListedAtMillis)
+  }
+
+  /**
+   * The precision a snapshot was matched with: every match key and `local_node` row of one snapshot
+   * carries the run's single precision, so any row answers. Null when the snapshot has no rows.
+   */
+  suspend fun precisionOf(snapshotId: String): Long? =
+    db.remoteMatchKeyDao().anyPrecision(snapshotId) ?: db.localNodeDao().anyPrecision(snapshotId)
+
   suspend fun stageSnapshot(snapshot: SnapshotEntity) {
     db.snapshotDao().insert(snapshot)
   }
 
-  suspend fun stageLocalNodes(nodes: List<LocalNodeEntity>) {
+  open suspend fun stageLocalNodes(nodes: List<LocalNodeEntity>) {
     if (nodes.isEmpty()) return
     db.localNodeDao().insertAll(nodes)
   }
 
-  suspend fun stageMatchKeys(keys: List<RemoteMatchKeyEntity>) {
+  open suspend fun stageMatchKeys(keys: List<RemoteMatchKeyEntity>) {
     if (keys.isEmpty()) return
     db.remoteMatchKeyDao().insertAll(keys)
   }

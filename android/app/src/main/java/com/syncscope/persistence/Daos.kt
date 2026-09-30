@@ -70,6 +70,9 @@ interface SnapshotDao {
   )
   suspend fun markPublishable(snapshotId: String, completedAtMillis: Long): Int
 
+  @Query("UPDATE snapshot SET coverage = :coverage WHERE snapshotId = :snapshotId")
+  suspend fun setCoverage(snapshotId: String, coverage: String): Int
+
   @Query("UPDATE snapshot SET remoteListedAtMillis = :remoteListedAtMillis WHERE snapshotId = :snapshotId")
   suspend fun setRemoteListedAt(snapshotId: String, remoteListedAtMillis: Long?): Int
 }
@@ -144,6 +147,9 @@ interface LocalNodeDao {
   suspend fun statusCounts(snapshotId: String): List<StatusCount>
 
   @RawQuery suspend fun page(query: SupportSQLiteQuery): List<LocalNodeEntity>
+
+  @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
+  suspend fun anyPrecision(snapshotId: String): Long?
 }
 
 /** Row projection for grouped status totals. */
@@ -168,6 +174,9 @@ interface RemoteMatchKeyDao {
     "SELECT * FROM remote_match_key WHERE snapshotId = :snapshotId AND name = :name AND sizeBytes = :sizeBytes"
   )
   suspend fun candidates(snapshotId: String, name: String, sizeBytes: Long): List<RemoteMatchKeyEntity>
+
+  @Query("SELECT precisionMillis FROM remote_match_key WHERE snapshotId = :snapshotId LIMIT 1")
+  suspend fun anyPrecision(snapshotId: String): Long?
 
   @Query("SELECT * FROM remote_match_key WHERE snapshotId = :snapshotId")
   suspend fun forSnapshot(snapshotId: String): List<RemoteMatchKeyEntity>

@@ -123,7 +123,7 @@ containers.
 
 ### Native engine
 
-- [ ] T025 [US1] Write `KTEST/scan/ScanEngineTest.kt` (FULL mode) first, using an in-memory Room database, a fake `RemoteClientFactory` / `RemoteClient`, and a fake `LocalSourceEnumerator` (from 003's test helpers where available):
+- [X] T025 [US1] Write `KTEST/scan/ScanEngineTest.kt` (FULL mode) first, using an in-memory Room database, a fake `RemoteClientFactory` / `RemoteClient`, and a fake `LocalSourceEnumerator` (from 003's test helpers where available):
   - A clean run publishes a snapshot with `coverage = COMPLETE`, `remoteListedAtMillis` set, the expected statuses per file, rolled-up directory statuses, `parentId` holding the parent's `entryId` (null at the source root), `snapshot_counts` totals, and `precisionMillis` from `discoverPrecision()` on every row. Precision is written back through `updatePrecision`.
   - An unreadable remote subdirectory → `coverage = INCOMPLETE`, matched files `SYNCED`, unmatched files `UNKNOWN` / `DIRECTORY_UNREADABLE`, still published.
   - A root listing failure → run `FAILED` with the code, the staged snapshot deleted, the previous active snapshot unchanged (FR-006).
@@ -132,7 +132,7 @@ containers.
   - Hidden local entries and their subtrees are not stored.
   - With 1 201 local files and 1 201 remote files, `local_node` and `remote_match_key` rows are written in batches of at most 500 (assert through a recording `SnapshotStore` wrapper: batch sizes 500, 500, 201 for files), and progress updates arrive at most once per 250 ms of the injected clock.
   - `entryId`, `documentId` and `documentUri` never appear in any ambiguity `reason`.
-- [ ] T026 [US1] Implement FULL mode in `KT/scan/ScanEngine.kt` (data-model state machine):
+- [X] T026 [US1] Implement FULL mode in `KT/scan/ScanEngine.kt` (data-model state machine):
   1. `CONNECTING`: load config and credentials, `connect`, `discoverPrecision`.
   2. `LISTING_REMOTE`: `RemoteWalker`.
   3. `ENUMERATING_LOCAL`: per source, `LocalSourceEnumerator.enumerate`; skip hidden subtrees; map `documentId → entryId` (UUID); `Matcher.verdict` per file; insert batches of 500 `local_node` rows.
@@ -142,27 +142,27 @@ containers.
   7. `PUBLISHING`: `SnapshotStore.publish`.
 
   Close the `RemoteClient` in `finally`. On `RootListingFailed` or a connect error, call `discardRun(…, "FAILED", code, redactedMessage)`. Make T025 pass.
-- [ ] T027 [US1] Add LOCAL_REFRESH tests to `KTEST/scan/ScanEngineTest.kt` first:
+- [X] T027 [US1] Add LOCAL_REFRESH tests to `KTEST/scan/ScanEngineTest.kt` first:
   - Refresh from a `COMPLETE` active snapshot: no `RemoteClient` is created, the match keys are copied, `remoteListedAtMillis` equals the source snapshot's, and a newly added local file is `UNSYNCED`.
   - Refresh from an `INCOMPLETE` snapshot: the remote-scope ambiguities are copied, and a new unmatched file is `UNKNOWN` with the carried code (never `UNSYNCED`).
   - No active snapshot, or `repository_config.revision` ≠ the active snapshot's `configRevision` → `RefreshUnavailable`, and no run is created.
-- [ ] T028 [US1] Implement LOCAL_REFRESH in `KT/scan/ScanEngine.kt` (research R2): `COPYING_REMOTE` (`copyRemoteState` and `MatchIndex.fromRows`, `ListingState` rebuilt from the copied ambiguities), then the same `ENUMERATING_LOCAL` → `PUBLISHING` path as FULL. No duplicated code: extract a shared local phase. Make T027 pass.
-- [ ] T029 [US1] Write `KTEST/scan/ScanCoordinatorTest.kt` first:
+- [X] T028 [US1] Implement LOCAL_REFRESH in `KT/scan/ScanEngine.kt` (research R2): `COPYING_REMOTE` (`copyRemoteState` and `MatchIndex.fromRows`, `ListingState` rebuilt from the copied ambiguities), then the same `ENUMERATING_LOCAL` → `PUBLISHING` path as FULL. No duplicated code: extract a shared local phase. Make T027 pass.
+- [X] T029 [US1] Write `KTEST/scan/ScanCoordinatorTest.kt` first:
   - A second `start` while running → `ScanInProgress`.
   - `cancel(runId)` cancels the Job, closes the client, and ends the run `CANCELLED` with summary `USER` and the staged snapshot deleted. Cancelling an already terminal run is a no-op; an unknown ID → `ScanNotFound`.
   - `onHostPause()` during a run → `CANCELLED` / `BACKGROUNDED`, active snapshot unchanged (SC-003).
   - `abortAbandonedRuns` runs exactly once, on the first `start` or `state` call.
   - Progress snapshots are throttled to at most one per 250 ms of the injected clock.
   - `state()` returns the running run, else the latest run.
-- [ ] T030 [US1] Implement `KT/scan/ScanCoordinator.kt` (research R7, R9): single-flight `Job` on an injected scope, `ScanProgress` holder, `cancel`, `onHostPause`, and cleanup with `discardRun` under `NonCancellable`. Make T029 pass.
+- [X] T030 [US1] Implement `KT/scan/ScanCoordinator.kt` (research R7, R9): single-flight `Job` on an injected scope, `ScanProgress` holder, `cancel`, `onHostPause`, and cleanup with `discardRun` under `NonCancellable`. Make T029 pass.
 
 ### Bridge
 
-- [ ] T031 [US1] Write `KTEST/bridge/ScanOperationsTest.kt` first, with one envelope test per row of the `startScan` table in [contracts/cloudsync-scan.md](./contracts/cloudsync-scan.md):
+- [X] T031 [US1] Write `KTEST/bridge/ScanOperationsTest.kt` first, with one envelope test per row of the `startScan` table in [contracts/cloudsync-scan.md](./contracts/cloudsync-scan.md):
   - `REPOSITORY_NOT_CONFIGURED`, `CREDENTIAL_UNAVAILABLE`, `NO_SOURCES_SELECTED`, `SCAN_IN_PROGRESS`, `REFRESH_UNAVAILABLE`, and an unknown mode → `INVALID_QUERY`; `ok` carries `runId` and `generation`; a missing mode means `FULL`.
   - `cancelScan`: `ok`, idempotent `ok`, and `SCAN_NOT_FOUND`.
   - `getScanState` builds `ScanRunDto` (`error` only on FAILED, `cancelReason` only on CANCELLED) and `ActiveSnapshotDto.summary` from `snapshot_counts` and `remote_ambiguity`. `skippedSources` carries the alias from `source_root`. `unknown` equals the UNKNOWN file count. No path or host appears anywhere in the map.
-- [ ] T032 [US1] Implement `KT/bridge/ScanOperations.kt`, following the `SourceOperations` / `RepositoryOperations` pattern: `start(mode)`, `cancel(runId)`, `state()`, `queryFiles` and `queryTreeChildren` (the latter with `topLevelOnly = parentId == null`, mapping `SnapshotNotFoundException` → `SNAPSHOT_NOT_FOUND` and a token mismatch → `PAGE_TOKEN_MISMATCH`), all resolved through `CloudSyncEnvelope`. Make T031 pass.
+- [X] T032 [US1] Implement `KT/bridge/ScanOperations.kt`, following the `SourceOperations` / `RepositoryOperations` pattern: `start(mode)`, `cancel(runId)`, `state()`, `queryFiles` and `queryTreeChildren` (the latter with `topLevelOnly = parentId == null`, mapping `SnapshotNotFoundException` → `SNAPSHOT_NOT_FOUND` and a token mismatch → `PAGE_TOKEN_MISMATCH`), all resolved through `CloudSyncEnvelope`. Make T031 pass.
 - [ ] T033 [US1] Wire the five methods in `KT/bridge/CloudSyncModule.kt` (`startScan`, `cancelScan`, `getScanState` via `runOperation`; `queryFiles`, `queryTreeChildren` via `runPage`), inject the coordinator dependencies through constructor parameters as the existing ones are, and register a `LifecycleEventListener` whose `onHostPause` calls `ScanCoordinator.onHostPause()` (removed in `invalidate`). Update `KTEST/bridge/CloudSyncModuleTest.kt`: the five methods no longer resolve `NOT_IMPLEMENTED`; `getSettings` and `setIncludeHidden` still do; `onHostPause` cancels an active run.
 
 ### Debug seam (D018)

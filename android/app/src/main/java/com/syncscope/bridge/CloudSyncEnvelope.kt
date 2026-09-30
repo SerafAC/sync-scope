@@ -132,7 +132,7 @@ class CloudSyncEnvelope(
   /** Converts any throwable into an INTERNAL_ERROR envelope; the message is redacted. */
   fun internalError(t: Throwable, page: Boolean = false): WritableMap {
     val message = "Unexpected ${t.javaClass.simpleName}: ${t.message ?: "no detail"}"
-    val action = "Retry; if it persists, reconnect the repository."
+    val action = INTERNAL_ERROR_ACTION
     return if (page) {
       pageError(CloudSyncErrorCode.INTERNAL_ERROR, message, action)
     } else {
@@ -167,6 +167,9 @@ class CloudSyncEnvelope(
 
   companion object {
     const val REDACTED = "[redacted]"
+
+    /** The recovery action of every INTERNAL_ERROR. */
+    const val INTERNAL_ERROR_ACTION = "Retry; if it persists, reconnect the repository."
 
     // Order matters: URLs and user@host swallow their host/path before the generic rules run.
     private val URL = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://\S+""")
