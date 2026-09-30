@@ -163,25 +163,25 @@ containers.
   - `cancelScan`: `ok`, idempotent `ok`, and `SCAN_NOT_FOUND`.
   - `getScanState` builds `ScanRunDto` (`error` only on FAILED, `cancelReason` only on CANCELLED) and `ActiveSnapshotDto.summary` from `snapshot_counts` and `remote_ambiguity`. `skippedSources` carries the alias from `source_root`. `unknown` equals the UNKNOWN file count. No path or host appears anywhere in the map.
 - [X] T032 [US1] Implement `KT/bridge/ScanOperations.kt`, following the `SourceOperations` / `RepositoryOperations` pattern: `start(mode)`, `cancel(runId)`, `state()`, `queryFiles` and `queryTreeChildren` (the latter with `topLevelOnly = parentId == null`, mapping `SnapshotNotFoundException` → `SNAPSHOT_NOT_FOUND` and a token mismatch → `PAGE_TOKEN_MISMATCH`), all resolved through `CloudSyncEnvelope`. Make T031 pass.
-- [ ] T033 [US1] Wire the five methods in `KT/bridge/CloudSyncModule.kt` (`startScan`, `cancelScan`, `getScanState` via `runOperation`; `queryFiles`, `queryTreeChildren` via `runPage`), inject the coordinator dependencies through constructor parameters as the existing ones are, and register a `LifecycleEventListener` whose `onHostPause` calls `ScanCoordinator.onHostPause()` (removed in `invalidate`). Update `KTEST/bridge/CloudSyncModuleTest.kt`: the five methods no longer resolve `NOT_IMPLEMENTED`; `getSettings` and `setIncludeHidden` still do; `onHostPause` cancels an active run.
+- [X] T033 [US1] Wire the five methods in `KT/bridge/CloudSyncModule.kt` (`startScan`, `cancelScan`, `getScanState` via `runOperation`; `queryFiles`, `queryTreeChildren` via `runPage`), inject the coordinator dependencies through constructor parameters as the existing ones are, and register a `LifecycleEventListener` whose `onHostPause` calls `ScanCoordinator.onHostPause()` (removed in `invalidate`). Update `KTEST/bridge/CloudSyncModuleTest.kt`: the five methods no longer resolve `NOT_IMPLEMENTED`; `getSettings` and `setIncludeHidden` still do; `onHostPause` cancels an active run.
 
 ### Debug seam (D018)
 
-- [ ] T034 [US1] Write `android/app/src/testDebug/java/com/syncscope/debug/ConfigureRepositoryActivityTest.kt` first (Robolectric), following `ReleaseGrantsActivityTest`. `syncscope-debug://configure-repository?protocol=SFTP&host=10.0.2.2&port=…&username=…&password=…&root=…` calls `RepositoryOperations.save` then `test`. A host-key challenge result leads to `approveSftpHostKey(challengeId)` and a second `test`. The resulting status code is shown in a `TextView` labelled `Repository configured` or `Repository error: <CODE>`. The password never appears in the view or in any app log line, and the activity never logs the intent or its data URI (assert with Robolectric `ShadowLog`).
-- [ ] T035 [US1] Implement `android/app/src/debug/java/com/syncscope/debug/ConfigureRepositoryActivity.kt` and register it with the `syncscope-debug://configure-repository` intent filter in `android/app/src/debug/AndroidManifest.xml`. It must use the production `RepositoryOperations` and `HostKeyTrustStore`, with no fake state. Make T034 pass.
+- [X] T034 [US1] Write `android/app/src/testDebug/java/com/syncscope/debug/ConfigureRepositoryActivityTest.kt` first (Robolectric), following `ReleaseGrantsActivityTest`. `syncscope-debug://configure-repository?protocol=SFTP&host=10.0.2.2&port=…&username=…&password=…&root=…` calls `RepositoryOperations.save` then `test`. A host-key challenge result leads to `approveSftpHostKey(challengeId)` and a second `test`. The resulting status code is shown in a `TextView` labelled `Repository configured` or `Repository error: <CODE>`. The password never appears in the view or in any app log line, and the activity never logs the intent or its data URI (assert with Robolectric `ShadowLog`).
+- [X] T035 [US1] Implement `android/app/src/debug/java/com/syncscope/debug/ConfigureRepositoryActivity.kt` and register it with the `syncscope-debug://configure-repository` intent filter in `android/app/src/debug/AndroidManifest.xml`. It must use the production `RepositoryOperations` and `HostKeyTrustStore`, with no fake state. Make T034 pass.
 
 **Checkpoint**: `pnpm test:android:unit` is green, and every bridge method of this feature resolves a real envelope.
 
 ### JavaScript
 
-- [ ] T036 [P] [US1] Add `startScan(mode?: ScanMode)`, `cancelScan(runId)` and `getScanState()` to `src/native/CloudSync.ts`. Each normalizes the plain Codegen object into `StartScanResult`, `OperationResult` or `ScanStateResult`, as `normalizePageResult` does. Add tests to `src/native/__tests__/CloudSync.test.ts`: the ok and error shapes, `mode` passed through (`null` when omitted), and `NATIVE_MODULE_UNAVAILABLE` when the module is missing.
-- [ ] T037 [US1] Write `src/scan/__tests__/useScan.test.tsx` first, with a mocked `CloudSync`:
+- [X] T036 [P] [US1] Add `startScan(mode?: ScanMode)`, `cancelScan(runId)` and `getScanState()` to `src/native/CloudSync.ts`. Each normalizes the plain Codegen object into `StartScanResult`, `OperationResult` or `ScanStateResult`, as `normalizePageResult` does. Add tests to `src/native/__tests__/CloudSync.test.ts`: the ok and error shapes, `mode` passed through (`null` when omitted), and `NATIVE_MODULE_UNAVAILABLE` when the module is missing.
+- [X] T037 [US1] Write `src/scan/__tests__/useScan.test.tsx` first, with a mocked `CloudSync`:
   - Polling every 500 ms while `run.terminalState === null`, stopping on a terminal state and on unmount.
   - On mount and on every `AppState` → `active` with an active snapshot and no running run, it calls `startScan('LOCAL_REFRESH')` once and ignores `REFRESH_UNAVAILABLE`.
   - `scan()` calls `startScan('FULL')`; `cancel()` calls `cancelScan(runId)`.
   - `isStale` is true only when `now - active.remoteListedAtMillis > STALE_REMOTE_LISTING_MILLIS`.
-- [ ] T038 [US1] Implement `src/scan/ScanProvider.tsx` (context, polling, auto-refresh) and `src/scan/useScan.ts` (state and actions). Make T037 pass.
-- [ ] T039 [P] [US1] Write `src/scan/__tests__/ScanSummaryCard.test.tsx` and `src/screens/__tests__/ScanScreen.test.tsx` first. Cover:
+- [X] T038 [US1] Implement `src/scan/ScanProvider.tsx` (context, polling, auto-refresh) and `src/scan/useScan.ts` (state and actions). Make T037 pass.
+- [X] T039 [P] [US1] Write `src/scan/__tests__/ScanSummaryCard.test.tsx` and `src/screens/__tests__/ScanScreen.test.tsx` first. Cover:
   - The button reads `Scan` without an active snapshot and `Rescan from scratch` with one.
   - `Cancel scan` is visible only while running.
   - `Last scan` shows the mode label ("Full scan" / "Local refresh"), the generation and the completion time.
@@ -190,7 +190,7 @@ containers.
   - `Remote listing age` shows relative time from `remoteListedAtMillis`; `Rescan suggested` appears only when `isStale` and never disables `Scan`.
   - FAILED shows `Scan failed` with the error message and the action text; CANCELLED shows "Cancelled" or "Cancelled (app left)" by `cancelReason`.
   - Every interactive element has the accessibility label listed in [contracts/maestro-scan.md](./contracts/maestro-scan.md#selectors).
-- [ ] T040 [US1] Implement `src/scan/ScanSummaryCard.tsx` and `src/screens/ScanScreen.tsx` with React Native Paper only. Make T039 pass.
+- [X] T040 [US1] Implement `src/scan/ScanSummaryCard.tsx` and `src/screens/ScanScreen.tsx` with React Native Paper only. Make T039 pass.
 - [ ] T041 [US1] Render `ScanScreen` for the `Scan` tab in `src/navigation/AppNavigator.tsx` (only `Files` keeps a placeholder) and wrap the navigator in `ScanProvider` in `App.tsx`. Update `__tests__/App.test.tsx` and any navigator test.
 
 **Checkpoint**: `pnpm lint && pnpm typecheck && pnpm test:ci` are green, and the app scans end to end on an emulator by hand ([quickstart.md](./quickstart.md) §3).

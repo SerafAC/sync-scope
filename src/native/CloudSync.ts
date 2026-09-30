@@ -12,8 +12,13 @@ import {
   type OperationResult,
   type QueryFilesResult,
   type QuerySpec,
+  type ActiveSnapshotDto,
+  type ScanMode,
+  type ScanRunDto,
+  type ScanStateResult,
   type SourceDto,
   type SourcePickerOutcome,
+  type StartScanResult,
 } from './CloudSyncContracts';
 import type {Spec} from './specs/NativeCloudSync';
 
@@ -110,6 +115,10 @@ type NativeEnvelope = {
   sources?: unknown;
   outcome?: unknown;
   source?: unknown;
+  runId?: unknown;
+  generation?: unknown;
+  run?: unknown;
+  active?: unknown;
 };
 
 type NativeErrorShape = {
@@ -203,6 +212,83 @@ export async function removeSource(sourceId: string): Promise<OperationResult> {
   return {contractVersion: contractVersionOf(result), status: 'ok'};
 }
 
+/**
+ * Scan methods resolve an envelope even without the native module, so a
+ * polling screen never has to catch: the error is NATIVE_MODULE_UNAVAILABLE.
+ */
+function scanModule(): Spec | null {
+  return TurboModuleRegistry.get<Spec>(CLOUD_SYNC_MODULE_NAME) ?? null;
+}
+
+function moduleUnavailable(): OperationError {
+  return {
+    contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+    status: 'error',
+    error: {
+      code: CloudSyncErrorCode.NATIVE_MODULE_UNAVAILABLE,
+      message: 'The scan service is not available.',
+      action: 'Restart the app.',
+      conflictingSource: null,
+    },
+  };
+}
+
+/**
+ * Starts a scan run. A missing [mode] is sent as null, which native treats as
+ * FULL. Connection and listing failures end the run later; they are read from
+ * getScanState, never from this result.
+ */
+export async function startScan(mode?: ScanMode): Promise<StartScanResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.startScan(mode ?? null)) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  if (typeof result.runId !== 'string' || typeof result.generation !== 'number') {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    runId: result.runId,
+    generation: result.generation,
+  };
+}
+
+/** Cancels the run [runId]; idempotent for a run that already ended. */
+export async function cancelScan(runId: string): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.cancelScan(runId)) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok'};
+}
+
+/** The running run (else the latest one) and the active snapshot; safe to poll. */
+export async function getScanState(): Promise<ScanStateResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.getScanState()) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    run: result.run != null ? (result.run as ScanRunDto) : null,
+    active: result.active != null ? (result.active as ActiveSnapshotDto) : null,
+  };
+}
+
 export const CloudSync = {
   isAvailable: isCloudSyncAvailable,
   getContractVersion,
@@ -211,4 +297,7 @@ export const CloudSync = {
   listSources,
   launchSourcePicker,
   removeSource,
+  startScan,
+  cancelScan,
+  getScanState,
 };

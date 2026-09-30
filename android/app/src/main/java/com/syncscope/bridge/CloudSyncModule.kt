@@ -1,6 +1,7 @@
 package com.syncscope.bridge
 
 import android.util.Log
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
@@ -8,12 +9,17 @@ import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
 import com.syncscope.credential.CredentialStore
 import com.syncscope.persistence.RepositoryConfigDao
+import com.syncscope.persistence.SnapshotStore
 import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.scan.ScanCoordinator
+import com.syncscope.scan.ScanEngine
 import com.syncscope.source.ContentResolverSafAccess
+import com.syncscope.source.DocumentsContractSourceEnumerator
+import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SafAccess
 import com.syncscope.source.SourceOperations
 import com.syncscope.source.SourcePicker
@@ -34,9 +40,11 @@ import kotlinx.coroutines.launch
  * Repository methods delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
  * `removeSource` delegate to [SourceOperations] and [SourcePicker], whose activity results arrive
  * through an `ActivityEventListener` registered here for the module's lifetime.
- * Methods not yet built (`queryFiles`, `queryTreeChildren`, `getSettings`, `setIncludeHidden`,
- * `startScan`, `cancelScan`, `getScanState`, `getLocalImageHandle`, `prepareLocalDeletion`,
- * `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
+ * `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` delegate to
+ * [ScanOperations] over one [ScanCoordinator] running on this module's scope; a
+ * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
+ * Methods not yet built (`getSettings`, `setIncludeHidden`, `getLocalImageHandle`,
+ * `prepareLocalDeletion`, `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -48,6 +56,10 @@ class CloudSyncModule(
   remoteClients: RemoteClientFactory? = null,
   safAccess: () -> SafAccess = { ContentResolverSafAccess(reactContext) },
   sourceRoots: () -> SourceRootDao = { SyncScopeDatabase.get(reactContext).sourceRootDao() },
+  snapshotStore: () -> SnapshotStore = { SnapshotStore(SyncScopeDatabase.get(reactContext)) },
+  localSources: () -> LocalSourceEnumerator = {
+    DocumentsContractSourceEnumerator(safAccess(), reactContext.contentResolver)
+  },
 ) : NativeCloudSyncSpec(reactContext) {
 
   private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -55,10 +67,15 @@ class CloudSyncModule(
   /** Resolved on first use, on the background dispatcher, so the database never opens on the UI thread. */
   private val hostKeys by lazy(hostKeyTrust)
 
+  private val repositoryDao = memoize(repositoryConfig)
+  private val credentials = memoize(credentialStore)
+  private val sourceRootDao = memoize(sourceRoots)
+  private val store = memoize(snapshotStore)
+
   private val repositories =
     RepositoryOperations(
-      repositories = memoize(repositoryConfig),
-      credentials = memoize(credentialStore),
+      repositories = repositoryDao,
+      credentials = credentials,
       hostKeys = { hostKeys },
       clients = { remoteClients ?: defaultClients },
       envelope = envelope,
@@ -66,18 +83,55 @@ class CloudSyncModule(
 
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
-  private val sources = SourceOperations(saf = memoize(safAccess), sources = memoize(sourceRoots), envelope = envelope)
+  private val sources = SourceOperations(saf = memoize(safAccess), sources = sourceRootDao, envelope = envelope)
 
   private val picker = SourcePicker(sources, envelope) { reactContext.currentActivity }
 
+  /** Built on first scan call (on the background dispatcher), so the database never opens on the UI thread. */
+  private val coordinatorHolder = lazy {
+    val engine =
+      ScanEngine(
+        store = store(),
+        repositories = repositoryDao(),
+        sourceRoots = sourceRootDao(),
+        credentials = credentials(),
+        clients = remoteClients ?: defaultClients,
+        enumerator = localSources(),
+      )
+    ScanCoordinator(engine, store(), scope)
+  }
+
+  private val scans =
+    ScanOperations(
+      coordinator = { coordinatorHolder.value },
+      store = store,
+      sources = sourceRootDao,
+      repositories = repositoryDao,
+      envelope = envelope,
+    )
+
+  /** Leaving the foreground cancels an active run as BACKGROUNDED; a coordinator never built has no run. */
+  private val hostLifecycle =
+    object : LifecycleEventListener {
+      override fun onHostResume() = Unit
+
+      override fun onHostPause() {
+        if (coordinatorHolder.isInitialized()) coordinatorHolder.value.onHostPause()
+      }
+
+      override fun onHostDestroy() = Unit
+    }
+
   init {
     reactContext.addActivityEventListener(picker)
+    reactContext.addLifecycleEventListener(hostLifecycle)
   }
 
   override fun getName(): String = NAME
 
   override fun invalidate() {
     reactApplicationContext.removeActivityEventListener(picker)
+    reactApplicationContext.removeLifecycleEventListener(hostLifecycle)
     scope.cancel()
     super.invalidate()
   }
@@ -92,7 +146,7 @@ class CloudSyncModule(
     querySpec: ReadableMap,
     pageToken: String?,
     promise: Promise,
-  ) = runPage("queryFiles", promise) { envelope.pageNotImplemented("queryFiles") }
+  ) = runPage("queryFiles", promise) { scans.queryFiles(snapshotId, querySpec, pageToken) }
 
   override fun queryTreeChildren(
     snapshotId: String,
@@ -100,7 +154,7 @@ class CloudSyncModule(
     querySpec: ReadableMap,
     pageToken: String?,
     promise: Promise,
-  ) = runPage("queryTreeChildren", promise) { envelope.pageNotImplemented("queryTreeChildren") }
+  ) = runPage("queryTreeChildren", promise) { scans.queryTreeChildren(snapshotId, parentId, querySpec, pageToken) }
 
   override fun getRepositorySummary(promise: Promise) =
     runOperation("getRepositorySummary", promise) { repositories.summary() }
@@ -137,11 +191,13 @@ class CloudSyncModule(
   override fun setIncludeHidden(includeHidden: Boolean, promise: Promise) =
     notImplemented("setIncludeHidden", promise)
 
-  override fun startScan(mode: String?, promise: Promise) = notImplemented("startScan", promise)
+  override fun startScan(mode: String?, promise: Promise) =
+    runOperation("startScan", promise) { scans.start(mode) }
 
-  override fun cancelScan(runId: String, promise: Promise) = notImplemented("cancelScan", promise)
+  override fun cancelScan(runId: String, promise: Promise) =
+    runOperation("cancelScan", promise) { scans.cancel(runId) }
 
-  override fun getScanState(promise: Promise) = notImplemented("getScanState", promise)
+  override fun getScanState(promise: Promise) = runOperation("getScanState", promise) { scans.state() }
 
   override fun getLocalImageHandle(
     snapshotId: String,
