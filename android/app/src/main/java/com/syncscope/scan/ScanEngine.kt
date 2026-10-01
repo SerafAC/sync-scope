@@ -128,6 +128,8 @@ class ScanEngine(
   private val walker: RemoteWalker = RemoteWalker(),
   private val clock: () -> Long = System::currentTimeMillis,
   private val newId: () -> String = { UUID.randomUUID().toString() },
+  /** Called before each local file is matched: the debug-only e2e pause ([ScanPacing]), nothing in release. */
+  private val perFilePause: suspend () -> Unit = {},
 ) {
 
   /**
@@ -366,6 +368,7 @@ class ScanEngine(
         progress.update { it.copy(localFilesEnumerated = it.localFilesEnumerated + 1) }
         continue
       }
+      perFilePause()
       val verdict = Matcher.verdict(file, acc.precisionMillis, remote.index, remote.listing)
       acc.rollup.recordFile(parentId, verdict.status)
       acc.counts.merge(source.sourceId to verdict.status, 1L, Long::plus)

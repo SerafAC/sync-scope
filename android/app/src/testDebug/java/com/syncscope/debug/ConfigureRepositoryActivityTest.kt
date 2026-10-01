@@ -23,6 +23,7 @@ import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.scan.ScanPacing
 import java.util.Base64
 import java.util.Collections
 import kotlinx.coroutines.runBlocking
@@ -76,6 +77,7 @@ class ConfigureRepositoryActivityTest {
   @After
   fun tearDown() {
     ConfigureRepositoryActivity.dependencies = ConfigureRepositoryActivity.PRODUCTION
+    ScanPacing.setPerFileDelay(context, 0L)
     db.close()
   }
 
@@ -128,6 +130,18 @@ class ConfigureRepositoryActivityTest {
   }
 
   @Test
+  fun scanDelaySetsTheDebugPacingAndALinkWithoutItClearsIt() {
+    awaitResult(launch(link("FTP", port = "2121", extra = "&scanDelayMs=750")))
+    assertEquals(750L, ScanPacing.perFileDelay(context))
+
+    awaitResult(launch(link("FTP", port = "2121", extra = "&scanDelayMs=999999")))
+    assertEquals("the pause is capped", ScanPacing.MAX_DELAY_MILLIS, ScanPacing.perFileDelay(context))
+
+    awaitResult(launch(link("FTP", port = "2121")))
+    assertEquals(0L, ScanPacing.perFileDelay(context))
+  }
+
+  @Test
   fun thePasswordAndTheLinkNeverReachTheViewOrTheLog() {
     remote.connectFailure = CloudSyncErrorCode.AUTH_FAILED
     val first = launch(link("SFTP", port = "2222"))
@@ -147,12 +161,12 @@ class ConfigureRepositoryActivityTest {
     assertFalse("the query is never logged", logged.contains("password="))
   }
 
-  private fun link(protocol: String, port: String): Intent =
+  private fun link(protocol: String, port: String, extra: String = ""): Intent =
     Intent(
       Intent.ACTION_VIEW,
       Uri.parse(
         "syncscope-debug://configure-repository?protocol=$protocol&host=10.0.2.2&port=$port" +
-          "&username=e2e&password=$PASSWORD&root=%2Fscan%2Fclean"
+          "&username=e2e&password=$PASSWORD&root=%2Fscan%2Fclean$extra"
       ),
     )
 

@@ -1,0 +1,41 @@
+# Subflow: on the Scan tab, tap Scan (or Rescan from scratch), and wait for the
+# run to end. The caller asserts how it ended. Never run on its own.
+#
+# Params (runFlow env):
+#   BUTTON    optional: "Rescan from scratch"; "Scan" by default
+#   PROGRESS  optional: "required" asserts that the live progress card is
+#             drawn (acceptance 1). By default a run over the seven Scan
+#             fixture files may publish before Maestro's next hierarchy
+#             snapshot, so the card is only waited for, briefly.
+#
+# The Scan button shares its text with the tab and the screen title, so it is
+# the one between the description and the tab bar.
+appId: com.syncscope
+---
+- evalScript: "${output.scanButton = typeof BUTTON !== 'undefined' && BUTTON ? BUTTON : 'Scan'}"
+- evalScript: "${output.progressRequired = typeof PROGRESS !== 'undefined' && PROGRESS == 'required'}"
+- tapOn:
+    text: "${output.scanButton}"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+- runFlow:
+    when:
+      true: "${output.progressRequired}"
+    commands:
+      - extendedWaitUntil:
+          visible: "Scan progress"
+          timeout: 15000
+# Without the requirement, a bounded wait for the card: it either shows up
+# (and is then waited out below) or the run has already ended by the time the
+# wait gives up, so "not visible" below never passes before the run started.
+- runFlow:
+    when:
+      true: "${!output.progressRequired}"
+    commands:
+      - extendedWaitUntil:
+          visible: "Scan progress"
+          timeout: 5000
+          optional: true
+- extendedWaitUntil:
+    notVisible: "Scan progress"
+    timeout: 180000

@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.net.ftp.FTPClient
+import org.apache.commons.net.ftp.FTPClientConfig
 import org.apache.commons.net.ftp.FTPConnectionClosedException
 import org.apache.commons.net.ftp.FTPFile
 import org.apache.commons.net.ftp.FTPReply
@@ -22,7 +23,8 @@ import org.apache.commons.net.ftp.FTPReply
  *
  * Passive mode is mandatory (protocol-audit.sh fails on PORT/EPRT). Listings go through
  * MLSD when the server advertises MLST and through LIST otherwise, always parsed by
- * Commons Net; this class never issues a content transfer command.
+ * Commons Net; this class never issues a content transfer command. LIST dates are read as UTC
+ * (decision log 2026-10-01), the zone vsftpd and most Unix servers print them in by default.
  */
 class FtpRemoteClient(
   private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -31,6 +33,9 @@ class FtpRemoteClient(
 
   @Volatile private var ftp: FTPClient? = null
   @Volatile private var config: RemoteConfig? = null
+
+  /** The session whose LIST parser has been configured for UTC; a new session configures again. */
+  @Volatile private var listConfiguredFor: FTPClient? = null
 
   override suspend fun connect(config: RemoteConfig, password: CharArray): ConnectOutcome =
     withContext(dispatcher) {
@@ -68,7 +73,11 @@ class FtpRemoteClient(
   override suspend fun list(directory: String): List<RemoteEntry> =
     withContext(dispatcher) {
       val client = session()
-      guarded(client) { fetchListing(client, directory) }.mapNotNull(FtpListing::toEntry)
+      guarded(client) {
+        val entries = fetchListing(client, directory).mapNotNull(FtpListing::toEntry)
+        if (entries.isEmpty()) probeReadable(client, directory)
+        entries
+      }
     }
 
   override suspend fun discoverPrecision(): PrecisionFinding =
@@ -78,6 +87,10 @@ class FtpRemoteClient(
       guarded(client) {
         val (directory, samples) =
           findSampleDirectory(client, root) ?: return@guarded FtpPrecision.NO_SAMPLE
+        // Without MLST the scan matches against LIST dates, so the precision must be what LIST
+        // actually prints (decision log 2026-10-01): MDTM's whole seconds would claim a precision
+        // the listing never delivers, and date-only entries would then almost never match.
+        if (!client.hasFeature("MLST")) return@guarded FtpPrecision.fromListFiles(samples)
         // Commons Net documents MDTM's ".xxx" fraction as optional and warns that not every
         // server honours MDTM, so the advertisement only gates the probe; the replies decide.
         if (client.hasFeature("MDTM")) {
@@ -87,17 +100,9 @@ class FtpRemoteClient(
             }
           FtpPrecision.fromMdtm(instants)?.let { return@guarded it }
         }
-        if (client.hasFeature("MLST")) {
-          FtpPrecision.fromMlsdFacts(samples.mapNotNull { it.rawListing })?.let { return@guarded it }
-        }
+        FtpPrecision.fromMlsdFacts(samples.mapNotNull { it.rawListing })?.let { return@guarded it }
         // LIST samples come from a fresh LIST so the parsed Calendar fields are still intact.
-        val listSamples =
-          if (client.hasFeature("MLST")) fetchList(client, directory).toList() else samples
-        FtpPrecision.fromListTimestamps(
-          listSamples
-            .filter { FtpListing.classify(it) == RemoteEntryType.REGULAR_FILE }
-            .mapNotNull { it.timestamp },
-        )
+        FtpPrecision.fromListFiles(fetchList(client, directory).toList())
       }
     }
 
@@ -150,8 +155,36 @@ class FtpRemoteClient(
       fetchList(client, directory)
     }
 
-  private fun fetchList(client: FTPClient, directory: String): Array<FTPFile> =
-    checked(client, client.listFiles(directory))
+  /**
+   * Tells an empty directory from one the account may not read (research R5, decision log
+   * 2026-09-30). vsftpd answers LIST on a `0700` directory it cannot open with 150/226 and no
+   * entries, exactly like an empty one; only CWD is refused, with 550. So an empty listing is
+   * confirmed with a CWD probe, and the session then goes back to where it was. CWD and PWD
+   * are navigation commands, not content transfers, so the protocol audit stays clean.
+   */
+  private fun probeReadable(client: FTPClient, directory: String) {
+    val original = client.printWorkingDirectory()
+    if (client.changeWorkingDirectory(directory)) {
+      if (original != null && !client.changeWorkingDirectory(original)) {
+        throw failure(CloudSyncErrorCode.CONNECTION_LOST, client.replyCode)
+      }
+      return
+    }
+    if (client.replyCode == FTPReply.FILE_UNAVAILABLE) {
+      throw failure(CloudSyncErrorCode.DIRECTORY_UNREADABLE, client.replyCode)
+    }
+  }
+
+  private fun fetchList(client: FTPClient, directory: String): Array<FTPFile> {
+    // Commons Net builds its LIST parser once per session, on the first LIST, so the UTC
+    // configuration has to be in place before that. SYST names the dialect, exactly as Commons
+    // Net's own auto-detection would ask.
+    if (listConfiguredFor !== client) {
+      client.configure(FtpListing.listConfig(client.systemType))
+      listConfiguredFor = client
+    }
+    return checked(client, client.listFiles(directory))
+  }
 
   /** Commons Net returns an empty array on a refused listing; the reply code tells them apart. */
   private fun checked(client: FTPClient, files: Array<FTPFile>): Array<FTPFile> {
@@ -242,6 +275,16 @@ class FtpRemoteClient(
 internal object FtpListing {
   private val MLSD_DOT_TYPES = Regex("""(?i)(?:^|;)type=(?:cdir|pdir);""")
 
+  const val LIST_TIME_ZONE = "UTC"
+
+  /**
+   * The LIST parser configuration for a server that reported [systemType] to SYST: the same
+   * dialect Commons Net would auto-detect, with LIST dates read as UTC instead of in the
+   * device's time zone (decision log 2026-10-01).
+   */
+  fun listConfig(systemType: String): FTPClientConfig =
+    FTPClientConfig(systemType).apply { serverTimeZoneId = LIST_TIME_ZONE }
+
   /** Symlinks are OTHER even though a server may resolve them; they are never followed. */
   fun classify(file: FTPFile): RemoteEntryType =
     when {
@@ -324,11 +367,22 @@ internal object FtpPrecision {
     return PrecisionFinding(maxOf(coarsest, LIST_FLOOR_MILLIS), PrecisionBasis.LIST_GRANULARITY)
   }
 
+  /** LIST granularity over the regular files of one listing (directories carry no file dates). */
+  fun fromListFiles(files: List<FTPFile>): PrecisionFinding =
+    fromListTimestamps(
+      files.filter { FtpListing.classify(it) == RemoteEntryType.REGULAR_FILE }.mapNotNull { it.timestamp }
+    )
+
+  /**
+   * Commons Net's timestamp parser computes every field and then clears only the one just below
+   * the precision the line printed (HOUR_OF_DAY for a date-only line, SECOND for `HH:mm`), so
+   * the first unset field, read from the coarse end, is what decides.
+   */
   fun granularityOfCalendar(calendar: Calendar): Long =
     when {
-      calendar.isSet(Calendar.SECOND) -> 1_000L
-      calendar.isSet(Calendar.MINUTE) -> 60_000L
-      calendar.isSet(Calendar.HOUR_OF_DAY) -> 3_600_000L
-      else -> DAY_MILLIS
+      !calendar.isSet(Calendar.HOUR_OF_DAY) -> DAY_MILLIS
+      !calendar.isSet(Calendar.MINUTE) -> 3_600_000L
+      !calendar.isSet(Calendar.SECOND) -> 60_000L
+      else -> 1_000L
     }
 }

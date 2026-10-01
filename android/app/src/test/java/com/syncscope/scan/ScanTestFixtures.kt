@@ -182,6 +182,9 @@ class ScanHarness(context: Context) {
   private val ids = AtomicInteger()
   val newId: () -> String = { "id-${ids.incrementAndGet()}" }
 
+  /** How many times the engine paused before matching a local file (debug-only e2e pacing). */
+  val pauses = AtomicInteger()
+
   val engine = ScanEngine(
     store = store,
     repositories = db.repositoryConfigDao(),
@@ -192,6 +195,7 @@ class ScanHarness(context: Context) {
     walker = RemoteWalker(delay = {}),
     clock = clock,
     newId = newId,
+    perFilePause = { pauses.incrementAndGet() },
   )
 
   suspend fun configure(revision: Long = 1L, credentialVersion: Long? = null): RepositoryConfigEntity {

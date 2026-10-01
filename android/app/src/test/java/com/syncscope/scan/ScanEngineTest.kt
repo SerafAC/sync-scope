@@ -102,6 +102,7 @@ class ScanEngineTest {
     assertEquals(1L, count("src-1", "UNKNOWN"))
 
     assertTrue("every client is closed", h.remote.created.all { it.closed })
+    assertEquals("one pacing call per local file, none per directory", 5, h.pauses.get())
   }
 
   @Test

@@ -92,6 +92,26 @@ clarifications (session 2026-09-30) are treated as fixed inputs, not re-litigate
   cannot be detected. The partial-listing Maestro flow runs against all three containers to confirm each
   one reports the error (R11); a protocol that does not is recorded in `docs/protocols.md` as a known
   limitation.
+- **Observed (T044, 2026-09-30)**: the live containers, `scan/partial/restricted` (`0700`, host-owned),
+  probed from the host with the same wire requests the app's clients send (listing only, no content
+  reads):
+  - **SFTP (OpenSSH)**: `opendir` fails with `SSH_FX_PERMISSION_DENIED` ("Permission denied"). SSHJ raises
+    an `SFTPException` with `PERMISSION_DENIED`, which `SftpRemoteClient` maps to `DIRECTORY_UNREADABLE`.
+    Detected.
+  - **WebDAV (Apache mod_dav)**: `PROPFIND` with `Depth: 1` answers `403 Forbidden`. `WebDavFailures`
+    maps a 4xx on a subdirectory to `DIRECTORY_UNREADABLE`. Detected.
+  - **FTP (vsftpd 3.0.3)**: `FEAT` does not advertise `MLST`, so `FtpRemoteClient` lists with
+    `LIST <path>`. For the restricted directory vsftpd answers `150 Here comes the directory listing.` then
+    `226 Directory send OK.` with **no entries**, which is indistinguishable from an empty directory, so
+    the walk would record no ambiguity and `only-here.txt` would come out UNSYNCED instead of UNKNOWN.
+    `CWD` into the same directory is refused with `550 Failed to change directory.`, so the condition is
+    detectable at the protocol level, but only through a request the client did not send at first. This
+    was escalated to the user (plan Risks), who chose a CWD probe (decision log, 2026-09-30):
+    `FtpRemoteClient.list` confirms every listing with no child entries by `PWD`, `CWD <dir>` and `CWD`
+    back. A `550` reply to the probe maps to `DIRECTORY_UNREADABLE`, and any other refusal keeps the empty
+    listing. `CWD` and `PWD` are navigation, not content transfer, so the protocol audit allowlist is
+    unchanged. JVM coverage is in `FtpRemoteClientTest`. Detected. The FTP partial-listing flow is kept
+    as written.
 
 ## R6. Local side
 
@@ -198,6 +218,34 @@ clarifications (session 2026-09-30) are treated as fixed inputs, not re-litigate
   directories) is added as a separate
   source, only for the progress and backgrounding flows. The size is calibrated in a task so that a scan
   runs for at least 15 s on the API 31 emulator.
+- **Calibration (T047, 2026-09-30)**: on the `dependency_api31` emulator (x86_64, host with 22 cores), a
+  FULL scan over SFTP of the Scan and Bulk sources together, with `BULK_FILES=20000` (200 directories),
+  took **22.4 s** from the first `Scan progress` frame to the published summary. That clears the 15 s
+  floor with about 50 % margin, so the provisional default of 20 000 is kept. Seeding the Bulk tree with
+  `device-fixtures.sh` takes about 70 s.
+- **Progress pacing (T050, decision log 2026-10-01)**: a FULL scan of the seven Scan fixture files can
+  publish before Maestro's next hierarchy snapshot, so `PROGRESS=required` in the `01-clean-scan-*` flows was
+  flaky. The debug repository seam takes an optional `scanDelayMs` (stored in a debug-only preferences file,
+  because `launchApp` restarts the process; `clearState` wipes it, and a seam call without it resets it to
+  0). `ScanEngine` calls a per-file hook before matching each local file; `CloudSyncModule` wires it to
+  `ScanPacing.pause`, which waits that long in the debug source set and is a no-op in the release source
+  set. The 01 flows pass `SCAN_DELAY_MS=4000` (about 28 s per run). Measured on API 31: with 1 s per file
+  the 7 s run was missed, because while the progress card animates UiAutomator's hierarchy dump waits up to
+  10 s for the UI to idle, so Maestro's tap on Scan returned only after the run had ended. Every other flow
+  runs unpaced.
+- **Emulator llkd (T050)**: with 004's scan flows, one `maestro test` run of the whole workspace lasts
+  about 20 minutes. Every such run lost the API 31 device 10 to 12 minutes in ("device offline", Maestro's
+  `DeviceServerDiedException`). The guest log showed why: `livelock: Killing '/apex/com.android.adbd/bin/adbd'
+  ... in Z state for '[sh]'`. The userdebug image runs llkd, which kills adbd once a child of adbd has been a
+  zombie for 600 s, and Maestro keeps the shell that launched its on-device driver open for the whole run.
+  `android-validator.sh start` now stops llkd once per boot (`adb root`, `setprop ctl.stop llkd-0/1`,
+  `adb unroot`) and checks that it stays stopped. llkd watches the platform, not the app under test.
+- **FTP LIST dates (T050, decision log 2026-10-01)**: vsftpd lacks MLST, so the FTP scan matches against
+  LIST dates, which vsftpd prints in UTC and, for the fixtures' 2024 mtimes, as date only. The client now
+  parses LIST in UTC and, without MLST, reports LIST's own granularity (a day here) instead of MDTM's whole
+  seconds. Commons Net leaves every Calendar field set except the one just below the printed precision, so
+  `granularityOfCalendar` reads the first unset field from the coarse end (it used to read SECOND first and
+  always answered 1 s, floored to a minute). See `docs/protocols.md`.
 - **Repository setup seam**: there is no Connect screen until feature 008. A debug-only
   `syncscope-debug://configure-repository` activity (in `android/app/src/debug/`) takes protocol, host,
   port, username, password and root. It calls the production `RepositoryOperations.save` and `test`, and

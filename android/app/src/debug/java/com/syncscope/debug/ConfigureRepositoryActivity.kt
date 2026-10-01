@@ -21,6 +21,7 @@ import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
+import com.syncscope.scan.ScanPacing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,7 +30,10 @@ import kotlinx.coroutines.launch
 
 /**
  * Debug-only repository seam (D018), reached through
- * `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`.
+ * `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`,
+ * plus an optional `scanDelayMs=…` that sets the debug-only per-file scan pause ([ScanPacing],
+ * decision log 2026-10-01). A link without it sets the pause back to 0, so only the flows that ask
+ * for it run paced.
  *
  * There is no Connect screen until feature 008, so the e2e flows configure the live containers here. It
  * runs the production [RepositoryOperations] save, then test; when the test raises an SFTP host-key
@@ -68,6 +72,7 @@ class ConfigureRepositoryActivity : Activity() {
     setContentView(statusView)
 
     val request = Request.of(intent?.data)
+    ScanPacing.setPerFileDelay(applicationContext, request.scanDelayMillis)
     val resolve = dependencies
     val context = applicationContext
     scope.launch {
@@ -121,7 +126,7 @@ class ConfigureRepositoryActivity : Activity() {
   }
 
   /** The link's query as a `saveRepository` config plus the transient password. */
-  private class Request(val config: ReadableMap, val password: String?) {
+  private class Request(val config: ReadableMap, val password: String?, val scanDelayMillis: Long) {
     companion object {
       fun of(uri: Uri?): Request {
         val config = JavaOnlyMap()
@@ -133,7 +138,8 @@ class ConfigureRepositoryActivity : Activity() {
           // A non-numeric port is passed as text so the production validation rejects it.
           port.toIntOrNull()?.let { config.putDouble("port", it.toDouble()) } ?: config.putString("port", port)
         }
-        return Request(config, uri?.getQueryParameter("password"))
+        val scanDelay = uri?.getQueryParameter("scanDelayMs")?.toLongOrNull() ?: 0L
+        return Request(config, uri?.getQueryParameter("password"), scanDelay)
       }
     }
   }

@@ -17,6 +17,7 @@ import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.scan.ScanCoordinator
 import com.syncscope.scan.ScanEngine
+import com.syncscope.scan.ScanPacing
 import com.syncscope.source.ContentResolverSafAccess
 import com.syncscope.source.DocumentsContractSourceEnumerator
 import com.syncscope.source.LocalSourceEnumerator
@@ -97,6 +98,7 @@ class CloudSyncModule(
         credentials = credentials(),
         clients = remoteClients ?: defaultClients,
         enumerator = localSources(),
+        perFilePause = ScanPacing.pause(reactContext),
       )
     ScanCoordinator(engine, store(), scope)
   }

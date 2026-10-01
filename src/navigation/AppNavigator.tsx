@@ -1,9 +1,10 @@
 import React from 'react';
-import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
-import {Icon} from 'react-native-paper';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Icon } from 'react-native-paper';
 
-import {PlaceholderScreen} from '../screens/PlaceholderScreen';
-import {SettingsScreen} from '../screens/SettingsScreen';
+import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { ScanScreen } from '../screens/ScanScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 
 export type RootTabParamList = {
   Files: undefined;
@@ -13,12 +14,17 @@ export type RootTabParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-type PlaceholderTab = Exclude<keyof RootTabParamList, 'Settings'>;
+const filesPlaceholderDescription =
+  'File browsing will appear here after setup and a completed scan.';
 
-const placeholderDescriptions: Record<PlaceholderTab, string> = {
-  Files: 'File browsing will appear here after setup and a completed scan.',
-  Scan: 'Scan controls and progress will appear here after setup.',
-};
+function FilesScreen(): React.JSX.Element {
+  return (
+    <PlaceholderScreen
+      description={filesPlaceholderDescription}
+      title="Files"
+    />
+  );
+}
 
 type TabBarIconProps = {
   color: string;
@@ -28,7 +34,7 @@ type TabBarIconProps = {
 function makeTabBarIcon(
   source: string,
 ): (props: TabBarIconProps) => React.JSX.Element {
-  return function TabBarIcon({color, size}: TabBarIconProps) {
+  return function TabBarIcon({ color, size }: TabBarIconProps) {
     return <Icon color={color} size={size} source={source} />;
   };
 }
@@ -49,24 +55,22 @@ export function AppNavigator(): React.JSX.Element {
       screenOptions={{
         headerTitle: 'SyncScope',
         tabBarLabelPosition: 'below-icon',
-      }}>
-      {(Object.keys(placeholderDescriptions) as PlaceholderTab[]).map(name => (
-        <Tab.Screen
-          key={name}
-          name={name}
-          options={{tabBarIcon: tabBarIcons[name]}}>
-          {() => (
-            <PlaceholderScreen
-              description={placeholderDescriptions[name]}
-              title={name}
-            />
-          )}
-        </Tab.Screen>
-      ))}
+      }}
+    >
+      <Tab.Screen
+        component={FilesScreen}
+        name="Files"
+        options={{ tabBarIcon: tabBarIcons.Files }}
+      />
+      <Tab.Screen
+        component={ScanScreen}
+        name="Scan"
+        options={{ tabBarIcon: tabBarIcons.Scan }}
+      />
       <Tab.Screen
         component={SettingsScreen}
         name="Settings"
-        options={{tabBarIcon: tabBarIcons.Settings}}
+        options={{ tabBarIcon: tabBarIcons.Settings }}
       />
     </Tab.Navigator>
   );

@@ -289,6 +289,22 @@ test('exposes bounded owned service and serial validator entry points', async ()
   );
 });
 
+test('validator stops llkd after boot and gives the shell back to the normal user', async () => {
+  const source = await text('scripts/validation/android-validator.sh');
+  const start = source.slice(source.indexOf('  start)'), source.indexOf('  healthcheck)'));
+
+  // llkd kills adbd once Maestro's driver shell has been a zombie for 600 s,
+  // so any maestro run over ten minutes lost the device mid-flow.
+  assert.match(source, /setprop ctl\.stop llkd-0; setprop ctl\.stop llkd-1/);
+  assert.match(source, /root >\/dev\/null[\s\S]*await_shell_uid 0[\s\S]*unroot >\/dev\/null[\s\S]*await_shell_uid 2000/);
+  assert.match(source, /getprop init\.svc\.llkd-1/);
+  assert.ok(start.includes('stop_llkd ||'), 'start must stop llkd once the emulator is ready');
+  assert.ok(
+    start.indexOf('stop_llkd ||') > start.indexOf('until serial_ready'),
+    'llkd is stopped only after the emulator route is ready',
+  );
+});
+
 async function launchWithStubbedDocker(t, dockerVersion) {
   const bin = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-launcher-test-'),

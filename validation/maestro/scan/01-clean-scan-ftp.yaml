@@ -1,0 +1,40 @@
+# Acceptance 1-2, FR-002, NFC edge case (FTP): scan the Scan source against
+# the remote scan/clean tree. Progress is shown while the scan runs, then the
+# summary counts synced = 4 (exact.txt, both reusable.jpg duplicates and the
+# NFD-on-server / NFC-on-device é-decomposed.txt), unsynced = 3
+# (size-mismatch.txt, local-only.txt, only-here.txt) and nothing unknown.
+# Self-contained: starts from clearState (contracts/maestro-scan.md).
+appId: com.syncscope
+name: scan/01-clean-scan-ftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "FTP"
+      PORT: "${FTP_PORT}"
+      USER: "${FTP_USER}"
+      PASSWORD: "${FTP_PASSWORD}"
+      ROOT: "${(FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT) + '/scan/clean'}"
+      # Debug-only pacing (decision log 2026-10-01): 4 s per local file keeps
+      # the run going for about 28 s. While the progress card animates,
+      # UiAutomator's hierarchy dump waits up to 10 s for the UI to idle, so
+      # the tap and the first wait can each spend 10 s before the card is
+      # seen; a shorter run ends unobserved and PROGRESS=required fails.
+      SCAN_DELAY_MS: "4000"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- assertNotVisible: "Scan summary"
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      PROGRESS: "required"
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertVisible: "Full scan"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+- assertVisible: "Files that could not be checked: 0"
+- assertNotVisible: ".*remote folders? could not be read"
+- assertNotVisible: "Scan failed"

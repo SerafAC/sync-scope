@@ -136,7 +136,9 @@ for api in $apis; do
     done
     user=
     password=
-    timeout --signal=TERM --kill-after=10 600 \
+    # The whole workspace (003's sources flows and 004's scan flows, run in
+    # order with fresh app state per scan flow) takes well over 10 minutes.
+    timeout --signal=TERM --kill-after=10 2400 \
       /home/adi/.cache/cloud-sync-checker-toolchain/maestro-2.10.0/maestro/bin/maestro \
       test "$@" "$repo/validation/maestro"
   fi
