@@ -19,3 +19,7 @@
 ## 2026-10-01 — Phase 3: User Story 1 [T044, T047, T049-T050]
 **Q:** 01-clean-scan-sftp's required progress-card check is flaky because a 7-file scan finishes before Maestro sees the card. How should T043's progress assertion be made reliable?
 **A:** Debug-only scan delay — add a debug-build-only per-file throttle, set through the existing ConfigureRepository debug seam (or the same debug intent), and enable it in the 01 flows so the progress card is always visible. Release builds must be unaffected, so keep it out of release code paths. Keep PROGRESS=required strict in the 01 flows.
+
+## 2026-10-01 — Phase 3: User Story 1 [T050]
+**Q:** The previous T050 implementer hit the usage limit. Its final run passed all 18 flows on API 31 but failed on API 36 at scan/07-revoked-source. How should we proceed?
+**A:** Retry T050. Continue from the working tree. FTP LIST-as-UTC and the debug scan delay are already in place. Look at why scan/07-revoked-source fails on API 36 (D017 release-grants behaviour may differ on 36) and fix it, then rerun the full `pnpm e2e:android` (API 31 + 36). If the emulator goes "device offline" twice in a row, stop and return "blocked" instead of retrying again and again.
