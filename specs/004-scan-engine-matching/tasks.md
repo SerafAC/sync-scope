@@ -223,7 +223,7 @@ containers.
 - [X] T056 [P] Update `DEVELOPMENT.md`: the configure-repository seam under "Test-only seams", the new remote and device fixtures, how credentials reach Maestro, `BULK_FILES` calibration, and running one scan flow (quickstart §2).
 - [X] T057 [P] Add to `CHANGELOG.md` under `Unreleased`: "Added: scan your folders and see which files are backed up (SYNCED / UNSYNCED / UNKNOWN), with rescan and automatic local refresh", "Changed: CloudSync contract version 3", "Changed: scan store schema version 2".
 - [X] T058 [P] Correct the claim in `specs/003-local-source-selection/plan.md` (Constitution Check, II) that hidden-file filtering is "feature 004's `setIncludeHidden`": point it at the proposed-ownership note in `specs/005-gallery-list-filtering/spec.md` (Dependencies), which makes 005 the proposed owner of `getSettings` / `setIncludeHidden` (analysis I2). This file only exists after T001's rebase.
-- [ ] T059 Run every quality gate: `pnpm lint` (zero warnings), `pnpm typecheck`, `pnpm test:ci`, `pnpm test:android:unit`, `pnpm test:foundation` and `pnpm e2e:android` on API 31 and API 36. Walk through [quickstart.md](./quickstart.md) and confirm every expected outcome.
+- [X] T059 Run every quality gate: `pnpm lint` (zero warnings), `pnpm typecheck`, `pnpm test:ci`, `pnpm test:android:unit`, `pnpm test:foundation` and `pnpm e2e:android` on API 31 and API 36. Walk through [quickstart.md](./quickstart.md) and confirm every expected outcome.
 
 ---
 
