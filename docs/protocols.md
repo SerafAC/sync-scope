@@ -11,6 +11,30 @@ All clients map failures to the same typed, redacted error codes (`AUTH_FAILED`,
 Messages are fixed strings; host, username, password and path appear only in the exception cause
 ([D011](./decisions/0011-typed-error-envelopes-partial-scans.md)).
 
+## How a scan uses the clients
+
+The scan walks the remote root breadth-first with `list` (metadata only). Remote **hidden entries**
+(names starting with `.`) are included in matching: unlike local hidden files, which the scan skips, they
+can only turn a false UNSYNCED into a correct SYNCED. `OTHER` entries (symlinks, FIFOs) are never
+followed. How listing failures affect file status is in
+[sync and deletion safety](./sync-and-deletion-safety.md#partial-scans-are-shown-as-partial).
+
+### Unreadable directories, as observed
+
+Matching ignores directories, so a folder the account cannot read must be reported as an error, never as
+an empty listing; otherwise its files' local copies would show as UNSYNCED instead of UNKNOWN. Each
+container was checked against `scan/partial/restricted` (`0700`, owned by another user) during feature 004
+(T044, [004 research R5](../specs/004-scan-engine-matching/research.md#r5-remote-walk-retries-and-the-failed-boundary)):
+
+| Protocol | Server | Observed reply | Client result |
+| --- | --- | --- | --- |
+| SFTP | OpenSSH | `opendir` fails with `SSH_FX_PERMISSION_DENIED` ("Permission denied"); SSHJ raises an `SFTPException` with `PERMISSION_DENIED` | `DIRECTORY_UNREADABLE` |
+| WebDAV | Apache `mod_dav` | `PROPFIND` `Depth: 1` answers `403 Forbidden` | `DIRECTORY_UNREADABLE` (a 4xx on a subdirectory) |
+| FTP | vsftpd 3.0.3 | `LIST` answers `150` then `226` with **no entries**, like an empty folder; `CWD` into it answers `550 Failed to change directory.` | `DIRECTORY_UNREADABLE`, through the CWD probe described under FTP |
+
+All three are detected, and the partial-listing flow (`scan/02-partial-listing-*`) proves it on each
+protocol. A failure on the remote root itself fails the whole scan instead (FR-006).
+
 ## FTP (Apache Commons Net)
 
 Commons Net 3.12.0, passive mode only (`enterLocalPassiveMode()`), 15 s connect and 30 s socket/data

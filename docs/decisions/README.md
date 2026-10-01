@@ -1,6 +1,6 @@
 # Decision records
 
-Append-only: reverse a decision with a new record that supersedes it; new records continue from 0018.
+Append-only: reverse a decision with a new record that supersedes it; new records continue from 0020.
 
 Each record is named `00NN-<kebab-slug>.md` and has the fields Status, Date / context, Scope, Made by and
 Revisable, followed by the sections Context, Decision, Rationale, Alternatives rejected and Related.
@@ -26,3 +26,5 @@ in which the decision was made (the record's "Date / context" field).
 | D015 | [Docker major-version pin](./0015-docker-major-version-pin.md) | Accepted | environment | M001/S01/T08 |
 | D016 | [SAF source identity, overlap and computed availability](./0016-saf-source-identity-and-availability.md) | Accepted | architecture | 2026-09-28 |
 | D017 | [Debug-only grant-release seam for end-to-end flows](./0017-debug-grant-release-seam.md) | Accepted | testing | 2026-09-28 |
+| D018 | [Debug-only repository seam for end-to-end flows](./0018-debug-repository-seam.md) | Accepted | testing | 2026-09-30 |
+| D019 | [Match names in NFC, case-sensitively; strict precision buckets](./0019-match-name-normalization-and-strict-buckets.md) | Accepted | architecture | 2026-09-30 |

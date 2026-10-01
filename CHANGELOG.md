@@ -9,6 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- Scan your folders and see which files are backed up (SYNCED / UNSYNCED / UNKNOWN), with rescan and
+  automatic local refresh (feature 004): the Scan tab shows live progress and can cancel; matching uses
+  the NFC-normalized, case-sensitive name, the size and the modified time in the same precision bucket
+  (D019); a remote folder that cannot be read or a dropped connection makes the scan visibly incomplete,
+  with unmatched files UNKNOWN and counted as "files that could not be checked"; an unreachable remote
+  fails the scan and keeps the previous result; reopening the app refreshes the local side against the
+  cached remote listing, whose age is shown, with a rescan hint after 7 days; and leaving the app
+  cancels a running scan and discards its partial result. Proven by Maestro flows in
+  `validation/maestro/scan/` against live FTP, SFTP and WebDAV containers, using a debug-only
+  configure-repository seam (D018).
 - Select local folders to check, on internal storage and on an SD card, in Settings › Folders (feature
   003): folders are picked through the Android system folder picker and kept across restarts, overlapping
   folders are refused, each folder gets a generated alias, a folder whose access was lost is shown as
@@ -29,6 +39,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- CloudSync contract version 3: `startScan` takes an optional mode (`FULL` or `LOCAL_REFRESH`);
+  `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` are implemented; scan
+  error codes and the file issue codes `REMOTE_MTIME_MISSING` and `LOCAL_UNAVAILABLE` were added.
+- Scan store schema version 2: `scan_run.mode` and `snapshot.remoteListedAtMillis`, added by a Room
+  auto-migration from version 1.
+- The FTP client reads LIST dates as UTC and, on servers without MLST, takes its precision from what LIST
+  prints; an empty LIST is confirmed with a `CWD` probe so an unreadable folder is reported as such.
 - CloudSync contract version 2: `launchSourcePicker` takes an optional re-grant source ID, and five error
   codes were added (`SOURCE_OVERLAP`, `SOURCE_UNSUPPORTED`, `SOURCE_REGRANT_MISMATCH`, `SOURCE_NOT_FOUND`,
   `PICKER_BUSY`).
