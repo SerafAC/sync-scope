@@ -144,10 +144,17 @@ builds and installs the debug APK, runs `scripts/validation/device-fixtures.sh`,
 validation/maestro/
 ├── config.yaml      # executionOrder.flowsOrder + continueOnFailure: false
 ├── subflows/        # reusable steps, never run on their own
-│   ├── pick-folder.yaml     # drives the system folder picker; env VOLUME, PATH
-│   └── open-sources.yaml    # launches the app and opens Settings › Folders
-└── sources/         # one directory per feature area
-    ├── 01-add-internal.yaml
+│   ├── pick-folder.yaml            # drives the system folder picker; env VOLUME, PATH
+│   ├── open-sources.yaml           # launches the app and opens Settings › Folders
+│   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT
+│   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true)
+│   ├── open-scan.yaml              # opens the Scan tab
+│   └── start-scan.yaml             # taps Scan (or BUTTON) and waits for the run to end
+├── sources/         # one directory per feature area (feature 003)
+│   ├── 01-add-internal.yaml
+│   └── …
+└── scan/            # feature 004
+    ├── 01-clean-scan-{ftp,sftp,webdav}.yaml
     └── …
 ```
 
@@ -174,16 +181,28 @@ validation/maestro/
   error messages. Never assert internal IDs.
 - A flow that depends on an earlier flow says so in a leading comment, for example
   `# requires: 01-add-internal`.
-- Only the first flow of a run uses `launchApp: clearState: true`. A restart is `stopApp` then
+- In `sources/`, only the first flow uses `launchApp: clearState: true`, and later flows build on its
+  state. Every `scan/` flow is self-contained instead: it starts from `clearState`, configures the
+  repository through the seam and adds only the sources it needs. A restart is `stopApp` then
   `launchApp` without `clearState`.
 
 ### Test-only seams
 
 A seam lives only in `android/app/src/debug/`, so the release build never contains it. It is reached
 through a `syncscope-debug://` deep link (Maestro `openLink`), is recorded in `docs/decisions/`, and must
-reproduce a real OS state, never fake app state. The existing seam is `syncscope-debug://release-grants`,
-which releases every persisted folder grant
-([D017](./docs/decisions/0017-debug-grant-release-seam.md)).
+reproduce a real OS or app state through production code, never fake app state. The existing seams are:
+
+- `syncscope-debug://release-grants` releases every persisted folder grant
+  ([D017](./docs/decisions/0017-debug-grant-release-seam.md)).
+- `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`
+  saves and tests a repository with the production `RepositoryOperations`, approving an SFTP host-key
+  challenge on the way, and shows `Repository configured` or `Repository error: <CODE>`
+  ([D018](./docs/decisions/0018-debug-repository-seam.md)). It stands in for the Connect screen until
+  feature 008. An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
+  (`ScanPacing`, a no-op in release builds), which the `01-clean-scan-*` flows use so the progress card
+  stays visible; a link without it resets the pause to 0. Flows call it through
+  `subflows/configure-repository.yaml`. The password travels in the link, which Android and Maestro may
+  log, so only ever pass the throwaway container credentials, never a real password.
 
 ### Device fixtures
 
@@ -193,9 +212,57 @@ Flows never create their own files. `scripts/validation/device-fixtures.sh` seed
 - `SyncScopeE2E/Camera` and `SyncScopeE2E/Camera/Nested` on internal storage;
 - `SyncScopeE2E/Camera` on the SD card, found with `sm list-volumes public`.
 
-Each folder gets one small file. The script is idempotent, and it fails with a clear message when no SD
-card is mounted, so removable-storage coverage is never skipped silently. New fixtures go in this script,
-under `SyncScopeE2E/`.
+Each folder gets one small file. For the scan flows (feature 004) it also seeds, on internal storage:
+
+- `SyncScopeE2E/Scan`: the device side of the remote `scan/clean` tree, with the same names, contents and
+  mtimes (`touch -d @1704067200`). `é-decomposed.txt` uses the NFC name, while the server stores it in
+  NFD, which proves NFC matching. `size-mismatch.txt` differs in size, `local-only.txt` has no remote
+  copy, and `only-here.txt` matches only the file in the unreadable `scan/partial/restricted` folder.
+- `SyncScopeE2E/Bulk`: `BULK_FILES` small generated files (default 20 000, whole numbers 1 to 99 999) in
+  200 folders, regenerated on every run. Only the progress and backgrounding flow
+  (`scan/05-background-discards`) adds it.
+
+The script is idempotent, and it fails with a clear message when no SD card is mounted, so
+removable-storage coverage is never skipped silently. New fixtures go in this script, under
+`SyncScopeE2E/`.
+
+**Calibrating `BULK_FILES`.** The Bulk source must keep a full scan running for at least 15 s on the API 31
+emulator, so a flow can cancel it or leave the app mid-run. With 20 000 files a FULL scan over SFTP of
+`Scan` and `Bulk` took about 22 s on the reference host (`specs/004-scan-engine-matching/research.md`,
+R11), and seeding takes about 70 s. On a much faster or slower machine, time a scan of both sources from
+the first progress frame to the summary and set `BULK_FILES` (an environment variable read by
+`device-fixtures.sh`) so the run lasts at least 15 s.
+
+### Remote fixtures
+
+`scripts/validation/fixture-seed.sh` seeds the read-only tree the containers serve. The scan flows use its
+`scan/` subtree:
+
+- `scan/clean/`: `exact.txt`, `a/reusable.jpg` and `b/reusable.jpg` (a duplicate pair), the NFD-named
+  `é-decomposed.txt` and `size-mismatch.txt`, all with the mtime `1704067200`. The `01-clean-scan-*`
+  flows and flows `03` to `07` use it as their remote root.
+- `scan/partial/`: `readable/exact.txt`, and `restricted/only-here.txt` inside `restricted/`, which is
+  `0700` and owned by the host user, so each server answers with a real permission error. The
+  `02-partial-listing-*` flows use it.
+
+When the tree changes, update the exact-tree expectations in `ProtocolConnectInstrumentedTest` and
+`scripts/validation/validation-infrastructure.test.mjs` in the same change.
+
+### Credentials for the flows
+
+The containers get a new random username and password on every `pnpm validation:services:start`, written
+to `/tmp/cloud-sync-checker-syncscope-<protocol>/credentials` as `username=…` and `password=…` lines
+([D014](./docs/decisions/0014-container-credentials-via-runner-args.md)). Before `maestro test`,
+`android-flow.sh` reads them and passes them as Maestro `-e` variables, never printing them:
+
+| Variables | Value |
+| --- | --- |
+| `FTP_HOST`, `SFTP_HOST`, `WEBDAV_HOST` | `10.0.2.2`, the emulator's alias for the host loopback |
+| `FTP_PORT`, `SFTP_PORT`, `WEBDAV_PORT` | `32120`, `32122`, `32180` |
+| `FTP_USER`, `FTP_PASSWORD` (and the `SFTP_` and `WEBDAV_` pairs) | the per-run credentials |
+| `FTP_ROOT`, `SFTP_ROOT`, `WEBDAV_ROOT` | `/`, `/srv/fixtures`, `/webdav`; each flow appends `/scan/clean` or `/scan/partial` |
+
+Each scan flow passes the set it needs to `subflows/configure-repository.yaml`.
 
 ### Running one flow
 
@@ -214,7 +281,22 @@ maestro test validation/maestro/sources/01-add-internal.yaml
 ```
 
 A flow with a `# requires:` comment needs the state the earlier flows leave, so run those first, in order,
-starting from `01-…` (the only flow that clears app state). Stop the emulator afterwards with
+starting from `01-…` (the only flow that clears app state).
+
+A scan flow is self-contained, but needs the containers and their credentials. Start the services first
+(`pnpm validation:services:start && pnpm validation:services:health`), do the steps above, then pass the
+variables of the protocol the flow uses:
+
+```sh
+creds=/tmp/cloud-sync-checker-syncscope-sftp/credentials
+maestro test -e SFTP_PORT=32122 -e SFTP_ROOT=/srv/fixtures \
+  -e SFTP_USER="$(sed -n 's/^username=//p' "$creds")" \
+  -e SFTP_PASSWORD="$(sed -n 's/^password=//p' "$creds")" \
+  validation/maestro/scan/01-clean-scan-sftp.yaml
+pnpm validation:services:stop               # also runs the read-only protocol audit
+```
+
+For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webdav`. Stop the emulator afterwards with
 `android-validator.sh stop` and the same arguments. The Maestro binary used by the scripts is
 `~/.cache/cloud-sync-checker-toolchain/maestro-2.10.0/maestro/bin/maestro`.
 

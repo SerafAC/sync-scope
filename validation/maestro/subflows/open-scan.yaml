@@ -1,0 +1,16 @@
+# Subflow: open the Scan tab from any other tab and wait until the screen has
+# read the scan state. Never run on its own.
+appId: com.syncscope
+---
+# "Scan" is also the Scan source's alias on the Folders list and the screen
+# title, so the tab is the "Scan" between the Files and Settings tabs.
+- tapOn:
+    text: "Scan"
+    rightOf: "Files"
+    leftOf: "Settings"
+- extendedWaitUntil:
+    visible: "Checks every file in your folders against the backup."
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Loading scan"
+    timeout: 15000

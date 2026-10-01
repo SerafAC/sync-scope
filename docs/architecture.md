@@ -46,9 +46,13 @@ record that holds its rationale, which this page does not repeat.
   background dispatcher, and any throwable becomes a redacted `INTERNAL_ERROR` envelope, so no Kotlin
   exception crosses the bridge. The Kotlin and TypeScript error-code lists are kept in the same order, and a
   parity test compares them.
-- The contract is at version 2 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
-  Kotlin). Version 2 added the optional re-grant source ID to `launchSourcePicker`; the parity test checks
-  that both sides carry the same version.
+- The contract is at version 3 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
+  Kotlin); the parity test checks that both sides carry the same version. Version 2 added the optional
+  re-grant source ID to `launchSourcePicker`. Version 3 (feature 004) made `startScan` take an optional
+  mode (`FULL` or `LOCAL_REFRESH`), implemented `startScan`, `cancelScan`, `getScanState`, `queryFiles`
+  and `queryTreeChildren` with their scan DTOs, added the scan error codes (such as `SCAN_IN_PROGRESS` and
+  `REFRESH_UNAVAILABLE`) and the file issue codes `REMOTE_MTIME_MISSING` and `LOCAL_UNAVAILABLE`, mirrored
+  in both languages under the parity test.
 
 ### Room scan store; credentials never touch it
 
@@ -61,6 +65,11 @@ full persistence surface — entities, DAOs, `SyncScopeDatabase`, `SnapshotQuery
 ([D013](./decisions/0013-full-persistence-layer-in-s01.md)). Exported schemas under `android/app/schemas/`
 are reviewed source for migrations, and a mismatched on-disk schema fails rather than falling back to a
 destructive migration.
+
+The schema is at **version 2** (feature 004). It adds two columns through a Room `@AutoMigration` from
+version 1, covered by `MigrationTest`: `scan_run.mode` (`FULL` or `LOCAL_REFRESH`, default `FULL`) and
+the nullable `snapshot.remoteListedAtMillis`, the remote listing's age, which a local refresh copies from
+the snapshot it builds on.
 
 The password never enters Room: `repository_config` refers to it only by `credentialVersion`, and the
 secret itself lives in `CredentialStore` (Android Keystore-backed `EncryptedSharedPreferences`,
@@ -78,6 +87,25 @@ determination into an indexed exact lookup. Android album layouts and cloud-flat
 never expected to line up ([D003](./decisions/0003-directory-agnostic-sync-matching.md)). The precision
 feeding `precisionMillis` is measured per server at connect time
 ([D004](./decisions/0004-discovered-timestamp-precision.md)); see [protocols](./protocols.md) and
+[sync and deletion safety](./sync-and-deletion-safety.md).
+
+### One scan engine, two modes
+
+The `scan` package turns the repository and the selected folders into a snapshot. One `ScanEngine` runs
+both modes ([004 research R2](../specs/004-scan-engine-matching/research.md#r2-scan-modes-full-and-local_refresh-are-the-same-engine)):
+
+- **`FULL`** (Scan and Rescan from scratch) connects, discovers precision, lists the remote breadth-first
+  through `RemoteWalker` into an in-memory `MatchIndex`, enumerates each source through
+  `LocalSourceEnumerator`, applies the `Matcher` rule table to each file, rolls statuses up to
+  directories (`DirectoryRollup`) and publishes.
+- **`LOCAL_REFRESH`** (on app open) copies the active snapshot's remote keys and remote-side failures, and
+  re-enumerates only the local side.
+
+`ScanCoordinator` holds at most one run at a time, publishes progress at most every 250 ms, and cancels
+the run on `cancelScan` or when the host activity pauses. Every attempt is one `scan_run` with a fresh
+generation. A cancelled, backgrounded or `FAILED` run deletes its staged snapshot, so only a completed run
+is ever promoted ([D009](./decisions/0009-foreground-scan-and-freshness.md)). JS polls `getScanState`
+every 500 ms while a run is active. The matching rules are in
 [sync and deletion safety](./sync-and-deletion-safety.md).
 
 ### Snapshot-scoped opaque paging, clamped to 200
@@ -123,11 +151,12 @@ All under `android/app/src/main/java/com/syncscope/`:
 
 | Package | Role |
 | --- | --- |
-| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), and `RepositoryOperations`, which saves, summarises and tests the repository configuration. |
+| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, and `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` into envelopes. |
 | `persistence` | The Room database (`SyncScopeDatabase`), its entities and DAOs, `SnapshotStore`, snapshot queries and the opaque page-token codec. |
 | `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
 | `credential` | `CredentialStore`: the repository password in `EncryptedSharedPreferences` under an Android Keystore `AES256_GCM` master key. |
-| `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract feature 004 consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
+| `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract the scan consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
+| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first remote listing with retries and the `FAILED` boundary), `DirectoryRollup` (worst-of directory status), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
 
 ## Remote clients
 
@@ -146,15 +175,16 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | --- | --- |
 | `App.tsx`, `index.js` | App entry point. |
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
-| `src/navigation/`, `src/screens/` | The navigation shell and screens; `SettingsScreen` is real, the others are still placeholders. |
+| `src/navigation/`, `src/screens/` | The navigation shell and screens; `SettingsScreen` and `ScanScreen` are real, the others are still placeholders. |
 | `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
+| `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
-| `android/app/src/debug/` | Debug-only code, currently the `ReleaseGrantsActivity` test seam ([D017](./decisions/0017-debug-grant-release-seam.md)); not in the release build. |
+| `android/app/src/debug/` | Debug-only code, not in the release build: the `ReleaseGrantsActivity` grant-release seam ([D017](./decisions/0017-debug-grant-release-seam.md)), the `ConfigureRepositoryActivity` configure-repository seam ([D018](./decisions/0018-debug-repository-seam.md)) and the debug `ScanPacing`. `android/app/src/release/` holds the release no-op `ScanPacing`. |
 | `android/app/src/test/` | JVM unit tests (Robolectric + Room), including the persistence contract tests and `robolectric.properties`. |
 | `android/app/src/androidTest/` | Instrumented tests, including `ProtocolConnectInstrumentedTest` against the live containers. |
 | `scripts/validation/` | Container, emulator, fixture and audit orchestration, with its `node --test` suites. |
 | `validation/services/` | The Compose file and server configs for the protocol containers. |
-| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area, with shared `subflows/` and a pinned `config.yaml` order. |
+| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`), with shared `subflows/` and a pinned `config.yaml` order. |
 
 ## Validation infrastructure
 
@@ -169,7 +199,8 @@ The validation stack proves behaviour against real servers and real emulators.
 - **Fixtures.** `fixture-seed.sh` and `fixture-manifest.sh` seed and describe the fixture tree: flat and
   nested files, a duplicates pair with identical size and mtime, NFC/NFD unicode names, a size mismatch, a
   same-second timestamp bucket pair, hidden files, and non-regular entries (a symlink escaping the root and
-  a FIFO).
+  a FIFO). The `scan/` subtree holds the scan flows' remote side: `scan/clean/` and `scan/partial/`, whose
+  `restricted/` folder is `0700` and host-owned so every server reports a real permission error.
 - **Read-only audit.** Stopping the services runs `protocol-audit.sh` over each server's log, so teardown is
   part of the assertion: a run that passes its tests but performed a forbidden operation still fails. See
   [protocols](./protocols.md#the-read-only-guarantee).
@@ -179,7 +210,10 @@ The validation stack proves behaviour against real servers and real emulators.
   `ANDROID_HOME`.
 - **Maestro flows.** `validation/maestro/` holds the end-to-end flows; `pnpm e2e:android` runs them on
   API 31 and then API 36, after `device-fixtures.sh` seeds the `SyncScopeE2E/` folders on internal storage
-  and the SD card. The layout, selector, assertion, seam and fixture conventions are in
+  and the SD card (including the `Scan` and `Bulk` sources of the scan flows). The scan flows configure
+  the live containers through the debug-only `syncscope-debug://configure-repository` seam
+  ([D018](./decisions/0018-debug-repository-seam.md)), which runs the production save, test and host-key
+  approval, and `android-flow.sh` passes the per-run container credentials to Maestro as `-e` variables. The layout, selector, assertion, seam and fixture conventions are in
   [DEVELOPMENT.md](../DEVELOPMENT.md#end-to-end-flows-maestro).
 - **Credentials to the device.** Gradle forwards the per-run container credentials into
   `testInstrumentationRunnerArguments`, and the emulator reaches the host at `10.0.2.2`
@@ -197,6 +231,10 @@ Environment prerequisites and known pitfalls are in [DEVELOPMENT.md](../DEVELOPM
 
 ## Not yet implemented
 
-10 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope: `queryFiles`, `queryTreeChildren`,
-`getSettings`, `setIncludeHidden`, `startScan`, `cancelScan`, `getScanState`, `getLocalImageHandle`,
-`prepareLocalDeletion` and `executeLocalDeletion`.
+5 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope:
+
+- `getSettings` and `setIncludeHidden`, the include-hidden-files setting. Scans run with
+  `includeHidden = false` until then. Feature 005 is their proposed owner
+  ([005 spec, Dependencies](../specs/005-gallery-list-filtering/spec.md#dependencies)).
+- `getLocalImageHandle`, delivered by feature 006.
+- `prepareLocalDeletion` and `executeLocalDeletion`, delivered by feature 007.

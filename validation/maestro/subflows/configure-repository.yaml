@@ -1,0 +1,29 @@
+# Subflow: save and test the live container repository through the debug seam
+# (D018, contracts/maestro-scan.md). Never run on its own.
+#
+# Params (runFlow env):
+#   PROTOCOL  FTP, SFTP or WEBDAV
+#   PORT      the host port of the container (10.0.2.2 from the emulator)
+#   USER      the per-run container user (android-flow.sh, D014)
+#   PASSWORD  the per-run container password; throwaway, hex only, so it is
+#             URL-safe as it is
+#   ROOT      the remote root, for example /srv/fixtures/scan/clean
+#   EXPECT    optional: the status line to wait for; "Repository configured"
+#             unless a flow configures a failure on purpose
+#   SCAN_DELAY_MS
+#             optional: the debug-only per-file scan pause in ms (decision log
+#             2026-10-01), so a run over the few Scan fixture files lasts long
+#             enough for the progress card to be asserted. Omitted, the pause
+#             is reset to 0
+#
+# The seam runs the production save and test (approving an SFTP host key
+# challenge), so the app is left exactly as a real Connect would leave it.
+appId: com.syncscope
+---
+- evalScript: "${output.configureExpect = typeof EXPECT !== 'undefined' && EXPECT ? EXPECT : 'Repository configured'}"
+- evalScript: "${output.scanDelayQuery = typeof SCAN_DELAY_MS !== 'undefined' && SCAN_DELAY_MS ? '&scanDelayMs=' + SCAN_DELAY_MS : ''}"
+- openLink: "syncscope-debug://configure-repository?protocol=${PROTOCOL}&host=10.0.2.2&port=${PORT}&username=${USER}&password=${PASSWORD}&root=${ROOT}${output.scanDelayQuery}"
+- extendedWaitUntil:
+    visible: "${output.configureExpect}"
+    timeout: 60000
+- assertNotVisible: "Configuring repository…"

@@ -11,14 +11,47 @@ All clients map failures to the same typed, redacted error codes (`AUTH_FAILED`,
 Messages are fixed strings; host, username, password and path appear only in the exception cause
 ([D011](./decisions/0011-typed-error-envelopes-partial-scans.md)).
 
+## How a scan uses the clients
+
+The scan walks the remote root breadth-first with `list` (metadata only). Remote **hidden entries**
+(names starting with `.`) are included in matching: unlike local hidden files, which the scan skips, they
+can only turn a false UNSYNCED into a correct SYNCED. `OTHER` entries (symlinks, FIFOs) are never
+followed. How listing failures affect file status is in
+[sync and deletion safety](./sync-and-deletion-safety.md#partial-scans-are-shown-as-partial).
+
+### Unreadable directories, as observed
+
+Matching ignores directories, so a folder the account cannot read must be reported as an error, never as
+an empty listing; otherwise its files' local copies would show as UNSYNCED instead of UNKNOWN. Each
+container was checked against `scan/partial/restricted` (`0700`, owned by another user) during feature 004
+(T044, [004 research R5](../specs/004-scan-engine-matching/research.md#r5-remote-walk-retries-and-the-failed-boundary)):
+
+| Protocol | Server | Observed reply | Client result |
+| --- | --- | --- | --- |
+| SFTP | OpenSSH | `opendir` fails with `SSH_FX_PERMISSION_DENIED` ("Permission denied"); SSHJ raises an `SFTPException` with `PERMISSION_DENIED` | `DIRECTORY_UNREADABLE` |
+| WebDAV | Apache `mod_dav` | `PROPFIND` `Depth: 1` answers `403 Forbidden` | `DIRECTORY_UNREADABLE` (a 4xx on a subdirectory) |
+| FTP | vsftpd 3.0.3 | `LIST` answers `150` then `226` with **no entries**, like an empty folder; `CWD` into it answers `550 Failed to change directory.` | `DIRECTORY_UNREADABLE`, through the CWD probe described under FTP |
+
+All three are detected, and the partial-listing flow (`scan/02-partial-listing-*`) proves it on each
+protocol. A failure on the remote root itself fails the whole scan instead (FR-006).
+
 ## FTP (Apache Commons Net)
 
 Commons Net 3.12.0, passive mode only (`enterLocalPassiveMode()`), 15 s connect and 30 s socket/data
 timeouts, UTF-8 control encoding. Listing uses `mlistDir` (MLSD) when FEAT advertises MLST, otherwise
 `listFiles` (LIST).
 
-**Precision basis.** Precision is empirical: the MDTM advertisement only decides whether to probe, and the
-replies decide the result. In order of preference:
+**LIST dates are UTC (decision log 2026-10-01).** Before a session's first LIST, the client sends `SYST` and
+configures Commons Net's parser for that dialect with `serverTimeZoneId = UTC` (`FtpListing.listConfig`).
+vsftpd, like most Unix servers, prints LIST dates in UTC by default (`use_localtime=NO`); reading them in the
+device's zone shifted every date by the zone offset, so files would never match.
+
+**Precision basis.** On a server without MLST the scan matches against LIST dates, so precision is what LIST
+actually prints (`LIST_GRANULARITY`, rule 3 below), even when the server advertises MDTM: MDTM's whole
+seconds would claim a precision the listing never delivers. The cost is coarser matching on such servers: a
+date-only entry (older files) is compared at a day, so a same-day change to a file with the same name and
+size counts as synced (decision log 2026-10-01). On a server with MLST, precision is empirical: the MDTM
+advertisement only decides whether to probe, and the replies decide the result. In order of preference:
 
 1. **MDTM** — each sampled reply's sub-second part maps to 1000 / 100 / 10 / 1 ms, and the finest sample
    wins, so one file landing on `.000` cannot downgrade a millisecond server
@@ -27,7 +60,9 @@ replies decide the result. In order of preference:
    `MLSD_WHOLE_SECONDS`).
 3. **LIST** — the parsed date's granularity. This takes the *coarsest* sample (a year-form line gives a day,
    86 400 000 ms), floored at 60 000 ms, so old files listed by date only are not falsely compared at minute
-   width (`LIST_GRANULARITY`).
+   width (`LIST_GRANULARITY`). Commons Net computes every Calendar field and then clears only the one just
+   below the printed precision (`HOUR_OF_DAY` for a date-only line, `SECOND` for `HH:mm`), so the granularity
+   is read from the first unset field at the coarse end.
 
 With no regular files to sample, the result is `NO_SAMPLE_FILES` at 60 000 ms.
 
@@ -37,7 +72,14 @@ directory holding regular files, bounded at `PRECISION_SCAN_DIRECTORIES = 16` di
 `PRECISION_SAMPLES = 5` files there. Dot, `cdir` and `pdir` entries are excluded, and the shallowest samples
 win (M001/S01/T08).
 
-Known limits: LIST timestamps are interpreted in the JVM default zone unless the server zone is configured;
+**Unreadable directories behind an empty LIST (decision log 2026-09-30).** vsftpd answers LIST on a directory
+the account may not open (`0700`, other owner) with `150`/`226` and no entries, exactly like an empty one.
+So a listing with no child entries is confirmed with `PWD`, `CWD <dir>` and `CWD` back: a `550` to the probe
+is `DIRECTORY_UNREADABLE`, any other refusal keeps the empty listing, and failing to go back is
+`CONNECTION_LOST`. `PWD` and `CWD` are navigation, not content transfer.
+
+Known limits: LIST dates are read as UTC, so a server configured to print local time (vsftpd
+`use_localtime=YES`) is off by its zone offset;
 hidden files are not requested via `LIST -a` (MLSD returns them); the FTP password must be passed to Commons
 Net as a `String`, which cannot be wiped.
 
@@ -108,7 +150,8 @@ the run even if every test passed.
 `FEAT` by advertising its own capabilities, `EPRT` among them, on `FTP response:` lines, so an unscoped grep
 fails every clean run the moment a client calls `FEAT`. Scoping to command lines still catches a genuine
 `RETR`, `PORT` or `EPRT` command. In the M001/S01/T08 live run, the FTP client issued only `FEAT`, `LIST`,
-`MDTM`, `PASS`, `PASV`, `QUIT`, `SYST` and `USER`.
+`MDTM`, `PASS`, `PASV`, `QUIT`, `SYST` and `USER`. Feature 004 adds `PWD` and `CWD` (the empty-listing
+probe above).
 
 ## Validation container ports
 

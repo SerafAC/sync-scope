@@ -77,6 +77,17 @@ describe('typed native boundary', () => {
     expect(source).not.toContain('launchSourcePicker(): ');
   });
 
+  it('startScan takes an optional scan mode (contract v3)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /startScan\(\s*mode\?: string \| null,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).not.toContain('startScan(): ');
+  });
+
   it('spec pages are bounded by the shared page contract', () => {
     const source = fs.readFileSync(
       path.join(SPECS_DIR, 'NativeCloudSync.ts'),

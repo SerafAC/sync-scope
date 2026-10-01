@@ -84,8 +84,8 @@ class RepositoryOperations(
         credentials().load(row.credentialVersion)
           ?: return@withLock envelope.error(
             CloudSyncErrorCode.CREDENTIAL_UNAVAILABLE,
-            "The saved password is no longer available.",
-            "Enter the password and save the repository again.",
+            CREDENTIAL_UNAVAILABLE_MESSAGE,
+            CREDENTIAL_UNAVAILABLE_ACTION,
           )
       val client = clients().create(config.protocol)
       try {
@@ -149,11 +149,7 @@ class RepositoryOperations(
   }
 
   private fun notConfigured(): WritableMap =
-    envelope.error(
-      CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED,
-      "No repository has been set up yet.",
-      "Enter the server details on the Connect screen.",
-    )
+    envelope.error(CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED, NOT_CONFIGURED_MESSAGE, NOT_CONFIGURED_ACTION)
 
   private fun sameAccount(row: RepositoryConfigEntity, config: RemoteConfig): Boolean =
     row.protocol == config.protocol.name &&
@@ -175,6 +171,11 @@ class RepositoryOperations(
 
   companion object {
     private const val TAG = "CloudSync"
+
+    const val NOT_CONFIGURED_MESSAGE = "No repository has been set up yet."
+    const val NOT_CONFIGURED_ACTION = "Enter the server details on the Connect screen."
+    const val CREDENTIAL_UNAVAILABLE_MESSAGE = "The saved password is no longer available."
+    const val CREDENTIAL_UNAVAILABLE_ACTION = "Enter the password and save the repository again."
 
     /** Stored until testRepository discovers the real value; reported to JS as null. */
     const val UNKNOWN_PRECISION = 0L

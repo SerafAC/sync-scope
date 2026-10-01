@@ -28,6 +28,9 @@ interface ScanRunDao {
 
   @Query("SELECT MAX(generation) FROM scan_run") suspend fun maxGeneration(): Long?
 
+  /** The run with the highest generation: the running one, else the most recent. */
+  @Query("SELECT * FROM scan_run ORDER BY generation DESC LIMIT 1") suspend fun latest(): ScanRunEntity?
+
   @Query(
     """
     UPDATE scan_run
@@ -66,6 +69,12 @@ interface SnapshotDao {
     "UPDATE snapshot SET publishable = 1, completedAtMillis = :completedAtMillis WHERE snapshotId = :snapshotId"
   )
   suspend fun markPublishable(snapshotId: String, completedAtMillis: Long): Int
+
+  @Query("UPDATE snapshot SET coverage = :coverage WHERE snapshotId = :snapshotId")
+  suspend fun setCoverage(snapshotId: String, coverage: String): Int
+
+  @Query("UPDATE snapshot SET remoteListedAtMillis = :remoteListedAtMillis WHERE snapshotId = :snapshotId")
+  suspend fun setRemoteListedAt(snapshotId: String, remoteListedAtMillis: Long?): Int
 }
 
 @Dao
@@ -138,6 +147,9 @@ interface LocalNodeDao {
   suspend fun statusCounts(snapshotId: String): List<StatusCount>
 
   @RawQuery suspend fun page(query: SupportSQLiteQuery): List<LocalNodeEntity>
+
+  @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
+  suspend fun anyPrecision(snapshotId: String): Long?
 }
 
 /** Row projection for grouped status totals. */
@@ -162,6 +174,23 @@ interface RemoteMatchKeyDao {
     "SELECT * FROM remote_match_key WHERE snapshotId = :snapshotId AND name = :name AND sizeBytes = :sizeBytes"
   )
   suspend fun candidates(snapshotId: String, name: String, sizeBytes: Long): List<RemoteMatchKeyEntity>
+
+  @Query("SELECT precisionMillis FROM remote_match_key WHERE snapshotId = :snapshotId LIMIT 1")
+  suspend fun anyPrecision(snapshotId: String): Long?
+
+  @Query("SELECT * FROM remote_match_key WHERE snapshotId = :snapshotId")
+  suspend fun forSnapshot(snapshotId: String): List<RemoteMatchKeyEntity>
+
+  /** LOCAL_REFRESH: copies every match key of [fromSnapshotId] into [toSnapshotId] (new row IDs). */
+  @Query(
+    """
+    INSERT INTO remote_match_key (snapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount)
+    SELECT :toSnapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount
+      FROM remote_match_key
+     WHERE snapshotId = :fromSnapshotId
+    """
+  )
+  suspend fun copy(fromSnapshotId: String, toSnapshotId: String)
 }
 
 @Dao
@@ -170,6 +199,25 @@ interface RemoteAmbiguityDao {
 
   @Query("SELECT COUNT(*) FROM remote_ambiguity WHERE snapshotId = :snapshotId")
   suspend fun countFor(snapshotId: String): Long
+
+  @Query("SELECT * FROM remote_ambiguity WHERE snapshotId = :snapshotId ORDER BY id")
+  suspend fun forSnapshot(snapshotId: String): List<RemoteAmbiguityEntity>
+
+  /**
+   * LOCAL_REFRESH: copies the remote-scope rows ([RemoteAmbiguityEntity.SCOPE_REMOTE_DIRECTORY],
+   * [RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING]) of [fromSnapshotId] into [toSnapshotId]. `SOURCE` rows
+   * are recomputed by the refresh, never copied. Remote-scope rows carry no match key, so none dangles.
+   */
+  @Query(
+    """
+    INSERT INTO remote_ambiguity (snapshotId, scope, sourceId, entryId, matchKeyId, reason)
+    SELECT :toSnapshotId, scope, sourceId, entryId, NULL, reason
+      FROM remote_ambiguity
+     WHERE snapshotId = :fromSnapshotId AND scope IN ('REMOTE_DIRECTORY', 'REMOTE_LISTING')
+     ORDER BY id
+    """
+  )
+  suspend fun copyRemoteScope(fromSnapshotId: String, toSnapshotId: String)
 }
 
 @Dao

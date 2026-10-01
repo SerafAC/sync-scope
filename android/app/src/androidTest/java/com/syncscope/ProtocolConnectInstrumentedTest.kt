@@ -111,7 +111,7 @@ class ProtocolConnectInstrumentedTest {
     val promise = AwaitedPromise()
     (registered as CloudSyncModule).getContractVersion(promise)
     assertEquals(CloudSyncContracts.CONTRACT_VERSION, promise.await())
-    assertEquals(1, CloudSyncContracts.CONTRACT_VERSION)
+    assertEquals(3, CloudSyncContracts.CONTRACT_VERSION)
     registered.invalidate()
   }
 
@@ -228,7 +228,7 @@ class ProtocolConnectInstrumentedTest {
   private suspend fun assertListing(client: RemoteClient, endpoint: Endpoint) {
     val top = client.list(endpoint.root).associateBy { it.name }
     assertTrue("the root listing must be non-empty", top.isNotEmpty())
-    for (directory in listOf("flat", "nested", "duplicates", "unicode", "timestamps", "non-regular")) {
+    for (directory in listOf("flat", "nested", "duplicates", "unicode", "timestamps", "non-regular", "scan")) {
       assertEquals("$directory must list as a directory", RemoteEntryType.DIRECTORY, top[directory]?.type)
     }
 

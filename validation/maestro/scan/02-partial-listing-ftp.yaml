@@ -1,0 +1,29 @@
+# Acceptance 3, FR-005, SC-002 (FTP): the remote root scan/partial holds a
+# readable folder and a 0700 folder the server account cannot list. The scan
+# still completes, but says "1 remote folder could not be read", matches only
+# exact.txt, and reports every other file as could-not-be-checked (never
+# unsynced), only-here.txt included.
+# Self-contained: starts from clearState (contracts/maestro-scan.md).
+appId: com.syncscope
+name: scan/02-partial-listing-ftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "FTP"
+      PORT: "${FTP_PORT}"
+      USER: "${FTP_USER}"
+      PASSWORD: "${FTP_PASSWORD}"
+      ROOT: "${(FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT) + '/scan/partial'}"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertVisible: "1 remote folder could not be read"
+- assertVisible: "Synced: 1"
+- assertVisible: "Unsynced: 0"
+- assertVisible: "Files that could not be checked: 6"
+- assertNotVisible: "Scan failed"

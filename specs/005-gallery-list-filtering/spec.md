@@ -27,6 +27,12 @@ Consumes from feature 004 (M001/S03 → M001/S04):
 - Working `queryTreeChildren` with `parentId` and `kind` on every `local_node` row (M001/S03 → M001/S05,
   used here by the browsable list).
 
+**Proposed ownership (to confirm in `/speckit-clarify`)**: this feature is the proposed owner of
+`getSettings` / `setIncludeHidden`, the include-hidden-files setting. Feature 004 scans with
+`includeHidden = false` and leaves both methods `NOT_IMPLEMENTED`
+([004 research R8](../004-scan-engine-matching/research.md#r8-hidden-files)). Confirm or reassign the
+ownership here.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Browse and filter the scan results (Priority: P1)

@@ -104,7 +104,8 @@ export interface Spec extends TurboModule {
   removeSource(sourceId: string): Promise<OperationResultDto>;
   getSettings(): Promise<OperationResultDto>;
   setIncludeHidden(includeHidden: boolean): Promise<OperationResultDto>;
-  startScan(): Promise<OperationResultDto>;
+  /** `mode` is 'FULL' (default when absent) or 'LOCAL_REFRESH' (contract v3). */
+  startScan(mode?: string | null): Promise<OperationResultDto>;
   cancelScan(runId: string): Promise<OperationResultDto>;
   getScanState(): Promise<OperationResultDto>;
   getLocalImageHandle(

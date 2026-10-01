@@ -8,7 +8,7 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 2
+  const val CONTRACT_VERSION = 3
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -34,7 +34,7 @@ object CloudSyncContracts {
  * Stable, machine-readable error codes; the wire value is the enum name.
  *
  * Codes with a fixed user-facing text carry it as [defaultMessage]/[defaultAction]; the text must match
- * `SOURCE_ERROR_TEXT` in the TypeScript contract (checked by CloudSyncContractsParityTest).
+ * `SOURCE_ERROR_TEXT` / `SCAN_ERROR_TEXT` in the TypeScript contract (checked by CloudSyncContractsParityTest).
  */
 enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAction: String? = null) {
   NOT_IMPLEMENTED,
@@ -75,5 +75,32 @@ enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAct
     "The folder picker is already open.",
     "Finish or close the picker, then try again.",
   ),
+  NO_SOURCES_SELECTED(
+    "No folders are selected to check.",
+    "Add a folder in Settings › Folders.",
+  ),
+  SCAN_IN_PROGRESS(
+    "A scan is already running.",
+    "Wait for it to finish, or cancel it.",
+  ),
+  SCAN_NOT_FOUND(
+    "That scan is no longer known.",
+    "Refresh the scan screen.",
+  ),
+  REFRESH_UNAVAILABLE(
+    "There is no up-to-date remote listing to refresh against.",
+    "Run a full scan.",
+  ),
   INTERNAL_ERROR,
+}
+
+/**
+ * File issue codes that are not error codes (`local_node.issueCode`); the wire value is the enum name.
+ *
+ * [text] must match `FILE_ISSUE_TEXT` in the TypeScript contract (checked by
+ * CloudSyncContractsParityTest). Remote causes reuse [CloudSyncErrorCode] values instead.
+ */
+enum class FileIssueCode(val text: String) {
+  REMOTE_MTIME_MISSING("The backup has this file but no modified time, so it could not be compared."),
+  LOCAL_UNAVAILABLE("This file could not be read on the device."),
 }

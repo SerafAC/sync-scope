@@ -34,22 +34,71 @@ data class FilePage(
  * terminal state, cannot publish and cannot disturb the last known good
  * pointer.
  */
-class SnapshotStore(private val db: SyncScopeDatabase) {
+open class SnapshotStore(private val db: SyncScopeDatabase) {
 
-  suspend fun beginRun(run: ScanRunEntity) {
-    db.scanRunDao().insert(run)
+  /**
+   * Creates a run with generation `maxGeneration() + 1`, read and inserted in one transaction so two
+   * runs can never share (or reorder) a generation. `includeHidden` is always false (research R8).
+   */
+  suspend fun beginRun(
+    runId: String,
+    mode: String,
+    configRevision: Long,
+    phase: String,
+    startedAtMillis: Long,
+  ): ScanRunEntity =
+    db.withTransaction {
+      val run =
+        ScanRunEntity(
+          runId = runId,
+          generation = (db.scanRunDao().maxGeneration() ?: 0L) + 1L,
+          configRevision = configRevision,
+          includeHidden = false,
+          phase = phase,
+          startedAtMillis = startedAtMillis,
+          finishedAtMillis = null,
+          terminalState = null,
+          errorCode = null,
+          errorSummary = null,
+          mode = mode,
+        )
+      db.scanRunDao().insert(run)
+      run
+    }
+
+  /** The running run, else the most recent one. */
+  suspend fun latestRun(): ScanRunEntity? = db.scanRunDao().latest()
+
+  suspend fun run(runId: String): ScanRunEntity? = db.scanRunDao().byId(runId)
+
+  suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
+
+  /** `INCOMPLETE` once any remote-scope or `SOURCE` gap was recorded (data-model "Snapshot"). */
+  suspend fun setCoverage(snapshotId: String, coverage: String) {
+    db.snapshotDao().setCoverage(snapshotId, coverage)
   }
+
+  suspend fun setRemoteListedAt(snapshotId: String, remoteListedAtMillis: Long) {
+    db.snapshotDao().setRemoteListedAt(snapshotId, remoteListedAtMillis)
+  }
+
+  /**
+   * The precision a snapshot was matched with: every match key and `local_node` row of one snapshot
+   * carries the run's single precision, so any row answers. Null when the snapshot has no rows.
+   */
+  suspend fun precisionOf(snapshotId: String): Long? =
+    db.remoteMatchKeyDao().anyPrecision(snapshotId) ?: db.localNodeDao().anyPrecision(snapshotId)
 
   suspend fun stageSnapshot(snapshot: SnapshotEntity) {
     db.snapshotDao().insert(snapshot)
   }
 
-  suspend fun stageLocalNodes(nodes: List<LocalNodeEntity>) {
+  open suspend fun stageLocalNodes(nodes: List<LocalNodeEntity>) {
     if (nodes.isEmpty()) return
     db.localNodeDao().insertAll(nodes)
   }
 
-  suspend fun stageMatchKeys(keys: List<RemoteMatchKeyEntity>) {
+  open suspend fun stageMatchKeys(keys: List<RemoteMatchKeyEntity>) {
     if (keys.isEmpty()) return
     db.remoteMatchKeyDao().insertAll(keys)
   }
@@ -57,6 +106,41 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
   suspend fun stageRemoteNodes(nodes: List<RemoteNodeEntity>) {
     if (nodes.isEmpty()) return
     db.remoteNodeDao().insertAll(nodes)
+  }
+
+  suspend fun stageAmbiguities(rows: List<RemoteAmbiguityEntity>) {
+    if (rows.isEmpty()) return
+    db.remoteAmbiguityDao().insertAll(rows)
+  }
+
+  suspend fun stageCounts(rows: List<SnapshotCountsEntity>) {
+    if (rows.isEmpty()) return
+    db.snapshotCountsDao().insertAll(rows)
+  }
+
+  suspend fun matchKeys(snapshotId: String): List<RemoteMatchKeyEntity> =
+    db.remoteMatchKeyDao().forSnapshot(snapshotId)
+
+  suspend fun ambiguities(snapshotId: String): List<RemoteAmbiguityEntity> =
+    db.remoteAmbiguityDao().forSnapshot(snapshotId)
+
+  suspend fun counts(snapshotId: String): List<SnapshotCountsEntity> =
+    db.snapshotCountsDao().forSnapshot(snapshotId)
+
+  /**
+   * LOCAL_REFRESH (research R2, R7): gives the staged [toSnapshotId] the remote side of
+   * [fromSnapshotId] in one transaction — every match key, the remote-scope ambiguity rows (never
+   * `SOURCE`, which the refresh recomputes) and `remoteListedAtMillis`, so the listing's age does not move.
+   */
+  suspend fun copyRemoteState(fromSnapshotId: String, toSnapshotId: String) {
+    db.withTransaction {
+      val from =
+        db.snapshotDao().byId(fromSnapshotId)
+          ?: throw SnapshotNotFoundException("snapshot '$fromSnapshotId' does not exist")
+      db.remoteMatchKeyDao().copy(fromSnapshotId, toSnapshotId)
+      db.remoteAmbiguityDao().copyRemoteScope(fromSnapshotId, toSnapshotId)
+      db.snapshotDao().setRemoteListedAt(toSnapshotId, from.remoteListedAtMillis)
+    }
   }
 
   /**
@@ -123,32 +207,32 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
   }
 
   /**
-   * Records a failed refresh. The last known good snapshot keeps serving
-   * reads; the pointer only gains the reason it is stale and the summary of
-   * the attempt that failed, so the UI can say *why* data is old.
+   * Ends a run that will not publish (`CANCELLED` or `FAILED`) in one transaction: deletes its staged
+   * snapshot, which cascades every staged `local_node`, `remote_match_key`, `remote_ambiguity` and
+   * `snapshot_counts` row, marks the run terminal with [terminalState] as both state and phase, and
+   * records [summary] as the pointer's `lastAttemptSummary`. The last known good snapshot keeps
+   * serving reads. A run that is already terminal is left exactly as it is, so cancel racing a
+   * failure is harmless. Throws [StaleGenerationException] for an unknown run or a wrong generation.
    */
-  suspend fun recordFailedAttempt(
+  suspend fun discardRun(
     runId: String,
     generation: Long,
     terminalState: String,
     errorCode: String?,
     summary: String?,
-    staleReason: String?,
     nowMillis: Long,
   ) {
+    require(terminalState in DISCARD_STATES) { "discardRun cannot end a run as '$terminalState'" }
     db.withTransaction {
       val run =
         db.scanRunDao().byId(runId) ?: throw StaleGenerationException("unknown scan run '$runId'")
-      if (run.terminalState != null) {
-        throw StaleGenerationException(
-          "scan run '$runId' already reached terminal state '${run.terminalState}'"
-        )
-      }
       if (run.generation != generation) {
         throw StaleGenerationException(
-          "scan run '$runId' has generation ${run.generation}, failure claimed $generation"
+          "scan run '$runId' has generation ${run.generation}, discard claimed $generation"
         )
       }
+      if (run.terminalState != null) return@withTransaction
+      db.snapshotDao().deleteForRun(runId)
       db.scanRunDao()
         .markTerminal(
           runId = runId,
@@ -156,14 +240,14 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
           finishedAtMillis = nowMillis,
           errorCode = errorCode,
           errorSummary = summary,
-          phase = "FAILED",
+          phase = terminalState,
         )
       val current = db.activeSnapshotDao().get()
       db.activeSnapshotDao()
         .put(
           ActiveSnapshotEntity(
             snapshotId = current?.snapshotId,
-            staleReason = staleReason,
+            staleReason = current?.staleReason,
             lastAttemptSummary = summary,
             updatedAtMillis = nowMillis,
           )
@@ -199,17 +283,24 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
    * Keyset-paginated read over a published snapshot. Staged snapshots are not
    * readable: they raise [SnapshotNotFoundException]. A page token is only
    * accepted for the snapshot and query it was minted for.
+   *
+   * A null `query.parentId` means "no parent filter" (`queryFiles`). [topLevelOnly] instead selects
+   * the rows directly under a source root (`parentId IS NULL`, `queryTreeChildren` with no parent),
+   * still narrowed by `query.sourceId`; it cannot be combined with a `parentId`.
    */
   suspend fun queryFilePage(
     snapshotId: String,
     query: SnapshotQuery,
     pageToken: String?,
+    topLevelOnly: Boolean = false,
   ): FilePage {
+    require(!(topLevelOnly && query.parentId != null)) { "topLevelOnly cannot be combined with a parentId" }
     val snapshot = db.snapshotDao().byId(snapshotId)
     if (snapshot == null || !snapshot.publishable) {
       throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
     }
-    val fingerprint = query.fingerprint()
+    // A top-level token must never replay against the unfiltered query, or the other way round.
+    val fingerprint = if (topLevelOnly) query.fingerprint() + "|root" else query.fingerprint()
     val cursor =
       pageToken?.let {
         val decoded = PageTokenCodec.decode(it)
@@ -233,6 +324,9 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
     query.sourceId?.let {
       where.append(" AND sourceId = ?")
       args += it
+    }
+    if (topLevelOnly) {
+      where.append(" AND parentId IS NULL")
     }
     query.parentId?.let {
       where.append(" AND parentId = ?")
@@ -284,6 +378,10 @@ class SnapshotStore(private val db: SyncScopeDatabase) {
       // Counts ride along with the first page so rows and totals share a read.
       counts = if (cursor == null) db.localNodeDao().statusCounts(snapshotId) else null,
     )
+  }
+
+  private companion object {
+    val DISCARD_STATES = setOf("CANCELLED", "FAILED")
   }
 
   private fun sortValueOf(node: LocalNodeEntity, sort: FileSort): String =

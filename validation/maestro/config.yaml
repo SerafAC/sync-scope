@@ -8,6 +8,7 @@
 # the run stops at the first failure.
 flows:
   - "sources/*"
+  - "scan/*"
 
 executionOrder:
   continueOnFailure: false
@@ -19,3 +20,14 @@ executionOrder:
     - sources/05-revoked-unavailable
     - sources/06-regrant
     - sources/07-remove
+    - scan/01-clean-scan-ftp
+    - scan/01-clean-scan-sftp
+    - scan/01-clean-scan-webdav
+    - scan/02-partial-listing-ftp
+    - scan/02-partial-listing-sftp
+    - scan/02-partial-listing-webdav
+    - scan/03-rescan
+    - scan/04-reopen-refresh
+    - scan/05-background-discards
+    - scan/06-unreachable-fails
+    - scan/07-revoked-source

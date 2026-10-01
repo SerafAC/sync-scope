@@ -12,8 +12,9 @@ import org.junit.Test
  */
 class SchemaContractTest {
 
+  /** The current schema version's export; older exports stay frozen for MigrationTest. */
   private val schemaFile =
-    File("schemas/com.syncscope.persistence.SyncScopeDatabase/1.json")
+    File("schemas/com.syncscope.persistence.SyncScopeDatabase/2.json")
 
   private val schemaText: String by lazy {
     assertTrue("exported Room schema must exist", schemaFile.isFile)
@@ -70,6 +71,16 @@ class SchemaContractTest {
     assertTrue(schemaText.contains("index_source_root_canonicalRoot"))
     assertTrue(schemaText.contains("index_scan_run_generation"))
     assertTrue(schemaText.contains("index_snapshot_scanRunId"))
+  }
+
+  @Test
+  fun version2ColumnsAreDeclared() {
+    assertTrue(schemaText.contains("\"version\": 2"))
+    val scanRun = sectionFor("scan_run")
+    assertTrue(scanRun.contains("`mode` TEXT NOT NULL DEFAULT 'FULL'"))
+    val snapshot = sectionFor("snapshot")
+    assertTrue(snapshot.contains("`remoteListedAtMillis` INTEGER,"))
+    assertFalse(snapshot.contains("`remoteListedAtMillis` INTEGER NOT NULL"))
   }
 
   @Test

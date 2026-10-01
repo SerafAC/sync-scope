@@ -1,0 +1,44 @@
+# Acceptance 5, FR-003 (SFTP): reopening the app runs a local refresh by
+# itself. The latest run reads "Local refresh", and the remote listing age is
+# unchanged because the refresh reuses the last remote listing.
+# Self-contained: starts from clearState.
+appId: com.syncscope
+name: scan/04-reopen-refresh
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Full scan"
+- assertVisible: "Completed .+"
+- copyTextFrom: "Generation \\d+"
+- evalScript: "${output.fullGeneration = parseInt(maestro.copiedText.replace('Generation ', ''), 10)}"
+- copyTextFrom: "Remote listing from .+"
+# The absolute listing time, without the relative age after it.
+- evalScript: "${output.listedAt = maestro.copiedText.replace(/ \\([^)]*\\)$/, '')}"
+
+- stopApp
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+- extendedWaitUntil:
+    visible: "Local refresh"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Completed .+"
+    timeout: 60000
+- copyTextFrom: "Generation \\d+"
+- assertTrue: "${parseInt(maestro.copiedText.replace('Generation ', ''), 10) > output.fullGeneration}"
+- copyTextFrom: "Remote listing from .+"
+- assertTrue: "${maestro.copiedText.replace(/ \\([^)]*\\)$/, '') == output.listedAt}"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+- assertNotVisible: "Scan failed"

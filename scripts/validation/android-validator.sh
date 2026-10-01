@@ -53,6 +53,31 @@ owned_running() {
 owned_state() {
   [ -f "$owner" ] && [ "$(cat "$owner")" = "$api:$avd" ]
 }
+# Polls until the device shell runs as uid $1 (0 after `adb root`, 2000 after
+# `adb unroot`); both restart adbd, so the transport drops in between.
+await_shell_uid() {
+  tries=0
+  until [ "$(adb_command -s "$serial" shell id -u 2>/dev/null | tr -d '\r')" = "$1" ]; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 60 ] || return 1
+    sleep 1
+  done
+}
+# userdebug images run llkd, which kills adbd once a child of adbd has been a
+# zombie for 600 s. Maestro keeps the shell that launched its on-device driver
+# open for the whole `maestro test` run, so every run longer than about ten
+# minutes lost the device mid-flow ("device offline", the guest log shows
+# "livelock: Killing ... adbd ... in Z state"). llkd guards the platform, not
+# the app under test, so it is stopped once per boot: root only for that, then
+# back to the normal shell user every script and flow expects.
+stop_llkd() {
+  adb_command -s "$serial" root >/dev/null 2>&1 || return 1
+  await_shell_uid 0 || return 1
+  adb_command -s "$serial" shell 'setprop ctl.stop llkd-0; setprop ctl.stop llkd-1' || return 1
+  adb_command -s "$serial" unroot >/dev/null 2>&1 || return 1
+  await_shell_uid 2000 || return 1
+  [ "$(adb_command -s "$serial" shell getprop init.svc.llkd-1 2>/dev/null | tr -d '\r')" != running ]
+}
 serial_ready() {
   [ -f "$serial_file" ] || return 1
   serial=$(cat "$serial_file")
@@ -137,6 +162,19 @@ case "$action" in
       attempts=$((attempts + 1))
       [ "$attempts" -lt 240 ] || {
         printf '%s\n' "Emulator route readiness timed out." >&2
+        exit 1
+      }
+      sleep 1
+    done
+    stop_llkd || {
+      printf '%s\n' "Could not stop llkd on the validation emulator." >&2
+      exit 1
+    }
+    attempts=0
+    until serial_ready; do
+      attempts=$((attempts + 1))
+      [ "$attempts" -lt 60 ] || {
+        printf '%s\n' "Emulator route readiness timed out after stopping llkd." >&2
         exit 1
       }
       sleep 1

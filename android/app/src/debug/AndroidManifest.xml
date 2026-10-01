@@ -18,5 +18,24 @@
             <data android:scheme="syncscope-debug" android:host="release-grants" />
         </intent-filter>
       </activity>
+      <!--
+        Debug-only repository seam (D018): Maestro opens
+        syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…
+        to save and test the live container through the production RepositoryOperations, then
+        asserts "Repository configured". Never in the release build.
+      -->
+      <activity
+        android:name="com.syncscope.debug.ConfigureRepositoryActivity"
+        android:exported="true"
+        android:excludeFromRecents="true"
+        android:noHistory="true"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="syncscope-debug" android:host="configure-repository" />
+        </intent-filter>
+      </activity>
     </application>
 </manifest>

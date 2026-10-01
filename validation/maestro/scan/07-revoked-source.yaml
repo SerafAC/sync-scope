@@ -1,0 +1,73 @@
+# FR-007 (SFTP): a source whose folder grant was revoked is skipped by the
+# scan and named in the summary by its alias, with the reason "Access lost",
+# instead of failing the scan or silently dropping its files.
+#
+# The debug-only seam syncscope-debug://release-grants (D017) releases every
+# persisted SAF grant, the same OS state a real revocation leaves.
+# Self-contained: starts from clearState (contracts/maestro-scan.md).
+appId: com.syncscope
+name: scan/07-revoked-source
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+- assertNotVisible: "Skipped Scan: Access lost"
+
+# Revoke the Scan source's grant while the app is stopped.
+- stopApp
+- openLink: "syncscope-debug://release-grants"
+# openLink returns once the intent is sent. Give the seam activity time to
+# release the grants and finish before the app is launched again (a bounded
+# pause; the element never appears).
+- extendedWaitUntil:
+    visible: "syncscope-release-grants-settle"
+    timeout: 3000
+    optional: true
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+# Coming back starts the automatic local refresh (FR-003); let it end so the
+# rescan below is the run under test.
+- extendedWaitUntil:
+    visible: "Local refresh"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible: "Scan progress"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Completed .+"
+    timeout: 60000
+- copyTextFrom: "Generation \\d+"
+- evalScript: "${output.beforeRescan = parseInt(maestro.copiedText.replace('Generation ', ''), 10)}"
+
+# With no readable source the run can end before progress is drawn, so wait
+# for the outcome instead of the progress card.
+- tapOn:
+    text: "Rescan from scratch"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+- extendedWaitUntil:
+    visible: "Full scan"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible: "Scan progress"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Completed .+"
+    timeout: 60000
+- copyTextFrom: "Generation \\d+"
+- assertTrue: "${parseInt(maestro.copiedText.replace('Generation ', ''), 10) > output.beforeRescan}"
+- assertVisible: "Skipped Scan: Access lost"
+- assertNotVisible: "Scan failed"

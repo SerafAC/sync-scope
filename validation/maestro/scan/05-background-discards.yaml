@@ -1,0 +1,120 @@
+# Acceptance 6, FR-001, SC-003 (SFTP): a scan that is cancelled, by the user
+# or by leaving the app, never replaces the last completed snapshot.
+#
+# The Bulk source (BULK_FILES files, calibrated in research R11 so a full scan
+# runs for at least 15 s on API 31) keeps the cancelled scans running long
+# enough to cancel them. The first scan covers the Scan source alone. Adding
+# Bulk goes through the system folder picker, and coming back from it is a
+# return to the foreground, so the app runs its automatic local refresh
+# (FR-003) and publishes a snapshot that includes the Bulk files. That
+# refresh's summary is the last completed one, so the flow records its
+# unsynced count and remote listing time and asserts that both cancelled
+# rescans leave exactly that summary in place (a published FULL rescan would
+# carry a new remote listing time). Self-contained: starts from clearState.
+appId: com.syncscope
+name: scan/05-background-discards
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+
+# Add the Bulk source next to the Scan source.
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible:
+      id: "sources.add"
+    timeout: 15000
+- tapOn:
+    id: "sources.add"
+- runFlow:
+    file: ../subflows/pick-folder.yaml
+    env:
+      VOLUME: "Internal storage"
+      PATH: "SyncScopeE2E/Bulk"
+- extendedWaitUntil:
+    visible:
+      id: "sources.row.alias"
+      text: "Bulk"
+    timeout: 15000
+- runFlow: ../subflows/open-scan.yaml
+# Returning from the picker started the automatic local refresh (FR-003); it
+# must publish before the rescans, so the summary they keep is settled.
+- extendedWaitUntil:
+    visible: "Local refresh"
+    timeout: 120000
+- extendedWaitUntil:
+    notVisible: "Scan progress"
+    timeout: 180000
+- assertVisible: "Completed .+"
+- assertVisible: "Synced: 4"
+- assertVisible: "Files that could not be checked: 0"
+- copyTextFrom: "Unsynced: \\d+"
+- evalScript: "${output.unsyncedSummary = maestro.copiedText}"
+# The refresh covers the Bulk files, so this is not the first scan's summary.
+- assertTrue: "${output.unsyncedSummary != 'Unsynced: 3'}"
+- copyTextFrom: "Remote listing from .+"
+# The absolute listing time, without the relative age after it.
+- evalScript: "${output.listedAt = maestro.copiedText.replace(/ \\([^)]*\\)$/, '')}"
+
+# FR-001: the user cancels a running scan.
+# The progress card animates and redraws every 500 ms, so Maestro's default
+# wait for the screen to settle would take most of the run; bound it.
+- tapOn:
+    text: "Rescan from scratch"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible: "Scan progress"
+    timeout: 15000
+- tapOn:
+    text: "Cancel scan"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible: "Cancelled"
+    timeout: 30000
+- assertNotVisible: "Scan progress"
+- assertVisible: "Synced: 4"
+- assertVisible: "${output.unsyncedSummary}"
+- assertVisible: "Files that could not be checked: 0"
+- copyTextFrom: "Remote listing from .+"
+- assertTrue: "${maestro.copiedText.replace(/ \\([^)]*\\)$/, '') == output.listedAt}"
+
+# Acceptance 6 / SC-003: leaving the app cancels the running scan.
+- tapOn:
+    text: "Rescan from scratch"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+- extendedWaitUntil:
+    visible: "Scan progress"
+    timeout: 15000
+- pressKey: Home
+# Bring the same process back (stopApp: false): a force stop would end the run
+# as ABORTED on the next start instead of showing how it was cancelled.
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Cancelled \\(app left\\)"
+    timeout: 30000
+# Coming back also starts another automatic local refresh (FR-003). Until it
+# publishes, the active snapshot is the earlier refresh's; once it does, it
+# reuses the same remote listing over the same files, so the summary and the
+# listing time are the same either way.
+- assertVisible: "Synced: 4"
+- assertVisible: "${output.unsyncedSummary}"
+- assertVisible: "Files that could not be checked: 0"
+- copyTextFrom: "Remote listing from .+"
+- assertTrue: "${maestro.copiedText.replace(/ \\([^)]*\\)$/, '') == output.listedAt}"

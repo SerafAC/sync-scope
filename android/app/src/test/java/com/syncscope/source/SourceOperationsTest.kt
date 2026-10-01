@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.facebook.react.bridge.JavaOnlyArray
 import com.facebook.react.bridge.JavaOnlyMap
 import com.facebook.react.bridge.ReadableMap
+import com.syncscope.bridge.CloudSyncContracts
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.persistence.LocalNodeEntity
 import com.syncscope.persistence.SourceRootDao
@@ -70,7 +71,7 @@ class SourceOperationsTest {
   fun listWithNoSourcesIsOkAndEmpty() = runBlocking {
     val result = operations.list()
     assertEquals("ok", result.getString("status"))
-    assertEquals(2, result.getInt("contractVersion"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, result.getInt("contractVersion"))
     assertEquals(0, result.getArray("sources")!!.size())
   }
 

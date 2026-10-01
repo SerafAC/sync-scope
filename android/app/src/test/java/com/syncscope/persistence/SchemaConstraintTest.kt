@@ -130,10 +130,10 @@ class SchemaConstraintTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val name = "wrong-schema-test.db"
     context.deleteDatabase(name)
-    // Create a version-1 database whose schema does not match the entities.
+    // Create a database at the current version whose schema does not match the entities.
     context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { raw ->
       raw.execSQL("CREATE TABLE IF NOT EXISTS unrelated (id INTEGER PRIMARY KEY)")
-      raw.version = 1
+      raw.version = CURRENT_SCHEMA_VERSION
     }
 
     val reopened =
@@ -146,6 +146,10 @@ class SchemaConstraintTest {
     }
     reopened.close()
     context.deleteDatabase(name)
+  }
+
+  private companion object {
+    const val CURRENT_SCHEMA_VERSION = 2
   }
 
   private suspend fun seedSnapshot() {

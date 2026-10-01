@@ -1,0 +1,54 @@
+# Acceptance 7, FR-006 (SFTP): when the repository cannot be reached (here the
+# server rejects the password), the scan fails with the recovery action and
+# the last completed snapshot stays active and shown.
+# Self-contained: starts from clearState.
+appId: com.syncscope
+name: scan/06-unreachable-fails
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+- runFlow: ../subflows/add-scan-source.yaml
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+
+# Save the same repository with a wrong password. The production test step
+# reports AUTH_FAILED, and the saved config moves to a new revision.
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "wrong-${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+      EXPECT: "Repository error: AUTH_FAILED"
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+- assertVisible: "Synced: 4"
+
+# The connect step fails fast, so progress may never be drawn: wait for the
+# outcome instead.
+- tapOn:
+    text: "Rescan from scratch"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+- extendedWaitUntil:
+    visible: "Scan failed"
+    timeout: 60000
+- assertVisible: "The SFTP server rejected the username or password."
+- assertVisible: "Check the credentials and try again."
+- assertVisible: "The previous results below are unchanged."
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 3"
+- assertVisible: "Files that could not be checked: 0"

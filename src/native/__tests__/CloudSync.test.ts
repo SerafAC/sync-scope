@@ -2,10 +2,13 @@ import {TurboModuleRegistry} from 'react-native';
 
 import {
   CloudSync,
+  cancelScan,
+  getScanState,
   launchSourcePicker,
   listSources,
   queryFiles,
   removeSource,
+  startScan,
 } from '../CloudSync';
 import {MAX_PAGE_SIZE} from '../CloudSyncContracts';
 import type {Spec} from '../specs/NativeCloudSync';
@@ -319,5 +322,229 @@ describe('CloudSync source wrappers', () => {
         },
       });
     });
+  });
+});
+
+const runningRun = {
+  runId: 'run-1',
+  generation: 4,
+  mode: 'FULL',
+  phase: 'LISTING_REMOTE',
+  terminalState: null,
+  startedAtMillis: 1_700_000_000_000,
+  finishedAtMillis: null,
+  progress: {
+    remoteDirectoriesListed: 2,
+    remoteFilesListed: 10,
+    localFilesEnumerated: 0,
+    localFilesMatched: 0,
+  },
+  error: null,
+  cancelReason: null,
+};
+
+const activeSnapshot = {
+  snapshotId: 'snap-1',
+  completedAtMillis: 1_700_000_100_000,
+  remoteListedAtMillis: 1_700_000_050_000,
+  precisionMillis: 1000,
+  coverage: 'COMPLETE',
+  summary: {
+    synced: 4,
+    unsynced: 3,
+    unknown: 0,
+    unreadableRemoteDirectories: 0,
+    remoteListingInterruptedBy: null,
+    skippedSources: [],
+  },
+};
+
+const scanInProgress = {
+  contractVersion: 3,
+  status: 'error',
+  error: {
+    code: 'SCAN_IN_PROGRESS',
+    message: 'A scan is already running.',
+    action: 'Wait for it to finish, or cancel it.',
+  },
+};
+
+describe('CloudSync scan wrappers', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe('startScan', () => {
+    it('passes null when no mode is given and normalises ok', async () => {
+      const native = jest.fn().mockResolvedValue({
+        contractVersion: 3,
+        status: 'ok',
+        runId: 'run-1',
+        generation: 4,
+        stray: 'ignored',
+      });
+      mockNative({startScan: native});
+
+      const result = await startScan();
+
+      expect(native).toHaveBeenCalledWith(null);
+      expect(result).toEqual({
+        contractVersion: 3,
+        status: 'ok',
+        runId: 'run-1',
+        generation: 4,
+      });
+    });
+
+    it('passes the mode through', async () => {
+      const native = jest.fn().mockResolvedValue({
+        contractVersion: 3,
+        status: 'ok',
+        runId: 'run-2',
+        generation: 5,
+      });
+      mockNative({startScan: native});
+
+      await startScan('LOCAL_REFRESH');
+      await startScan('FULL');
+
+      expect(native).toHaveBeenNthCalledWith(1, 'LOCAL_REFRESH');
+      expect(native).toHaveBeenNthCalledWith(2, 'FULL');
+    });
+
+    it('normalises an error envelope', async () => {
+      mockNative({startScan: jest.fn().mockResolvedValue(scanInProgress)});
+
+      expect(await startScan('FULL')).toEqual({
+        contractVersion: 3,
+        status: 'error',
+        error: {
+          code: 'SCAN_IN_PROGRESS',
+          message: 'A scan is already running.',
+          action: 'Wait for it to finish, or cancel it.',
+          conflictingSource: null,
+        },
+      });
+    });
+
+    it('treats an ok envelope without a run ID as INTERNAL_ERROR', async () => {
+      mockNative({
+        startScan: jest
+          .fn()
+          .mockResolvedValue({contractVersion: 3, status: 'ok'}),
+      });
+
+      const result = await startScan();
+
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe('INTERNAL_ERROR');
+      }
+    });
+  });
+
+  describe('cancelScan', () => {
+    it('passes the run ID and normalises ok', async () => {
+      const native = jest
+        .fn()
+        .mockResolvedValue({contractVersion: 3, status: 'ok'});
+      mockNative({cancelScan: native});
+
+      expect(await cancelScan('run-1')).toEqual({
+        contractVersion: 3,
+        status: 'ok',
+      });
+      expect(native).toHaveBeenCalledWith('run-1');
+    });
+
+    it('normalises SCAN_NOT_FOUND', async () => {
+      mockNative({
+        cancelScan: jest.fn().mockResolvedValue({
+          contractVersion: 3,
+          status: 'error',
+          error: {
+            code: 'SCAN_NOT_FOUND',
+            message: 'That scan is no longer known.',
+            action: 'Refresh the scan screen.',
+          },
+        }),
+      });
+
+      const result = await cancelScan('gone');
+
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe('SCAN_NOT_FOUND');
+        expect(result.error.action).toBe('Refresh the scan screen.');
+      }
+    });
+  });
+
+  describe('getScanState', () => {
+    it('normalises an ok envelope with a run and an active snapshot', async () => {
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 3,
+          status: 'ok',
+          run: runningRun,
+          active: activeSnapshot,
+        }),
+      });
+
+      expect(await getScanState()).toEqual({
+        contractVersion: 3,
+        status: 'ok',
+        run: runningRun,
+        active: activeSnapshot,
+      });
+    });
+
+    it('maps missing run and active to null', async () => {
+      mockNative({
+        getScanState: jest
+          .fn()
+          .mockResolvedValue({contractVersion: 3, status: 'ok'}),
+      });
+
+      expect(await getScanState()).toEqual({
+        contractVersion: 3,
+        status: 'ok',
+        run: null,
+        active: null,
+      });
+    });
+
+    it('normalises an error envelope', async () => {
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 3,
+          status: 'error',
+          error: {code: 'INTERNAL_ERROR', message: 'Something failed.'},
+        }),
+      });
+
+      const result = await getScanState();
+
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe('INTERNAL_ERROR');
+        expect(result.error.action).toBeNull();
+      }
+    });
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    for (const result of [
+      await startScan(),
+      await cancelScan('run-1'),
+      await getScanState(),
+    ]) {
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
+      }
+    }
   });
 });
