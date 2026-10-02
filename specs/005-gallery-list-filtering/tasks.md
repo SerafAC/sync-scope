@@ -128,7 +128,7 @@ and API 36 against the live SFTP container.
 
 ### 3a. Native read rules (`SnapshotStore`, `ScanOperations`)
 
-- [ ] T020 [P] [US1] Add failing tests to `KTEST/persistence/SnapshotStoreTest.kt` for the read rules in [data-model.md](./data-model.md#read-rules-changes-to-snapshotstorequeryfilepage), using a fixture of two sources, nested directories and mixed statuses:
+- [X] T020 [P] [US1] Add failing tests to `KTEST/persistence/SnapshotStoreTest.kt` for the read rules in [data-model.md](./data-model.md#read-rules-changes-to-snapshotstorequeryfilepage), using a fixture of two sources, nested directories and mixed statuses:
   1. **Directories ignore the filter.** `queryFilePage` with a `parentId`, or `topLevelOnly`, under `SYNCED` returns a directory whose descendants are all UNSYNCED, with `matchingFileCount = 0`. FILE rows are still narrowed by the filter.
   2. **`matchingFileCount` per filter.** `ALL` = `descSynced + descUnsynced + descUnknown`, `SYNCED` = `descSynced`, `UNSYNCED` = `descUnsynced`, `ISSUES_UNKNOWN` = `descUnknown`. It is `null` on FILE rows, and `null` on a directory row whose counts are `NULL` (pre-v3).
   3. **Gallery is images only.** `view = GALLERY` returns `image/png` but not `video/mp4`, `text/plain` or directories.
@@ -137,7 +137,7 @@ and API 36 against the live SFTP container.
   6. **Paging.** Keyset paging across a page boundary still returns every row once under each rule.
   7. **Tokens.** A page token minted under the old rules is still accepted, since the fingerprint is unchanged.
   8. **Performance budget** (plan Performance Goals), in `KTEST/persistence/SnapshotQueryPerformanceTest.kt`: insert 50 000 FILE rows over 2 sources (half images, 5 % name twins across sources) and 2 000 directories into an in-memory Room database. The first GALLERY page (100 rows + counts + duplicate probe) and the first `queryTreeChildren` page under `SYNCED` each complete in under 300 ms, as the median of 5 runs after one warm-up. If the budget is missed or flaky on CI, record the measured value in the test file and escalate to the user; never raise the limit silently.
-- [ ] T021 [US1] Implement the read rules in `KT/persistence/SnapshotStore.kt` and `KT/persistence/Daos.kt` to make T020 pass:
+- [X] T021 [US1] Implement the read rules in `KT/persistence/SnapshotStore.kt` and `KT/persistence/Daos.kt` to make T020 pass:
   - **Filter clause.** Apply the filter clause to `kind = 'FILE'` rows only *when `parentId` is set or `topLevelOnly`* (`(kind = 'DIRECTORY' OR <filter>)`). `queryFiles` without a parent keeps 004's behaviour.
   - **Gallery clause.** Change it to `kind = 'FILE' AND mimeType LIKE 'image/%'`.
   - **Counts.** Replace `statusCounts(snapshotId)` with a `@RawQuery` (or two `@Query` variants) `statusCounts(snapshotId, imagesOnly: Boolean, sourceId: String?)`.
@@ -145,13 +145,13 @@ and API 36 against the live SFTP container.
   - **`FileEntry`.** Add `nameInOtherSource: Boolean` and `matchingFileCount: Long?`, the latter computed from the filter and the `desc*` columns, with `null` if any is `NULL`.
 
   Keep the fingerprint unchanged.
-- [ ] T022 [US1] Map the two new fields in `KT/bridge/ScanOperations.kt` `page(...)`: `putBoolean("nameInOtherSource", …)` and `putNullableNumber("matchingFileCount", …)`. Extend `KTEST/bridge/ScanOperationsTest.kt` so that both fields appear on every entry (`false` / `null` on LIST file rows), and no entry contains a `documentUri`, `documentId` or path key.
+- [X] T022 [US1] Map the two new fields in `KT/bridge/ScanOperations.kt` `page(...)`: `putBoolean("nameInOtherSource", …)` and `putNullableNumber("matchingFileCount", …)`. Extend `KTEST/bridge/ScanOperationsTest.kt` so that both fields appear on every entry (`false` / `null` on LIST file rows), and no entry contains a `documentUri`, `documentId` or path key.
 
 **Checkpoint**: JVM tests green; `queryFiles` / `queryTreeChildren` serve the v4 rules.
 
 ### 3b. Native local image handle (`getLocalImageHandle`, research R7)
 
-- [ ] T023 [P] [US1] Add failing tests in `KTEST/image/LocalImageStoreTest.kt` (Robolectric) behind a small seam `interface ThumbnailSource { fun load(documentUri: String, edgePx: Int): Bitmap }`, with a fake:
+- [X] T023 [P] [US1] Add failing tests in `KTEST/image/LocalImageStoreTest.kt` (Robolectric) behind a small seam `interface ThumbnailSource { fun load(documentUri: String, edgePx: Int): Bitmap }`, with a fake:
   1. A first call decodes once and writes `cacheDir/thumbnails/<sha256(entryId + "|" + edge)>.jpg`; a second call with the same `(entryId, edge)` returns the same URI without decoding.
   2. The returned `uri` starts with `file://` and contains neither the document URI nor the document ID.
   3. The edge is clamped through `LocalImageSpec.bounded` (10 → 64, 5000 → 2048).
@@ -159,14 +159,14 @@ and API 36 against the live SFTP container.
   4b. In `KTEST/image/ContentResolverThumbnailSourceTest.kt` (Robolectric, with a shadowed `ContentResolver`), an `UnsupportedOperationException` from `loadThumbnail` makes the production `ThumbnailSource` fall back to `BitmapFactory` decoding with `sampleSizeFor`, and the returned bitmap's long edge is ≤ `edge`.
   5. `FileNotFoundException` / `SecurityException` / a null bitmap → `ImageUnavailable`.
   6. At most 4 loads run at once (use a gate in the fake and count the concurrent entries).
-- [ ] T024 [US1] Implement `KT/image/LocalImageStore.kt` to make T023 pass:
+- [X] T024 [US1] Implement `KT/image/LocalImageStore.kt` to make T023 pass:
   - the production `ContentResolverThumbnailSource` calls `ContentResolver.loadThumbnail(Uri.parse(documentUri), Size(edge, edge), null)` and, on `UnsupportedOperationException`, reads the bounds (`inJustDecodeBounds`), decodes through `openInputStream` with `inSampleSize = sampleSizeFor(w, h, edge)` and scales the result down so the long edge is ≤ `edge`;
   - `sampleSizeFor` is a top-level pure function in the same file;
   - it writes JPEG quality 85 atomically (temp file + rename) into `cacheDir/thumbnails/`;
   - it runs on `Dispatchers.IO.limitedParallelism(4)`;
   - it never logs the document URI.
-- [ ] T025 [US1] Add the snapshot lookup for images: a DAO query in `KT/persistence/Daos.kt` and a `SnapshotStore.imageEntry(snapshotId, entryId)` that returns the row's `documentUri` and `mimeType` only when the snapshot is publishable and the row is a `FILE`. It throws `SnapshotNotFoundException` for an unpublished snapshot. Test it in `KTEST/persistence/SnapshotStoreTest.kt`: published file, directory, unknown entry, staged snapshot.
-- [ ] T026 [US1] Add `imageHandle(snapshotId, entryId, spec: ReadableMap)` to `KT/bridge/ScanOperations.kt` and wire `getLocalImageHandle` in `KT/bridge/CloudSyncModule.kt`, replacing `notImplemented`. Update the class KDoc that lists the methods not yet built. Follow the [behaviour table](./contracts/cloudsync-browse.md#getlocalimagehandlesnapshotid-entryid-spec):
+- [X] T025 [US1] Add the snapshot lookup for images: a DAO query in `KT/persistence/Daos.kt` and a `SnapshotStore.imageEntry(snapshotId, entryId)` that returns the row's `documentUri` and `mimeType` only when the snapshot is publishable and the row is a `FILE`. It throws `SnapshotNotFoundException` for an unpublished snapshot. Test it in `KTEST/persistence/SnapshotStoreTest.kt`: published file, directory, unknown entry, staged snapshot.
+- [X] T026 [US1] Add `imageHandle(snapshotId, entryId, spec: ReadableMap)` to `KT/bridge/ScanOperations.kt` and wire `getLocalImageHandle` in `KT/bridge/CloudSyncModule.kt`, replacing `notImplemented`. Update the class KDoc that lists the methods not yet built. Follow the [behaviour table](./contracts/cloudsync-browse.md#getlocalimagehandlesnapshotid-entryid-spec):
   - an unpublished snapshot → `SNAPSHOT_NOT_FOUND`;
   - an entry that is unknown, a `DIRECTORY`, or not `image/*` → `INVALID_QUERY` with `field: "entryId"`;
   - a missing or non-numeric `maxEdgePx` → `INVALID_QUERY` with `field: "maxEdgePx"`;
@@ -179,7 +179,7 @@ and API 36 against the live SFTP container.
 
 ### 3c. JS state and hooks (`src/files/`)
 
-- [ ] T027 [P] [US1] Create `src/files/FilesProvider.tsx` and `src/files/useFiles.ts`. The context value is `{ view: 'GALLERY' | 'LIST', filter: FileFilter, setView, setFilter }`, initially `{ GALLERY, ALL }`, held in React state and not persisted (research R10). `useFiles()` throws outside the provider, like `useScan`. Test in `src/files/__tests__/FilesProvider.test.tsx`.
+- [X] T027 [P] [US1] Create `src/files/FilesProvider.tsx` and `src/files/useFiles.ts`. The context value is `{ view: 'GALLERY' | 'LIST', filter: FileFilter, setView, setFilter }`, initially `{ GALLERY, ALL }`, held in React state and not persisted (research R10). `useFiles()` throws outside the provider, like `useScan`. Test in `src/files/__tests__/FilesProvider.test.tsx`.
 - [ ] T028 [P] [US1] Write failing tests in `src/files/__tests__/usePagedQuery.test.tsx` for `usePagedQuery({ snapshotId, read, query })`. `read` is an injected `(snapshotId, query, token) => Promise<QueryFilesResult>`, so both `queryFiles` and `queryTreeChildren` fit. The tests follow the state machine in [data-model.md](./data-model.md#filepage-spec-entity-as-held-by-usepagedquery):
   1. Page 1 loads entries and `counts`. `loadMore()` appends page 2 and keeps page-1 `counts`. `loadMore()` with no token, or while loading, is a no-op.
   2. A change of `snapshotId` while rows are shown drops the rows, reloads page 1 for the new ID and reports `snapshotChanged: true` once (the "Results updated" signal). A change while nothing was shown does not report it.

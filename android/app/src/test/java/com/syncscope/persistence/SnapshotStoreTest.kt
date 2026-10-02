@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -381,6 +382,231 @@ class SnapshotStoreTest {
     val second = store.queryFilePage("snap-1", SnapshotQuery(pageSize = 1), token, topLevelOnly = true)
     assertEquals(listOf("f2"), second.entries.map { it.entryId })
   }
+
+  // --- Feature 005 read rules (data-model.md "Read rules") ----------------------------------------
+
+  @Test
+  fun directoriesIgnoreTheFilterUnderAParentOrAtTheTopLevel() = runBlocking {
+    seedBrowseFixture()
+
+    val inD1 = store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, parentId = "d1"), null)
+    // d2's descendants are all UNSYNCED, yet the directory is returned; f6 (UNKNOWN) is narrowed away.
+    assertEquals(listOf("d2", "f3"), inD1.entries.map { it.entryId })
+    assertEquals(0L, inD1.entries.single { it.entryId == "d2" }.matchingFileCount)
+
+    val top =
+      store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, sourceId = "src-1"), null, topLevelOnly = true)
+    assertEquals(listOf("dLegacy", "d1", "f7"), top.entries.map { it.entryId })
+
+    val unsyncedTop =
+      store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"), null, topLevelOnly = true)
+    assertEquals(listOf("f8", "dLegacy", "d1", "f1"), unsyncedTop.entries.map { it.entryId })
+
+    // queryFiles without a parent keeps 004's behaviour: the filter applies to every row.
+    val flat = store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.SYNCED), null)
+    assertEquals(setOf("dLegacy", "f3", "f7", "g1"), flat.entries.map { it.entryId }.toSet())
+  }
+
+  @Test
+  fun matchingFileCountFollowsTheFilter() = runBlocking {
+    seedBrowseFixture()
+    val expectedD1 =
+      mapOf(FileFilter.ALL to 4L, FileFilter.SYNCED to 1L, FileFilter.UNSYNCED to 2L, FileFilter.ISSUES_UNKNOWN to 1L)
+    val expectedD2 =
+      mapOf(FileFilter.ALL to 2L, FileFilter.SYNCED to 0L, FileFilter.UNSYNCED to 2L, FileFilter.ISSUES_UNKNOWN to 0L)
+
+    for (filter in FileFilter.entries) {
+      val top = store.queryFilePage("snap-1", SnapshotQuery(filter = filter, sourceId = "src-1"), null, topLevelOnly = true)
+      val byId = top.entries.associateBy { it.entryId }
+      assertEquals("d1 under $filter", expectedD1[filter], byId.getValue("d1").matchingFileCount)
+      assertNull("pre-v3 directory under $filter", byId.getValue("dLegacy").matchingFileCount)
+      for (file in top.entries.filter { it.kind == "FILE" }) {
+        assertNull("file ${file.entryId} under $filter", file.matchingFileCount)
+      }
+
+      val inD1 = store.queryFilePage("snap-1", SnapshotQuery(filter = filter, parentId = "d1"), null)
+      assertEquals("d2 under $filter", expectedD2[filter], inD1.entries.single { it.entryId == "d2" }.matchingFileCount)
+    }
+  }
+
+  @Test
+  fun aDirectoryWithOnlySomeNullCountsHasNoMatchingFileCount() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        localNode("snap-1", "src-1", "d1", "dir", kind = "DIRECTORY", sizeBytes = null)
+          .copy(descSynced = 3L, descUnsynced = null, descUnknown = 0L)
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val page = store.queryFilePage("snap-1", SnapshotQuery(), null, topLevelOnly = true)
+    assertNull(page.entries.single().matchingFileCount)
+  }
+
+  @Test
+  fun galleryReturnsImageFilesOnly() = runBlocking {
+    seedBrowseFixture()
+
+    val gallery =
+      store.queryFilePage("snap-1", SnapshotQuery(view = FileView.GALLERY, sort = FileSort.TIME_DESC), null)
+
+    assertEquals(setOf("f3", "f6", "f7", "f8", "g1", "g2"), gallery.entries.map { it.entryId }.toSet())
+    assertTrue(gallery.entries.all { it.kind == "FILE" && it.mimeType!!.startsWith("image/") })
+  }
+
+  @Test
+  fun firstPageCountsAreScopedByViewAndSourceOnly() = runBlocking {
+    seedBrowseFixture()
+    val everyFile = mapOf("SYNCED" to 3L, "UNSYNCED" to 5L, "UNKNOWN" to 2L)
+
+    // LIST: every FILE of the snapshot, whatever the filter, parent or search.
+    assertEquals(everyFile, countsOf(SnapshotQuery()))
+    assertEquals(
+      everyFile,
+      countsOf(SnapshotQuery(filter = FileFilter.SYNCED, parentId = "d1", search = "zzz")),
+    )
+    // GALLERY: images only.
+    val images = mapOf("SYNCED" to 3L, "UNSYNCED" to 1L, "UNKNOWN" to 2L)
+    assertEquals(images, countsOf(SnapshotQuery(view = FileView.GALLERY)))
+    assertEquals(images, countsOf(SnapshotQuery(view = FileView.GALLERY, filter = FileFilter.UNSYNCED)))
+    // sourceId narrows the counts.
+    assertEquals(mapOf("SYNCED" to 1L, "UNKNOWN" to 1L), countsOf(SnapshotQuery(view = FileView.GALLERY, sourceId = "src-2")))
+    assertEquals(
+      mapOf("SYNCED" to 2L, "UNSYNCED" to 4L, "UNKNOWN" to 1L),
+      countsOf(SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"), topLevelOnly = true),
+    )
+    // Later pages carry no counts.
+    val first = store.queryFilePage("snap-1", SnapshotQuery(view = FileView.GALLERY, pageSize = 1), null)
+    assertNull(store.queryFilePage("snap-1", SnapshotQuery(view = FileView.GALLERY, pageSize = 1), first.nextPageToken).counts)
+  }
+
+  @Test
+  fun nameInOtherSourceIsAnExactNameTwinInAnotherSourceForGalleryReadsOnly() = runBlocking {
+    seedBrowseFixture()
+
+    val gallery = store.queryFilePage("snap-1", SnapshotQuery(view = FileView.GALLERY), null)
+    val twin = gallery.entries.associate { it.entryId to it.nameInOtherSource }
+    assertEquals(
+      // a.png is in both sources; dup.png only twins inside src-1; Case.png vs case.png differ in case.
+      mapOf("f3" to true, "g1" to true, "f6" to false, "f7" to false, "f8" to false, "g2" to false),
+      twin,
+    )
+
+    val list = store.queryFilePage("snap-1", SnapshotQuery(), null)
+    assertTrue(list.entries.isNotEmpty())
+    assertTrue(list.entries.none { it.nameInOtherSource })
+    val listInD1 = store.queryFilePage("snap-1", SnapshotQuery(parentId = "d1"), null)
+    assertTrue(listInD1.entries.none { it.nameInOtherSource })
+  }
+
+  @Test
+  fun keysetPagingReturnsEveryRowOnceUnderEachRule() = runBlocking {
+    seedBrowseFixture()
+    val cases =
+      listOf(
+        SnapshotQuery(view = FileView.GALLERY, sort = FileSort.TIME_DESC) to false,
+        SnapshotQuery(view = FileView.GALLERY, filter = FileFilter.SYNCED, sort = FileSort.NAME_ASC) to false,
+        SnapshotQuery(filter = FileFilter.SYNCED, parentId = "d1") to false,
+        SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1") to true,
+        SnapshotQuery(filter = FileFilter.ISSUES_UNKNOWN, sort = FileSort.TIME_ASC) to true,
+      )
+    for ((query, topLevelOnly) in cases) {
+      val whole = store.queryFilePage("snap-1", query.copy(pageSize = 200), null, topLevelOnly)
+      val paged = mutableListOf<FileEntry>()
+      var token: String? = null
+      do {
+        val page = store.queryFilePage("snap-1", query.copy(pageSize = 2), token, topLevelOnly)
+        paged += page.entries
+        token = page.nextPageToken
+        assertTrue("$query top=$topLevelOnly never ends", paged.size <= whole.entries.size)
+      } while (token != null)
+      assertEquals("$query top=$topLevelOnly", whole.entries, paged)
+      assertEquals("$query top=$topLevelOnly", paged.size, paged.map { it.entryId }.toSet().size)
+    }
+  }
+
+  @Test
+  fun aPageTokenMintedUnderTheOldRulesIsStillAccepted() = runBlocking {
+    seedBrowseFixture()
+    val query = SnapshotQuery(view = FileView.GALLERY, sort = FileSort.NAME_ASC, pageSize = 2)
+    // The fingerprint did not change in contract 4, so a token written by 004 replays as-is.
+    assertEquals("f=ALL|v=GALLERY|s=NAME_ASC|src=|p=|q=", query.fingerprint())
+    val legacyToken =
+      PageTokenCodec.encode(snapshotId = "snap-1", queryFingerprint = query.fingerprint(), sortKey = "Case.png", lastEntryId = "f8")
+
+    val page = store.queryFilePage("snap-1", query, legacyToken)
+
+    assertEquals(listOf("f3", "g1"), page.entries.map { it.entryId })
+  }
+
+  @Test
+  fun imageEntryReturnsTheDocumentOfAPublishedFileOnly() = runBlocking {
+    seedBrowseFixture()
+
+    assertEquals(
+      ImageEntry(documentUri = "content://provider/doc/f3", mimeType = "image/png"),
+      store.imageEntry("snap-1", "f3"),
+    )
+    // A directory and an unknown entry have no image.
+    assertNull(store.imageEntry("snap-1", "d1"))
+    assertNull(store.imageEntry("snap-1", "no-such-entry"))
+    // An entry of another snapshot is unknown here.
+    seedRun("run-2", 2L, "snap-2")
+    store.stageLocalNodes(listOf(localNode("snap-2", "src-1", "s2", "staged.png", mimeType = "image/png")))
+    // A staged (unpublished) or missing snapshot is not readable.
+    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("snap-2", "s2") } }
+    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("missing", "f3") } }
+    assertNull(store.imageEntry("snap-1", "s2"))
+  }
+
+  /**
+   * Two sources, nested directories and mixed statuses. Directory counts match their descendants;
+   * `dLegacy` has pre-v3 `NULL` counts.
+   *
+   * ```
+   * src-1  d1/ (1 synced, 2 unsynced, 1 unknown)      src-2  g1 a.png     image  SYNCED
+   *          d2/ (0, 2, 0)                                   g2 case.png  image  UNKNOWN
+   *            f4 deep.txt   text   UNSYNCED                 g3 doc.txt   text   UNSYNCED
+   *            f5 clip.mp4   video  UNSYNCED
+   *          f3 a.png        image  SYNCED
+   *          f6 dup.png      image  UNKNOWN
+   *        dLegacy/ (NULL counts)
+   *        f1 top.txt        text   UNSYNCED
+   *        f7 dup.png        image  SYNCED
+   *        f8 Case.png       image  UNSYNCED
+   * ```
+   */
+  private suspend fun seedBrowseFixture() {
+    seedRun("run-1", 1L, "snap-1")
+    db.sourceRootDao().upsert(sourceRoot("src-2"))
+    fun dir(id: String, name: String, parent: String?, s: Long?, u: Long?, k: Long?, status: String) =
+      localNode("snap-1", "src-1", id, name, kind = "DIRECTORY", parentId = parent, sizeBytes = null, modifiedUtcMillis = null, status = status)
+        .copy(descSynced = s, descUnsynced = u, descUnknown = k)
+    fun file(src: String, id: String, name: String, parent: String?, mime: String, status: String, at: Long) =
+      localNode("snap-1", src, id, name, parentId = parent, mimeType = mime, status = status, modifiedUtcMillis = at)
+    store.stageLocalNodes(
+      listOf(
+        dir("d1", "Photos", null, 1L, 2L, 1L, status = "UNKNOWN"),
+        dir("d2", "Old", "d1", 0L, 2L, 0L, status = "UNSYNCED"),
+        dir("dLegacy", "Legacy", null, null, null, null, status = "SYNCED"),
+        file("src-1", "f1", "top.txt", null, "text/plain", "UNSYNCED", 1_000L),
+        file("src-1", "f3", "a.png", "d1", "image/png", "SYNCED", 3_000L),
+        file("src-1", "f4", "deep.txt", "d2", "text/plain", "UNSYNCED", 4_000L),
+        file("src-1", "f5", "clip.mp4", "d2", "video/mp4", "UNSYNCED", 5_000L),
+        file("src-1", "f6", "dup.png", "d1", "image/png", "UNKNOWN", 6_000L),
+        file("src-1", "f7", "dup.png", null, "image/png", "SYNCED", 7_000L),
+        file("src-1", "f8", "Case.png", null, "image/png", "UNSYNCED", 8_000L),
+        file("src-2", "g1", "a.png", null, "image/png", "SYNCED", 9_000L),
+        file("src-2", "g2", "case.png", null, "image/png", "UNKNOWN", 10_000L),
+        file("src-2", "g3", "doc.txt", null, "text/plain", "UNSYNCED", 11_000L),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+  }
+
+  private suspend fun countsOf(query: SnapshotQuery, topLevelOnly: Boolean = false): Map<String, Long> =
+    store.queryFilePage("snap-1", query, null, topLevelOnly).counts!!.associate { it.status to it.count }
 
   private suspend fun stageEverything(snapshotId: String) {
     store.stageLocalNodes(listOf(localNode(snapshotId, "src-1", "e-$snapshotId", "staged.txt")))

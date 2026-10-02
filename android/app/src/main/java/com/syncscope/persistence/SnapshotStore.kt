@@ -15,6 +15,10 @@ data class FileEntry(
   val modifiedUtcMillis: Long?,
   val status: String,
   val issueCode: String?,
+  /** GALLERY reads: a `FILE` with the same name (case-sensitive) exists in another source. Always false for LIST. */
+  val nameInOtherSource: Boolean = false,
+  /** `DIRECTORY` rows: files beneath it matching the query's filter; null on files and on pre-v3 rows. */
+  val matchingFileCount: Long? = null,
 )
 
 /** A bounded page of entries, mirroring `FilePageDto` on the JS side. */
@@ -312,14 +316,22 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
     val args = mutableListOf<Any?>(snapshotId)
     val where = StringBuilder("snapshotId = ?")
 
-    when (query.filter) {
-      FileFilter.ALL -> Unit
-      FileFilter.SYNCED -> where.append(" AND status = 'SYNCED'")
-      FileFilter.UNSYNCED -> where.append(" AND status = 'UNSYNCED'")
-      FileFilter.ISSUES_UNKNOWN -> where.append(" AND (status = 'UNKNOWN' OR issueCode IS NOT NULL)")
+    val filterClause =
+      when (query.filter) {
+        FileFilter.ALL -> null
+        FileFilter.SYNCED -> "status = 'SYNCED'"
+        FileFilter.UNSYNCED -> "status = 'UNSYNCED'"
+        FileFilter.ISSUES_UNKNOWN -> "(status = 'UNKNOWN' OR issueCode IS NOT NULL)"
+      }
+    if (filterClause != null) {
+      // Browsing a folder never dead-ends: directories are always listed and the filter narrows
+      // files only (research R3). A flat `queryFiles` read keeps 004's rule.
+      val browsing = topLevelOnly || query.parentId != null
+      where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
     }
-    if (query.view == FileView.GALLERY) {
-      where.append(" AND kind = 'FILE' AND (mimeType LIKE 'image/%' OR mimeType LIKE 'video/%')")
+    val gallery = query.view == FileView.GALLERY
+    if (gallery) {
+      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
     }
     query.sourceId?.let {
       where.append(" AND sourceId = ?")
@@ -349,21 +361,38 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
     val comparator = if (ascending) ">" else "<"
 
     if (cursor != null) {
+      // A time key must bind as an integer: SQLite orders every INTEGER below every TEXT, so a text key
+      // would match every row again and the pages would never end.
+      val sortKey: Any =
+        if (sortColumn == "name") cursor.sortKey
+        else cursor.sortKey.toLongOrNull() ?: throw PageTokenMismatchException("page token carries a non-numeric time key")
       where.append(" AND ($sortColumn $comparator ? OR ($sortColumn = ? AND entryId $comparator ?))")
-      args += cursor.sortKey
-      args += cursor.sortKey
+      args += sortKey
+      args += sortKey
       args += cursor.lastEntryId
     }
 
-    // One extra row tells us whether a further page exists without a count.
+    // One extra row tells us whether a further page exists without a count. The duplicate probe runs
+    // on the page's rows only, outside the inner LIMIT, and is pinned to the (snapshotId, name, …)
+    // index: left to itself SQLite scans the covering (snapshotId, sourceId, …) index for every row,
+    // which costs ~10x the plan budget on a 50 000-file snapshot (SnapshotQueryPerformanceTest).
+    val duplicateProbe =
+      if (gallery) {
+        "EXISTS (SELECT 1 FROM local_node d INDEXED BY $NAME_INDEX" +
+          " WHERE d.snapshotId = p.snapshotId AND d.name = p.name AND d.kind = 'FILE' AND d.sourceId <> p.sourceId)"
+      } else {
+        "0"
+      }
+    val order = "ORDER BY $sortColumn $direction, entryId $direction"
     val sql =
-      "SELECT * FROM local_node WHERE $where ORDER BY $sortColumn $direction, entryId $direction LIMIT ${limit + 1}"
-    val rows = db.localNodeDao().page(SimpleSQLiteQuery(sql, args.toTypedArray()))
+      "SELECT p.*, $duplicateProbe AS nameInOtherSource" +
+        " FROM (SELECT * FROM local_node WHERE $where $order LIMIT ${limit + 1}) AS p $order"
+    val rows = db.localNodeDao().rows(SimpleSQLiteQuery(sql, args.toTypedArray()))
 
     val hasMore = rows.size > limit
     val pageRows = if (hasMore) rows.subList(0, limit) else rows
     val nextPageToken =
-      pageRows.lastOrNull()?.takeIf { hasMore }?.let {
+      pageRows.lastOrNull()?.takeIf { hasMore }?.node?.let {
         PageTokenCodec.encode(
           snapshotId = snapshotId,
           queryFingerprint = fingerprint,
@@ -373,15 +402,34 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
       }
 
     return FilePage(
-      entries = pageRows.map { it.toFileEntry() },
+      entries = pageRows.map { it.toFileEntry(query.filter) },
       nextPageToken = nextPageToken,
-      // Counts ride along with the first page so rows and totals share a read.
-      counts = if (cursor == null) db.localNodeDao().statusCounts(snapshotId) else null,
+      // Counts ride along with the first page so rows and totals share a read. They are scoped by
+      // view and source only, never by filter, parent or search, so the chips stay stable.
+      counts =
+        if (cursor == null) db.localNodeDao().statusCounts(snapshotId, imagesOnly = gallery, sourceId = query.sourceId)
+        else null,
     )
+  }
+
+  /**
+   * The local document of [entryId] in a published snapshot, for `getLocalImageHandle`: its
+   * `documentUri` and `mimeType`, or null when the entry is unknown or is a `DIRECTORY`. Throws
+   * [SnapshotNotFoundException] when the snapshot is missing or still staged.
+   */
+  suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry? {
+    val snapshot = db.snapshotDao().byId(snapshotId)
+    if (snapshot == null || !snapshot.publishable) {
+      throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
+    }
+    return db.localNodeDao().imageEntry(snapshotId, entryId)
   }
 
   private companion object {
     val DISCARD_STATES = setOf("CANCELLED", "FAILED")
+    const val KIND_DIRECTORY = "DIRECTORY"
+    /** Room's name for `Index(snapshotId, name, sizeBytes)` on `local_node` (schema 3.json). */
+    const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
   }
 
   private fun sortValueOf(node: LocalNodeEntity, sort: FileSort): String =
@@ -395,17 +443,32 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   private fun escapeLike(value: String): String =
     value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
-  private fun LocalNodeEntity.toFileEntry(): FileEntry =
+  private fun LocalNodeRow.toFileEntry(filter: FileFilter): FileEntry =
     FileEntry(
-      entryId = entryId,
-      sourceId = sourceId,
-      parentId = parentId,
-      kind = kind,
-      name = name,
-      mimeType = mimeType,
-      sizeBytes = sizeBytes,
-      modifiedUtcMillis = modifiedUtcMillis,
-      status = status,
-      issueCode = issueCode,
+      entryId = node.entryId,
+      sourceId = node.sourceId,
+      parentId = node.parentId,
+      kind = node.kind,
+      name = node.name,
+      mimeType = node.mimeType,
+      sizeBytes = node.sizeBytes,
+      modifiedUtcMillis = node.modifiedUtcMillis,
+      status = node.status,
+      issueCode = node.issueCode,
+      nameInOtherSource = nameInOtherSource,
+      matchingFileCount = if (node.kind == KIND_DIRECTORY) matchingFileCount(node, filter) else null,
     )
+
+  /** The directory's descendant `FILE` count for [filter]; null when any count predates schema 3. */
+  private fun matchingFileCount(node: LocalNodeEntity, filter: FileFilter): Long? {
+    val synced = node.descSynced ?: return null
+    val unsynced = node.descUnsynced ?: return null
+    val unknown = node.descUnknown ?: return null
+    return when (filter) {
+      FileFilter.ALL -> synced + unsynced + unknown
+      FileFilter.SYNCED -> synced
+      FileFilter.UNSYNCED -> unsynced
+      FileFilter.ISSUES_UNKNOWN -> unknown
+    }
+  }
 }

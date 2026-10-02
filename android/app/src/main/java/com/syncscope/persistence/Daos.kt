@@ -1,12 +1,14 @@
 package com.syncscope.persistence
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
 
 /**
@@ -141,19 +143,53 @@ interface LocalNodeDao {
   @Query("SELECT COUNT(*) FROM local_node WHERE snapshotId = :snapshotId")
   suspend fun countFor(snapshotId: String): Long
 
-  @Query(
-    "SELECT status AS status, COUNT(*) AS count FROM local_node WHERE snapshotId = :snapshotId AND kind = 'FILE' GROUP BY status"
-  )
-  suspend fun statusCounts(snapshotId: String): List<StatusCount>
+  /** Grouped `FILE` totals; built by [statusCounts], which owns the scope rules. */
+  @RawQuery suspend fun statusCountsRaw(query: SupportSQLiteQuery): List<StatusCount>
 
   @RawQuery suspend fun page(query: SupportSQLiteQuery): List<LocalNodeEntity>
 
+  /** A browse page: each row plus its `nameInOtherSource` probe (`0` for LIST reads). */
+  @RawQuery suspend fun rows(query: SupportSQLiteQuery): List<LocalNodeRow>
+
   @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
   suspend fun anyPrecision(snapshotId: String): Long?
+
+  /** The document behind a `FILE` row, for local image handles; null for a directory or an unknown entry. */
+  @Query(
+    "SELECT documentUri, mimeType FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND kind = 'FILE'"
+  )
+  suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry?
 }
+
+/** The local document of one `FILE` row. Never crosses the bridge. */
+data class ImageEntry(val documentUri: String, val mimeType: String?)
 
 /** Row projection for grouped status totals. */
 data class StatusCount(val status: String, val count: Long)
+
+/** A `local_node` row with the gallery duplicate probe selected alongside it. */
+data class LocalNodeRow(
+  @Embedded val node: LocalNodeEntity,
+  val nameInOtherSource: Boolean,
+)
+
+/**
+ * First-page counts (data-model.md "Read rules"): `FILE` rows of [snapshotId] by status, narrowed to
+ * `image/` MIME types when [imagesOnly] (GALLERY) and to [sourceId] when given. Never narrowed by filter, parent
+ * or search.
+ */
+suspend fun LocalNodeDao.statusCounts(snapshotId: String, imagesOnly: Boolean, sourceId: String?): List<StatusCount> {
+  val args = mutableListOf<Any?>(snapshotId)
+  val where = StringBuilder("snapshotId = ? AND kind = 'FILE'")
+  if (imagesOnly) where.append(" AND mimeType LIKE 'image/%'")
+  if (sourceId != null) {
+    where.append(" AND sourceId = ?")
+    args += sourceId
+  }
+  return statusCountsRaw(
+    SimpleSQLiteQuery("SELECT status AS status, COUNT(*) AS count FROM local_node WHERE $where GROUP BY status", args.toTypedArray())
+  )
+}
 
 @Dao
 interface RemoteNodeDao {

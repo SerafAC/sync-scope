@@ -86,6 +86,7 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
+        { module.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) },
         { module.executeLocalDeletion("plan", it) },
       )
 
@@ -225,6 +226,7 @@ class CloudSyncModuleTest {
           "startScan(FULL)" to { scans.startScan("FULL", it) },
           "cancelScan" to { scans.cancelScan("no-such-run", it) },
           "getScanState" to { scans.getScanState(it) },
+          "getLocalImageHandle" to { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
@@ -236,6 +238,12 @@ class CloudSyncModuleTest {
       // Nothing configured yet: a start is refused, an unknown run is not found, and the state is empty.
       assertEquals("REPOSITORY_NOT_CONFIGURED", resolve { scans.startScan(null, it) }.getMap("error")!!.getString("code"))
       assertEquals("SCAN_NOT_FOUND", resolve { scans.cancelScan("no-such-run", it) }.getMap("error")!!.getString("code"))
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) }
+          .getMap("error")!!
+          .getString("code"),
+      )
       val state = resolve { scans.getScanState(it) }
       assertEquals("ok", state.getString("status"))
       assertTrue(state.isNull("run"))
