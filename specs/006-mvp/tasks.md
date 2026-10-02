@@ -70,7 +70,7 @@ production behaviour.
 
   `pnpm test:foundation` must pass with T004.
 - [X] T008 [P] Create `MAESTRO/mvp/.gitkeep` and `MAESTRO/staged/pairs.txt`, the latter with only a header comment explaining the format and that `config.yaml` must never list `staged/`. In `MAESTRO/config.yaml` add `- "mvp/*"` under `flows:` after `- "browse/*"`. Do **not** add `flowsOrder` entries here: each flow is added by the task that creates it.
-- [ ] T009 [P] Add `@react-navigation/native-stack` at the 7.x version matching the installed `@react-navigation/native` 7.4.1 (exact pin, as for the other dependencies) to `package.json` with `pnpm add`, and commit the existing `pnpm-workspace.yaml` `hermes-compiler` hoist with it (research R8). Add the jest mock or `transformIgnorePatterns` entry the package needs, following the existing setup for `@react-navigation/bottom-tabs`, so `pnpm test:ci` passes unchanged.
+- [X] T009 [P] Add `@react-navigation/native-stack` at the 7.x version matching the installed `@react-navigation/native` 7.4.1 (exact pin, as for the other dependencies) to `package.json` with `pnpm add`, and commit the existing `pnpm-workspace.yaml` `hermes-compiler` hoist with it (research R8). Add the jest mock or `transformIgnorePatterns` entry the package needs, following the existing setup for `@react-navigation/bottom-tabs`, so `pnpm test:ci` passes unchanged.
 
 **Checkpoint**: fixtures seed, staged pairs and release-smoke run (with no flows yet), and the dependency is installed.
 
