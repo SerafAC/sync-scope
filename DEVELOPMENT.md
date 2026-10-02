@@ -153,7 +153,9 @@ If no `mounted` public volume is listed, see
 `pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36. For each
 API level `scripts/validation/android-flow.sh` starts the protocol containers and Metro, boots the AVD,
 builds and installs the debug APK, runs `scripts/validation/device-fixtures.sh`, and then runs
-`maestro test validation/maestro`. The flows are the proof that a user-visible capability works
+`maestro test validation/maestro`. Metro is started once and serves both API levels, under a 2-hour cap
+(`scripts/validation/metro-service.sh`). A full two-API run takes about 55 minutes, so a 1-hour cap would
+end Metro during the API 36 pass. The flows are the proof that a user-visible capability works
 ([D012](./docs/decisions/0012-maestro-e2e-proof-bar.md)). The rules below apply to every flow; feature
 003 set them up (its design record is
 `specs/003-local-source-selection/contracts/maestro-conventions.md`).

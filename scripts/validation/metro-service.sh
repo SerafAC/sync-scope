@@ -47,7 +47,7 @@ case "$action" in
     }
     trap cleanup_failed_start EXIT
     trap 'exit 130' HUP INT TERM
-    setsid timeout --signal=TERM --kill-after=10 3600 \
+    setsid timeout --signal=TERM --kill-after=10 7200 \
       pnpm start -- --host "$host" --port "$port" \
       >"$state/metro.log" 2>&1 &
     pid=$!

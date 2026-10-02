@@ -290,7 +290,7 @@ on both API levels.
 - [X] T053 [P] Cross-feature spec follow-ups from [plan.md](./plan.md#integration-closure), wording only:
   - in `specs/006-tree-view-image-preview/spec.md`, move `getLocalImageHandle` from "Provides" to "Consumes from feature 005", and note that the directory rule in FR-001's open question is settled by 005 (dimmed with a matching count, still navigable);
   - in `specs/008-full-loop-release/spec.md`, add the include-hidden-files setting (`getSettings` / `setIncludeHidden`, reassigned from 005) and snapshot retention (the plan's Risks) as items to specify.
-- [ ] T054 Run the quickstart end to end ([quickstart.md](./quickstart.md) §1 and §2): `pnpm lint && pnpm typecheck && pnpm test:ci && pnpm test:android:unit && pnpm test:foundation`, then `pnpm e2e:android` on API 31 and API 36. Record the results in the PR description. List quickstart §3 (manual aesthetic acceptance on a real device) as a checklist item for the human reviewer. Do not mark it done.
+- [X] T054 Run the quickstart end to end ([quickstart.md](./quickstart.md) §1 and §2): `pnpm lint && pnpm typecheck && pnpm test:ci && pnpm test:android:unit && pnpm test:foundation`, then `pnpm e2e:android` on API 31 and API 36. Record the results in the PR description. List quickstart §3 (manual aesthetic acceptance on a real device) as a checklist item for the human reviewer. Do not mark it done.
 
 ---
 
