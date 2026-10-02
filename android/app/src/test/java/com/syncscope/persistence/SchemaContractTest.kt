@@ -14,12 +14,10 @@ import org.junit.Test
 class SchemaContractTest {
 
   /** The current schema version's export; older exports stay frozen for MigrationTest. */
-  private val schemaFile =
-    File("schemas/com.syncscope.persistence.SyncScopeDatabase/3.json")
+  private val schemaFile = schemaExport(4)
 
-  /** The frozen version 2 export, to prove version 3 adds no index. */
-  private val previousSchemaFile =
-    File("schemas/com.syncscope.persistence.SyncScopeDatabase/2.json")
+  private fun schemaExport(version: Int) =
+    File("schemas/com.syncscope.persistence.SyncScopeDatabase/$version.json")
 
   private val schemaText: String by lazy {
     assertTrue("exported Room schema must exist", schemaFile.isFile)
@@ -89,7 +87,6 @@ class SchemaContractTest {
 
   @Test
   fun version3DescendantCountColumnsAreNullableIntegers() {
-    assertTrue(schemaText.contains("\"version\": 3"))
     val localNode = sectionFor("local_node")
     for (column in listOf("descSynced", "descUnsynced", "descUnknown")) {
       assertTrue(
@@ -102,11 +99,41 @@ class SchemaContractTest {
 
   @Test
   fun version3AddsNoIndex() {
-    assertTrue("frozen version 2 schema must exist", previousSchemaFile.isFile)
-    val indexName = Regex("\"name\": \"(index_[A-Za-z0-9_]+)\"")
-    val before = indexName.findAll(previousSchemaFile.readText()).map { it.groupValues[1] }.toSet()
-    val after = indexName.findAll(schemaText).map { it.groupValues[1] }.toSet()
-    assertEquals(before, after)
+    assertEquals(indexNames(2), indexNames(3))
+  }
+
+  @Test
+  fun version4AddsNullableDirectoriesAndWebdavHttpsDefaultingToFalse() {
+    assertTrue(schemaText.contains("\"version\": 4"))
+    val matchKey = sectionFor("remote_match_key")
+    assertTrue(
+      "remote_match_key.directories must be a nullable TEXT",
+      matchKey.contains("`directories` TEXT,") || matchKey.contains("`directories` TEXT)"),
+    )
+    assertFalse(matchKey.contains("`directories` TEXT NOT NULL"))
+    assertTrue(
+      "repository_config.webdavHttps must be a NOT NULL INTEGER defaulting to 0",
+      sectionFor("repository_config").contains("`webdavHttps` INTEGER NOT NULL DEFAULT 0"),
+    )
+  }
+
+  @Test
+  fun version4AddsNoIndex() {
+    assertEquals(indexNames(3), indexNames(4))
+  }
+
+  @Test
+  fun repositoryConfigColumnsAreExactlyTheNonSecretOnes() {
+    // A new column must be added here deliberately, after checking it carries no secret.
+    val fields =
+      Regex("\"columnName\": \"(\\w+)\"").findAll(sectionFor("repository_config")).map { it.groupValues[1] }.toList()
+    assertEquals(
+      listOf(
+        "id", "protocol", "host", "port", "username", "remoteRoot", "precisionMillis", "credentialVersion",
+        "revision", "webdavHttps",
+      ),
+      fields,
+    )
   }
 
   @Test
@@ -115,6 +142,12 @@ class SchemaContractTest {
     assertTrue(localNode.contains("\"table\": \"snapshot\""))
     assertTrue(localNode.contains("\"table\": \"source_root\""))
     assertTrue(sectionFor("snapshot").contains("\"table\": \"scan_run\""))
+  }
+
+  private fun indexNames(version: Int): Set<String> {
+    val file = schemaExport(version)
+    assertTrue("exported schema $version must exist", file.isFile)
+    return Regex("\"name\": \"(index_[A-Za-z0-9_]+)\"").findAll(file.readText()).map { it.groupValues[1] }.toSet()
   }
 
   private fun sectionFor(tableName: String): String {

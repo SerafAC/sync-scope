@@ -71,12 +71,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesFour() {
+  fun contractVersionResolvesFive() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(4, promise.resolved)
+    assertEquals(5, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -86,8 +86,12 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
+        {
+          module.listSelectableEntries("snap", JavaOnlyMap.of("filter", "ALL", "view", "GALLERY", "sort", "NAME_ASC"), it)
+        },
         { module.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) },
-        { module.executeLocalDeletion("plan", it) },
+        { module.executeLocalDeletion("plan", false, it) },
+        { module.executeLocalDeletion("plan", true, it) },
       )
 
     for (call in calls) {
@@ -104,7 +108,7 @@ class CloudSyncModuleTest {
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(4, empty.getInt("contractVersion"))
+    assertEquals(5, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -230,7 +234,7 @@ class CloudSyncModuleTest {
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 4, result.getInt("contractVersion"))
+        assertEquals(method, 5, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }

@@ -43,12 +43,41 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
-  fun contractVersionIsFour() {
-    assertEquals(4, CloudSyncContracts.CONTRACT_VERSION)
+  fun repositoryDefaultPortsMatchTs() {
+    val block = Regex("""export const REPOSITORY_DEFAULT_PORTS = \{(.*?)\} as const""", RegexOption.DOT_MATCHES_ALL)
+      .find(tsSource)!!
+      .groupValues[1]
+    val tsPorts = Regex("""(\w+): (\d+)""").findAll(block).associate { it.groupValues[1] to it.groupValues[2].toInt() }
+
+    assertEquals(
+      mapOf(
+        "FTP" to RepositoryDefaultPorts.FTP,
+        "SFTP" to RepositoryDefaultPorts.SFTP,
+        "WEBDAV" to RepositoryDefaultPorts.WEBDAV,
+        "WEBDAV_HTTPS" to RepositoryDefaultPorts.WEBDAV_HTTPS,
+      ),
+      tsPorts,
+    )
+    assertEquals(mapOf("FTP" to 21, "SFTP" to 22, "WEBDAV" to 80, "WEBDAV_HTTPS" to 443), tsPorts)
   }
 
   @Test
-  fun sourceScanAndImageErrorCodesSitJustBeforeInternalErrorInOrder() {
+  fun maxDeletionPlanAgeMatchesTs() {
+    val (minutes, seconds, millis) =
+      Regex("""export const MAX_DELETION_PLAN_AGE_MILLIS = (\d+) \* (\d+) \* (\d+);""")
+        .find(tsSource)!!
+        .destructured
+    assertEquals(minutes.toLong() * seconds.toLong() * millis.toLong(), CloudSyncContracts.MAX_DELETION_PLAN_AGE_MILLIS)
+    assertEquals(900_000L, CloudSyncContracts.MAX_DELETION_PLAN_AGE_MILLIS)
+  }
+
+  @Test
+  fun contractVersionIsFive() {
+    assertEquals(5, CloudSyncContracts.CONTRACT_VERSION)
+  }
+
+  @Test
+  fun sourceScanImageAndMvpErrorCodesSitJustBeforeInternalErrorInOrder() {
     val names = CloudSyncErrorCode.entries.map { it.name }
     assertEquals(
       listOf(
@@ -62,9 +91,14 @@ class CloudSyncContractsParityTest {
         "SCAN_NOT_FOUND",
         "REFRESH_UNAVAILABLE",
         "IMAGE_UNAVAILABLE",
+        "TLS_UNTRUSTED",
+        "DELETION_IN_PROGRESS",
+        "REPOSITORY_CHANGED",
+        "PLAN_NOT_FOUND",
+        "PLAN_STALE",
         "INTERNAL_ERROR",
       ),
-      names.takeLast(11),
+      names.takeLast(16),
     )
   }
 
@@ -72,9 +106,10 @@ class CloudSyncContractsParityTest {
     val block = Regex("""export const $recordName[^=]*= \{(.*?)\n\};""", RegexOption.DOT_MATCHES_ALL)
       .find(tsSource)!!
       .groupValues[1]
-    return Regex("""(\w+): \{\s*message:\s*'([^']*)',\s*action:\s*'([^']*)',?\s*\}""")
+    // A text containing an apostrophe is double-quoted in the TS source.
+    return Regex("""(\w+): \{\s*message:\s*(['"])(.*?)\2,\s*action:\s*(['"])(.*?)\4,?\s*\}""")
       .findAll(block)
-      .associate { it.groupValues[1] to (it.groupValues[2] to it.groupValues[3]) }
+      .associate { it.groupValues[1] to (it.groupValues[3] to it.groupValues[5]) }
   }
 
   @Test
@@ -82,6 +117,7 @@ class CloudSyncContractsParityTest {
     val sourceText = tsErrorText("SOURCE_ERROR_TEXT")
     val scanText = tsErrorText("SCAN_ERROR_TEXT")
     val imageText = tsErrorText("IMAGE_ERROR_TEXT")
+    val mvpText = tsErrorText("MVP_ERROR_TEXT")
     val ktText = CloudSyncErrorCode.entries
       .filter { it.defaultMessage != null }
       .associate { it.name to (it.defaultMessage!! to it.defaultAction!!) }
@@ -95,7 +131,29 @@ class CloudSyncContractsParityTest {
       scanText.keys,
     )
     assertEquals(setOf("IMAGE_UNAVAILABLE"), imageText.keys)
-    assertEquals(sourceText + scanText + imageText, ktText)
+    assertEquals(
+      setOf("TLS_UNTRUSTED", "DELETION_IN_PROGRESS", "REPOSITORY_CHANGED", "PLAN_NOT_FOUND", "PLAN_STALE"),
+      mvpText.keys,
+    )
+    assertEquals(sourceText + scanText + imageText + mvpText, ktText)
+    assertEquals(
+      "The server's certificate is not trusted by this phone." to
+        "Use a certificate from a public authority, or connect with SFTP.",
+      ktText["TLS_UNTRUSTED"],
+    )
+    assertEquals("Files are being deleted." to "Wait until the deletion finishes.", ktText["DELETION_IN_PROGRESS"])
+    assertEquals(
+      "These results were made with your previous server settings." to "Scan again before deleting.",
+      ktText["REPOSITORY_CHANGED"],
+    )
+    assertEquals(
+      "This deletion is no longer available." to "Review the selection and tap Delete again.",
+      ktText["PLAN_NOT_FOUND"],
+    )
+    assertEquals(
+      "The results changed since you reviewed this deletion." to "Review the selection and tap Delete again.",
+      ktText["PLAN_STALE"],
+    )
     assertEquals(
       "This image could not be read on the device." to
         "Check that the folder is still available, then rescan.",

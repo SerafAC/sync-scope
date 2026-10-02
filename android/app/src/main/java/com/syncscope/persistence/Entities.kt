@@ -162,6 +162,11 @@ data class RemoteMatchKeyEntity(
   val precisionMillis: Long,
   val bucket: Long,
   val duplicateCount: Long,
+  /**
+   * Distinct remote parent directories of the files collapsed into this key, `\n`-separated, at most 16.
+   * `NULL` on rows written before version 4.
+   */
+  val directories: String? = null,
 )
 
 @Entity(
@@ -298,6 +303,8 @@ data class RepositoryConfigEntity(
   val precisionMillis: Long,
   val credentialVersion: Long,
   val revision: Long = 1L,
+  /** WebDAV only: connect over HTTPS. Existing rows keep plain HTTP. */
+  @ColumnInfo(defaultValue = "0") val webdavHttps: Boolean = false,
 ) {
   companion object {
     const val SINGLETON_ID: Int = 0

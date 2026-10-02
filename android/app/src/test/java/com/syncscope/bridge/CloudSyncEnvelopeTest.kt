@@ -171,4 +171,38 @@ class CloudSyncEnvelopeTest {
     assertEquals("Finish or close the picker, then try again.", body.getString("action"))
     assertFalse(body.hasKey("conflictingSource"))
   }
+
+  @Test
+  fun errorOmitsFieldWhenNull() {
+    val body = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad filter.").getMap("error")!!
+
+    assertFalse(body.hasKey("field"))
+  }
+
+  @Test
+  fun errorCarriesFieldWhenGiven() {
+    val body = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad port.", field = "port").getMap("error")!!
+
+    assertEquals("port", body.getString("field"))
+  }
+
+  @Test
+  fun invalidFieldNamesTheFieldInErrorField() {
+    val body = envelope.invalidField("host", "it is required").getMap("error")!!
+
+    assertEquals("INVALID_QUERY", body.getString("code"))
+    assertEquals("host", body.getString("field"))
+    assertEquals("The repository host is invalid: it is required.", body.getString("message"))
+    assertEquals("Correct the host and save again.", body.getString("action"))
+  }
+
+  @Test
+  fun fieldIsNotRedacted() {
+    val body =
+      envelope
+        .error(CloudSyncErrorCode.INVALID_QUERY, "Bad root.", sensitive = listOf("remoteRoot"), field = "remoteRoot")
+        .getMap("error")!!
+
+    assertEquals("remoteRoot", body.getString("field"))
+  }
 }

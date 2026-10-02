@@ -85,16 +85,16 @@ all three.
 
 ### Contract version 5 (TS and Kotlin in lockstep, parity-guarded)
 
-- [ ] T010 Bump the contract to version 5 on both sides: `CLOUD_SYNC_CONTRACT_VERSION = 5` in `src/native/CloudSyncContracts.ts` and `CONTRACT_VERSION = 5` in `KT/bridge/CloudSyncContracts.kt`.
+- [X] T010 Bump the contract to version 5 on both sides: `CLOUD_SYNC_CONTRACT_VERSION = 5` in `src/native/CloudSyncContracts.ts` and `CONTRACT_VERSION = 5` in `KT/bridge/CloudSyncContracts.kt`.
   - Insert the new codes `TLS_UNTRUSTED`, `DELETION_IN_PROGRESS`, `REPOSITORY_CHANGED`, `PLAN_NOT_FOUND` and `PLAN_STALE` **just before `INTERNAL_ERROR`** in both code lists, with doc comments.
   - The native messages and actions are exactly those in [contracts/cloudsync-mvp.md](./contracts/cloudsync-mvp.md#error-codes-new). Put them where `KT/bridge/CloudSyncEnvelope.kt` keeps per-code text.
   - Reword the `REPOSITORY_NOT_CONFIGURED` doc comment in `CloudSyncContracts.ts` to "No repository has been saved yet; set one up in Settings › Repository."
   - Update `KTEST/bridge/CloudSyncContractsParityTest.kt` and `src/native/__tests__/CloudSyncContracts.test.ts` in the same task.
-- [ ] T011 Add the mirrored constants `REPOSITORY_DEFAULT_PORTS = {FTP: 21, SFTP: 22, WEBDAV: 80, WEBDAV_HTTPS: 443}` and `MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000`. On the TS side they go in `src/native/CloudSyncContracts.ts` (`as const`); on the Kotlin side in `KT/bridge/CloudSyncContracts.kt` as `object RepositoryDefaultPorts` and `const val MAX_DELETION_PLAN_AGE_MILLIS`. Extend the parity test to compare every value (same file as T010: do it after T010).
-- [ ] T012 Add an optional `field` to errors.
+- [X] T011 Add the mirrored constants `REPOSITORY_DEFAULT_PORTS = {FTP: 21, SFTP: 22, WEBDAV: 80, WEBDAV_HTTPS: 443}` and `MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000`. On the TS side they go in `src/native/CloudSyncContracts.ts` (`as const`); on the Kotlin side in `KT/bridge/CloudSyncContracts.kt` as `object RepositoryDefaultPorts` and `const val MAX_DELETION_PLAN_AGE_MILLIS`. Extend the parity test to compare every value (same file as T010: do it after T010).
+- [X] T012 Add an optional `field` to errors.
   - **Kotlin**: `KT/bridge/CloudSyncEnvelope.kt` `error(...)` takes `field: String? = null` and writes `error.field` only when non-null. `invalidField(field, reason)` passes `field`. Add the cases to `KTEST/bridge/CloudSyncEnvelopeTest.kt`.
   - **TS**: in `src/native/CloudSyncContracts.ts`, `CloudSyncError` gains `field?: RepositoryField | null`, where `RepositoryField = 'protocol' | 'host' | 'port' | 'username' | 'password' | 'remoteRoot'`. Add the same field to the Codegen `CloudSyncErrorDto` in `src/native/specs/NativeCloudSync.ts`.
-- [ ] T013 Add the v5 DTO types to `src/native/CloudSyncContracts.ts`, exactly as in [contracts/cloudsync-mvp.md](./contracts/cloudsync-mvp.md):
+- [X] T013 Add the v5 DTO types to `src/native/CloudSyncContracts.ts`, exactly as in [contracts/cloudsync-mvp.md](./contracts/cloudsync-mvp.md):
   - `SelectableEntriesDto` (`sizes` uses "-1 = size unknown");
   - `DeletionPlanDto`, `DeletionFailureDto` (reasons `'ALREADY_GONE' | 'CHANGED' | 'ACCESS_LOST' | 'FAILED'`) and `DeletionResultDto`, each with its `…Ok` / `…Result` union;
   - the repository summary gains `revision: number` and `webdavHttps: boolean`;
@@ -102,18 +102,18 @@ all three.
   - `ActiveSnapshotDto` gains `configRevision: number`.
 
   Add type-level tests to `src/native/__tests__/CloudSyncContracts.test.ts`.
-- [ ] T014 Change the Codegen spec `src/native/specs/NativeCloudSync.ts`: add `listSelectableEntries(snapshotId: string, querySpec: QuerySpecInput): Promise<OperationResultDto>` and change `executeLocalDeletion(planToken: string, includeUnsynced: boolean)`. Update the doc comment, which no longer says these are owned by later features.
+- [X] T014 Change the Codegen spec `src/native/specs/NativeCloudSync.ts`: add `listSelectableEntries(snapshotId: string, querySpec: QuerySpecInput): Promise<OperationResultDto>` and change `executeLocalDeletion(planToken: string, includeUnsynced: boolean)`. Update the doc comment, which no longer says these are owned by later features.
   - In `KT/bridge/CloudSyncModule.kt`, add `override fun listSelectableEntries(...)` and adapt `executeLocalDeletion(planToken, includeUnsynced, promise)`. All three deletion and selection methods still resolve `NOT_IMPLEMENTED` here; they are wired in T046 and T067.
   - Update `KTEST/bridge/CloudSyncModuleTest.kt` and `src/native/__tests__/NativeCloudSyncBoundary.test.ts`. `pnpm assemble:debug` must pass, which runs Codegen.
 
 ### Schema version 4
 
-- [ ] T015 Add the schema version 4 columns to `KT/persistence/Entities.kt` ([data-model.md](./data-model.md#schema-change-version-3--4)):
+- [X] T015 Add the schema version 4 columns to `KT/persistence/Entities.kt` ([data-model.md](./data-model.md#schema-change-version-3--4)):
   - `RemoteMatchKeyEntity.directories: String? = null`, doc: "Distinct remote parent directories of the files collapsed into this key, `\n`-separated, at most 16. `NULL` on rows written before version 4."
   - `RepositoryConfigEntity.webdavHttps: Boolean = false` with `@ColumnInfo(defaultValue = "0")`, doc: "WebDAV only: connect over HTTPS. Existing rows keep plain HTTP."
 
   Set `version = 4` and add `AutoMigration(from = 3, to = 4)` in `KT/persistence/SyncScopeDatabase.kt`. Export `android/app/schemas/com.syncscope.persistence.SyncScopeDatabase/4.json` by building. Extend `RemoteMatchKeyDao.copy` in `KT/persistence/Daos.kt` to copy `directories`.
-- [ ] T016 Add tests for the schema change.
+- [X] T016 Add tests for the schema change.
   - `KTEST/persistence/MigrationTest.kt`: 3 → 4 keeps every existing row; `remote_match_key.directories` reads `NULL` and `repository_config.webdavHttps` reads `0`.
   - `KTEST/persistence/SchemaContractTest.kt`: `repository_config` still has no secret column.
   - `KTEST/persistence/SnapshotStoreTest.kt`: `RemoteMatchKeyDao.copy` carries `directories`.
@@ -122,7 +122,7 @@ all three.
 
 ### Exclusivity
 
-- [ ] T017 Add tests to `KTEST/scan/ScanCoordinatorTest.kt` for:
+- [X] T017 Add tests to `KTEST/scan/ScanCoordinatorTest.kt` for:
   - `runExclusive { }` throws `ScanInProgress` while a run is active;
   - `start()` throws the new `DeletionInProgress` while an exclusive block runs;
   - a second `runExclusive { }` throws `DeletionInProgress` while the first is still running, so only one prepare or execute runs at a time (FR-021);

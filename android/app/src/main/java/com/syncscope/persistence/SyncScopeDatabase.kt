@@ -9,7 +9,9 @@ import androidx.room.RoomDatabase
 /**
  * The scan store. Every version exports its schema to `app/schemas/`; version 2 (feature 004) adds
  * `scan_run.mode` and `snapshot.remoteListedAtMillis` through an auto-migration, and version 3 (feature 005)
- * adds the nullable `local_node.descSynced`/`descUnsynced`/`descUnknown` directory counts the same way. There is
+ * adds the nullable `local_node.descSynced`/`descUnsynced`/`descUnknown` directory counts the same way.
+ * Version 4 (feature 006) adds the nullable `remote_match_key.directories` and
+ * `repository_config.webdavHttps` (default `0`) the same way. There is
  * deliberately no destructive-migration fallback, so an unexpected on-disk
  * schema fails loudly instead of silently deleting a user's scan history.
  */
@@ -28,9 +30,13 @@ import androidx.room.RoomDatabase
     RepositoryConfigEntity::class,
     ActiveSnapshotEntity::class,
   ],
-  version = 3,
+  version = 4,
   exportSchema = true,
-  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+  autoMigrations = [
+    AutoMigration(from = 1, to = 2),
+    AutoMigration(from = 2, to = 3),
+    AutoMigration(from = 3, to = 4),
+  ],
 )
 abstract class SyncScopeDatabase : RoomDatabase() {
   abstract fun scanRunDao(): ScanRunDao

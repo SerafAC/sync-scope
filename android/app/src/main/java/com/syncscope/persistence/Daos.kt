@@ -220,8 +220,8 @@ interface RemoteMatchKeyDao {
   /** LOCAL_REFRESH: copies every match key of [fromSnapshotId] into [toSnapshotId] (new row IDs). */
   @Query(
     """
-    INSERT INTO remote_match_key (snapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount)
-    SELECT :toSnapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount
+    INSERT INTO remote_match_key (snapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount, directories)
+    SELECT :toSnapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount, directories
       FROM remote_match_key
      WHERE snapshotId = :fromSnapshotId
     """

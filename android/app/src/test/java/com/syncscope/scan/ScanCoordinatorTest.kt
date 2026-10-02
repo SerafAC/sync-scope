@@ -3,14 +3,17 @@ package com.syncscope.scan
 import androidx.test.core.app.ApplicationProvider
 import com.syncscope.persistence.scanRun
 import com.syncscope.persistence.stagingSnapshot
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -184,6 +187,72 @@ class ScanCoordinatorTest {
     assertEquals("FAILED", view.run.terminalState)
     assertEquals("AUTH_FAILED", view.run.errorCode)
     assertEquals("Check the credentials and try again.", view.failureAction)
+  }
+
+  @Test
+  fun runExclusiveIsRefusedWithScanInProgressWhileARunIsActive() = runBlocking<Unit> {
+    h.remote.hold()
+    coordinator.start(ScanMode.FULL)
+    awaitGate()
+    var ran = false
+
+    assertTrue(coordinator.isBusy())
+    assertThrows(ScanInProgress::class.java) { runBlocking { coordinator.runExclusive { ran = true } } }
+    assertFalse("the refused block never runs", ran)
+
+    h.remote.release()
+    coordinator.awaitIdle()
+    assertFalse(coordinator.isBusy())
+  }
+
+  @Test
+  fun startIsRefusedWithDeletionInProgressWhileAnExclusiveBlockRuns() = runBlocking<Unit> {
+    val entered = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val exclusive = scope.async { coordinator.runExclusive { entered.complete(Unit); release.await(); "done" } }
+    withTimeout(10_000) { entered.await() }
+
+    assertTrue(coordinator.isBusy())
+    assertThrows(DeletionInProgress::class.java) { runBlocking { coordinator.start(ScanMode.FULL) } }
+    assertNull("no run was created", h.store.latestRun())
+
+    release.complete(Unit)
+    assertEquals("done", exclusive.await())
+    assertFalse(coordinator.isBusy())
+  }
+
+  @Test
+  fun aSecondExclusiveBlockIsRefusedWhileTheFirstRuns() = runBlocking<Unit> {
+    val entered = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val first = scope.async { coordinator.runExclusive { entered.complete(Unit); release.await() } }
+    withTimeout(10_000) { entered.await() }
+    var secondRan = false
+
+    assertThrows(DeletionInProgress::class.java) { runBlocking { coordinator.runExclusive { secondRan = true } } }
+    assertFalse("only one prepare or execute runs at a time", secondRan)
+    assertTrue(coordinator.isBusy())
+
+    release.complete(Unit)
+    first.await()
+    assertEquals(7, coordinator.runExclusive { 7 })
+  }
+
+  @Test
+  fun anExclusiveBlockThatThrowsStillReleasesTheCoordinator() = runBlocking<Unit> {
+    assertThrows(IllegalStateException::class.java) {
+      runBlocking { coordinator.runExclusive<Unit> { throw IllegalStateException("boom") } }
+    }
+
+    assertFalse(coordinator.isBusy())
+    val run = coordinator.start(ScanMode.FULL)
+    coordinator.awaitIdle()
+    assertEquals("COMPLETED", h.store.run(run.runId)!!.terminalState)
+  }
+
+  @Test
+  fun isBusyIsFalseWhenIdle() {
+    assertFalse(coordinator.isBusy())
   }
 
   private suspend fun awaitGate() {

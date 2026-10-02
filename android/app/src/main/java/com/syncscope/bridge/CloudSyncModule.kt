@@ -48,8 +48,8 @@ import kotlinx.coroutines.launch
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
  * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
  * dispatcher caps concurrent decodes at four.
- * Methods not yet built (`getSettings`, `setIncludeHidden`, `prepareLocalDeletion`,
- * `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
+ * Methods not yet built (`getSettings`, `setIncludeHidden`, `listSelectableEntries`,
+ * `prepareLocalDeletion`, `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -216,10 +216,13 @@ class CloudSyncModule(
     promise: Promise,
   ) = runOperation("getLocalImageHandle", promise) { scans.imageHandle(snapshotId, entryId, spec) }
 
+  override fun listSelectableEntries(snapshotId: String, querySpec: ReadableMap, promise: Promise) =
+    notImplemented("listSelectableEntries", promise)
+
   override fun prepareLocalDeletion(snapshotId: String, entryIds: ReadableArray, promise: Promise) =
     notImplemented("prepareLocalDeletion", promise)
 
-  override fun executeLocalDeletion(planToken: String, promise: Promise) =
+  override fun executeLocalDeletion(planToken: String, includeUnsynced: Boolean, promise: Promise) =
     notImplemented("executeLocalDeletion", promise)
 
   private fun notImplemented(method: String, promise: Promise) =

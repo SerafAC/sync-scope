@@ -24,6 +24,10 @@ import org.robolectric.annotation.Config
  *
  * Schema version 2 → 3 (feature 005): `local_node.descSynced`, `descUnsynced` and `descUnknown` are added
  * as nullable columns; every existing row survives unchanged and reads `NULL` counts.
+ *
+ * Schema version 3 → 4 (feature 006): `remote_match_key.directories` (nullable) and
+ * `repository_config.webdavHttps` (`NOT NULL DEFAULT 0`) are added; every existing row survives, the
+ * match keys read `NULL` directories and the saved repository keeps plain HTTP.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -149,6 +153,64 @@ class MigrationTest {
   }
 
   @Test
+  fun version3RowsMigrateToVersion4WithNullDirectoriesAndPlainHttp() {
+    val v3 = helper.createDatabase(DB_NAME, 3)
+    v3.execSQL(
+      "INSERT INTO scan_run (runId, generation, configRevision, includeHidden, phase, startedAtMillis, " +
+        "finishedAtMillis, terminalState, errorCode, errorSummary, mode) " +
+        "VALUES ('run-1', 7, 3, 0, 'PUBLISHED', 1000, 2000, 'COMPLETED', NULL, NULL, 'FULL')",
+    )
+    v3.execSQL(
+      "INSERT INTO snapshot (snapshotId, scanRunId, completedAtMillis, coverage, configRevision, " +
+        "includeHidden, publishable, remoteListedAtMillis) VALUES ('snap-1', 'run-1', 2000, 'COMPLETE', 3, 0, 1, 1500)",
+    )
+    v3.execSQL(
+      "INSERT INTO remote_match_key (matchKeyId, snapshotId, name, sizeBytes, precisionMillis, bucket, " +
+        "duplicateCount) VALUES (1, 'snap-1', 'a.png', 70, 1000, 1704067200, 2)",
+    )
+    v3.execSQL(
+      "INSERT INTO remote_match_key (matchKeyId, snapshotId, name, sizeBytes, precisionMillis, bucket, " +
+        "duplicateCount) VALUES (2, 'snap-1', 'b.png', 71, 1000, 1704067201, 1)",
+    )
+    v3.execSQL(
+      "INSERT INTO repository_config (id, protocol, host, port, username, remoteRoot, precisionMillis, " +
+        "credentialVersion, revision) VALUES (0, 'WEBDAV', 'nas.local', 80, 'me', '/backup', 1000, 4, 2)",
+    )
+    val keysBefore = rows(v3, "remote_match_key", V3_MATCH_KEY_COLUMNS, "matchKeyId")
+    val repositoryBefore = rows(v3, "repository_config", V3_REPOSITORY_COLUMNS, "id")
+    val snapshotsBefore = rows(v3, "snapshot", listOf("snapshotId", "configRevision", "remoteListedAtMillis"), "snapshotId")
+    val indicesBefore = indices(v3)
+    v3.close()
+
+    val v4 = helper.runMigrationsAndValidate(DB_NAME, 4, true)
+
+    val directories = column(v4, "remote_match_key", "directories")
+    assertEquals("TEXT", directories.type)
+    assertTrue("remote_match_key.directories must be nullable", !directories.notNull)
+    val https = column(v4, "repository_config", "webdavHttps")
+    assertEquals("INTEGER", https.type)
+    assertTrue("repository_config.webdavHttps must be NOT NULL", https.notNull)
+
+    assertEquals(keysBefore, rows(v4, "remote_match_key", V3_MATCH_KEY_COLUMNS, "matchKeyId"))
+    assertEquals(repositoryBefore, rows(v4, "repository_config", V3_REPOSITORY_COLUMNS, "id"))
+    assertEquals(
+      snapshotsBefore,
+      rows(v4, "snapshot", listOf("snapshotId", "configRevision", "remoteListedAtMillis"), "snapshotId"),
+    )
+    v4.query("SELECT matchKeyId, directories FROM remote_match_key ORDER BY matchKeyId").use { c ->
+      assertEquals(2, c.count)
+      while (c.moveToNext()) assertTrue("key ${c.getLong(0)} directories", c.isNull(1))
+    }
+    v4.query("SELECT webdavHttps FROM repository_config").use { c ->
+      assertEquals(1, c.count)
+      c.moveToFirst()
+      assertEquals(0, c.getInt(0))
+    }
+    assertEquals(indicesBefore, indices(v4))
+    v4.close()
+  }
+
+  @Test
   fun migratedDatabaseOpensWithRoomAndReadsTheEntities(): Unit = runBlocking {
     helper.createDatabase(DB_NAME, 1).apply {
       execSQL(
@@ -194,9 +256,18 @@ class MigrationTest {
   }
 
   /** Every local_node row as a map of the given columns, ordered by entryId. */
-  private fun localNodeRows(db: SupportSQLiteDatabase, columns: List<String>): List<Map<String, Any?>> {
+  private fun localNodeRows(db: SupportSQLiteDatabase, columns: List<String>): List<Map<String, Any?>> =
+    rows(db, "local_node", columns, "entryId")
+
+  /** Every row of [table] as a map of the given columns, ordered by [orderBy]. */
+  private fun rows(
+    db: SupportSQLiteDatabase,
+    table: String,
+    columns: List<String>,
+    orderBy: String,
+  ): List<Map<String, Any?>> {
     val out = mutableListOf<Map<String, Any?>>()
-    db.query("SELECT ${columns.joinToString()} FROM local_node ORDER BY entryId").use { c ->
+    db.query("SELECT ${columns.joinToString()} FROM $table ORDER BY $orderBy").use { c ->
       while (c.moveToNext()) {
         out +=
           columns.indices.associate { i ->
@@ -251,6 +322,12 @@ class MigrationTest {
       listOf(
         "entryId", "snapshotId", "sourceId", "parentId", "kind", "documentUri", "documentId", "name",
         "mimeType", "sizeBytes", "modifiedUtcMillis", "precisionMillis", "status", "issueCode",
+      )
+    val V3_MATCH_KEY_COLUMNS =
+      listOf("matchKeyId", "snapshotId", "name", "sizeBytes", "precisionMillis", "bucket", "duplicateCount")
+    val V3_REPOSITORY_COLUMNS =
+      listOf(
+        "id", "protocol", "host", "port", "username", "remoteRoot", "precisionMillis", "credentialVersion", "revision",
       )
   }
 }

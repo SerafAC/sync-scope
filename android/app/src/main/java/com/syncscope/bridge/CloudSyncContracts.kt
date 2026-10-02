@@ -8,7 +8,7 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 4
+  const val CONTRACT_VERSION = 5
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -16,6 +16,9 @@ object CloudSyncContracts {
 
   const val STATUS_OK = "ok"
   const val STATUS_ERROR = "error"
+
+  /** A deletion plan expires this long after prepareLocalDeletion made it (`MAX_DELETION_PLAN_AGE_MILLIS`). */
+  const val MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000L
 
   /** Same clamp as the TS `clampPageSize`, so either side yields an identical bound. */
   fun clampPageSize(pageSize: Double?): Int {
@@ -28,6 +31,18 @@ object CloudSyncContracts {
     }
     return minOf(truncated, MAX_PAGE_SIZE.toLong()).toInt()
   }
+}
+
+/**
+ * Port used when a repository is saved with no port, mirroring `REPOSITORY_DEFAULT_PORTS` in the
+ * TypeScript contract (checked by CloudSyncContractsParityTest). A WebDAV repository over HTTPS uses
+ * [WEBDAV_HTTPS].
+ */
+object RepositoryDefaultPorts {
+  const val FTP = 21
+  const val SFTP = 22
+  const val WEBDAV = 80
+  const val WEBDAV_HTTPS = 443
 }
 
 /**
@@ -47,8 +62,8 @@ object LocalImageSpec {
  * Stable, machine-readable error codes; the wire value is the enum name.
  *
  * Codes with a fixed user-facing text carry it as [defaultMessage]/[defaultAction]; the text must match
- * `SOURCE_ERROR_TEXT` / `SCAN_ERROR_TEXT` / `IMAGE_ERROR_TEXT` in the TypeScript contract (checked by
- * CloudSyncContractsParityTest).
+ * `SOURCE_ERROR_TEXT` / `SCAN_ERROR_TEXT` / `IMAGE_ERROR_TEXT` / `MVP_ERROR_TEXT` in the TypeScript
+ * contract (checked by CloudSyncContractsParityTest).
  */
 enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAction: String? = null) {
   NOT_IMPLEMENTED,
@@ -108,6 +123,36 @@ enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAct
   IMAGE_UNAVAILABLE(
     "This image could not be read on the device.",
     "Check that the folder is still available, then rescan.",
+  ),
+
+  /** WebDAV over HTTPS: the server's certificate is not trusted by the phone (contract version 5). */
+  TLS_UNTRUSTED(
+    "The server's certificate is not trusted by this phone.",
+    "Use a certificate from a public authority, or connect with SFTP.",
+  ),
+
+  /** A deletion is running, so a scan, a repository save or another deletion must wait (contract version 5). */
+  DELETION_IN_PROGRESS(
+    "Files are being deleted.",
+    "Wait until the deletion finishes.",
+  ),
+
+  /** prepareLocalDeletion: the results were made with previous server settings (contract version 5). */
+  REPOSITORY_CHANGED(
+    "These results were made with your previous server settings.",
+    "Scan again before deleting.",
+  ),
+
+  /** executeLocalDeletion: the plan token is unknown, expired or already used (contract version 5). */
+  PLAN_NOT_FOUND(
+    "This deletion is no longer available.",
+    "Review the selection and tap Delete again.",
+  ),
+
+  /** executeLocalDeletion: the snapshot changed since the plan was made (contract version 5). */
+  PLAN_STALE(
+    "The results changed since you reviewed this deletion.",
+    "Review the selection and tap Delete again.",
   ),
   INTERNAL_ERROR,
 }

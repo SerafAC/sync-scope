@@ -309,6 +309,29 @@ class SnapshotStoreTest {
   }
 
   @Test
+  fun copyRemoteStateCarriesTheServerDirectoriesOfEachKey() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val from = store.beginRun("run-1", "FULL", 1L, "LISTING_REMOTE", 100L)
+    store.stageSnapshot(stagingSnapshot("snap-1", from.runId, remoteListedAtMillis = 4_000L))
+    store.stageMatchKeys(
+      listOf(
+        RemoteMatchKeyEntity(0, "snap-1", "a.png", 10L, 1_000L, 2L, 2L, directories = "/photos/2024\n/photos/old"),
+        RemoteMatchKeyEntity(0, "snap-1", "b.png", 11L, 1_000L, 3L, 1L, directories = null),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    val to = store.beginRun("run-2", "LOCAL_REFRESH", 1L, "COPYING_REMOTE", 6_000L)
+    store.stageSnapshot(stagingSnapshot("snap-2", to.runId))
+
+    store.copyRemoteState(fromSnapshotId = "snap-1", toSnapshotId = "snap-2")
+
+    assertEquals(
+      mapOf("a.png" to "/photos/2024\n/photos/old", "b.png" to null),
+      store.matchKeys("snap-2").associate { it.name to it.directories },
+    )
+  }
+
+  @Test
   fun ambiguitiesAndCountsAreStagedAndRead() = runBlocking {
     seedRun("run-1", 1L, "snap-1")
     store.stageAmbiguities(emptyList())

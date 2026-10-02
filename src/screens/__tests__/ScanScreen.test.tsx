@@ -55,6 +55,7 @@ function active(): ActiveSnapshotDto {
     completedAtMillis: NOW - 5_000,
     remoteListedAtMillis: NOW - 6_000,
     precisionMillis: 1000,
+    configRevision: 1,
     coverage: 'COMPLETE',
     summary: {
       synced: 4,
