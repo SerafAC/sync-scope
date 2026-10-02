@@ -3,7 +3,10 @@ import * as path from 'path';
 
 import type {
   ActiveSnapshotDto,
+  FileEntryDto,
   FileIssueCode,
+  LocalImageHandleResult,
+  LocalImageSpec,
   LaunchSourcePickerResult,
   ListSourcesResult,
   ScanMode,
@@ -20,17 +23,22 @@ import {
   CloudSyncErrorCode,
   DEFAULT_PAGE_SIZE,
   FILE_ISSUE_TEXT,
+  GALLERY_THUMBNAIL_EDGE_PX,
+  IMAGE_ERROR_TEXT,
+  LOCAL_IMAGE_MAX_EDGE_PX,
+  LOCAL_IMAGE_MIN_EDGE_PX,
   MAX_PAGE_SIZE,
   SCAN_ERROR_TEXT,
   STALE_REMOTE_LISTING_MILLIS,
   SOURCE_ERROR_TEXT,
+  clampImageEdge,
   clampPageSize,
   isErrorResult,
 } from '../CloudSyncContracts';
 
 describe('CloudSync versioned contract', () => {
   it('exposes a stable positive contract version', () => {
-    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(3);
+    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(4);
     expect(Number.isInteger(CLOUD_SYNC_CONTRACT_VERSION)).toBe(true);
   });
 
@@ -67,8 +75,8 @@ describe('CloudSync versioned contract', () => {
     );
   });
 
-  it('inserts the source and scan error codes, in order, just before INTERNAL_ERROR', () => {
-    expect(Object.values(CloudSyncErrorCode).slice(-10)).toEqual([
+  it('inserts the source, scan and image error codes, in order, just before INTERNAL_ERROR', () => {
+    expect(Object.values(CloudSyncErrorCode).slice(-11)).toEqual([
       'SOURCE_OVERLAP',
       'SOURCE_UNSUPPORTED',
       'SOURCE_REGRANT_MISMATCH',
@@ -78,8 +86,18 @@ describe('CloudSync versioned contract', () => {
       'SCAN_IN_PROGRESS',
       'SCAN_NOT_FOUND',
       'REFRESH_UNAVAILABLE',
+      'IMAGE_UNAVAILABLE',
       'INTERNAL_ERROR',
     ]);
+  });
+
+  it('carries the exact message and action for the image error code', () => {
+    expect(IMAGE_ERROR_TEXT).toEqual({
+      IMAGE_UNAVAILABLE: {
+        message: 'This image could not be read on the device.',
+        action: 'Check that the folder is still available, then rescan.',
+      },
+    });
   });
 
   it('carries the exact message and action for each scan error code', () => {
@@ -342,6 +360,81 @@ describe('CloudSync versioned contract', () => {
       expect(scanBlock).not.toMatch(/\b\w*[pP]ath\w*\??:/);
       expect(scanBlock).not.toMatch(/\bhost\w*\??:/i);
       expect(scanBlock).not.toMatch(/\bdocumentId\b|\bdocumentUri\b/);
+    });
+  });
+
+  describe('browse DTOs (contract v4)', () => {
+    it('carries the duplicate flag and the matching-file count on every entry', () => {
+      const tile: FileEntryDto = {
+        entryId: 'e-1',
+        sourceId: 'src-1',
+        parentId: null,
+        kind: 'FILE',
+        name: 'sunset.png',
+        mimeType: 'image/png',
+        sizeBytes: 70,
+        modifiedUtcMillis: 1704067200000,
+        status: 'UNSYNCED',
+        issueCode: null,
+        nameInOtherSource: true,
+        matchingFileCount: null,
+      };
+      const folder: FileEntryDto = {
+        ...tile,
+        entryId: 'e-2',
+        kind: 'DIRECTORY',
+        name: 'album',
+        mimeType: null,
+        nameInOtherSource: false,
+        matchingFileCount: 0,
+      };
+      // @ts-expect-error nameInOtherSource is required in contract v4
+      const missingFlag: FileEntryDto = {...tile, nameInOtherSource: undefined};
+      // @ts-expect-error matchingFileCount is a number or null, never a string
+      const badCount: FileEntryDto = {...folder, matchingFileCount: '0'};
+      expect(tile.nameInOtherSource).toBe(true);
+      expect(folder.matchingFileCount).toBe(0);
+      expect([missingFlag, badCount]).toHaveLength(2);
+    });
+
+    it('types the local image handle envelopes', () => {
+      const spec: LocalImageSpec = {maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX};
+      const ok: LocalImageHandleResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        handle: {uri: 'file:///data/cache/thumbnails/e-1_256.jpg'},
+      };
+      const unavailable: LocalImageHandleResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'error',
+        error: {
+          code: CloudSyncErrorCode.IMAGE_UNAVAILABLE,
+          ...IMAGE_ERROR_TEXT.IMAGE_UNAVAILABLE,
+        },
+      };
+      // @ts-expect-error an ok handle result carries a handle
+      const noHandle: LocalImageHandleResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+      };
+      expect(spec.maxEdgePx).toBe(256);
+      expect(isErrorResult(ok)).toBe(false);
+      expect(isErrorResult(unavailable)).toBe(true);
+      expect(noHandle.status).toBe('ok');
+    });
+
+    it('bounds the requested image edge', () => {
+      expect(LOCAL_IMAGE_MIN_EDGE_PX).toBe(64);
+      expect(LOCAL_IMAGE_MAX_EDGE_PX).toBe(2048);
+      expect(GALLERY_THUMBNAIL_EDGE_PX).toBe(256);
+      // Same inputs as the Kotlin parity test (LocalImageSpec.bounded).
+      expect([-1, 0, 63, 64, 256, 2048, 2049].map(clampImageEdge)).toEqual([
+        64, 64, 64, 64, 256, 2048, 2048,
+      ]);
+      expect(clampImageEdge(300.9)).toBe(300);
+      expect(clampImageEdge(Number.NaN)).toBe(256);
+      expect(clampImageEdge(Number.POSITIVE_INFINITY)).toBe(256);
+      expect(clampImageEdge(Number.NEGATIVE_INFINITY)).toBe(256);
     });
   });
 });

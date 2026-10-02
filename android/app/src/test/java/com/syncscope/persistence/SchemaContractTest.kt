@@ -1,6 +1,7 @@
 package com.syncscope.persistence
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +15,10 @@ class SchemaContractTest {
 
   /** The current schema version's export; older exports stay frozen for MigrationTest. */
   private val schemaFile =
+    File("schemas/com.syncscope.persistence.SyncScopeDatabase/3.json")
+
+  /** The frozen version 2 export, to prove version 3 adds no index. */
+  private val previousSchemaFile =
     File("schemas/com.syncscope.persistence.SyncScopeDatabase/2.json")
 
   private val schemaText: String by lazy {
@@ -75,12 +80,33 @@ class SchemaContractTest {
 
   @Test
   fun version2ColumnsAreDeclared() {
-    assertTrue(schemaText.contains("\"version\": 2"))
     val scanRun = sectionFor("scan_run")
     assertTrue(scanRun.contains("`mode` TEXT NOT NULL DEFAULT 'FULL'"))
     val snapshot = sectionFor("snapshot")
     assertTrue(snapshot.contains("`remoteListedAtMillis` INTEGER,"))
     assertFalse(snapshot.contains("`remoteListedAtMillis` INTEGER NOT NULL"))
+  }
+
+  @Test
+  fun version3DescendantCountColumnsAreNullableIntegers() {
+    assertTrue(schemaText.contains("\"version\": 3"))
+    val localNode = sectionFor("local_node")
+    for (column in listOf("descSynced", "descUnsynced", "descUnknown")) {
+      assertTrue(
+        "$column must be a nullable INTEGER",
+        localNode.contains("`$column` INTEGER,") || localNode.contains("`$column` INTEGER)"),
+      )
+      assertFalse("$column must be nullable", localNode.contains("`$column` INTEGER NOT NULL"))
+    }
+  }
+
+  @Test
+  fun version3AddsNoIndex() {
+    assertTrue("frozen version 2 schema must exist", previousSchemaFile.isFile)
+    val indexName = Regex("\"name\": \"(index_[A-Za-z0-9_]+)\"")
+    val before = indexName.findAll(previousSchemaFile.readText()).map { it.groupValues[1] }.toSet()
+    val after = indexName.findAll(schemaText).map { it.groupValues[1] }.toSet()
+    assertEquals(before, after)
   }
 
   @Test

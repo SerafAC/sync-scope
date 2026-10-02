@@ -115,6 +115,21 @@ data class LocalNodeEntity(
   val precisionMillis: Long,
   val status: String,
   val issueCode: String?,
+  /**
+   * `DIRECTORY` rows: number of `FILE` rows anywhere beneath it with status `SYNCED`; `NULL` on `FILE` rows
+   * and on rows written before version 3.
+   */
+  val descSynced: Long? = null,
+  /**
+   * `DIRECTORY` rows: number of `FILE` rows anywhere beneath it with status `UNSYNCED`; `NULL` on `FILE`
+   * rows and on rows written before version 3.
+   */
+  val descUnsynced: Long? = null,
+  /**
+   * `DIRECTORY` rows: number of `FILE` rows anywhere beneath it with status `UNKNOWN`; `NULL` on `FILE` rows
+   * and on rows written before version 3.
+   */
+  val descUnknown: Long? = null,
 )
 
 /**

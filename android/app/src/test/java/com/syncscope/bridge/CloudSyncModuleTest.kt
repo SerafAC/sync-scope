@@ -71,12 +71,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesThree() {
+  fun contractVersionResolvesFour() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(3, promise.resolved)
+    assertEquals(4, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -103,7 +103,7 @@ class CloudSyncModuleTest {
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(3, empty.getInt("contractVersion"))
+    assertEquals(4, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -228,7 +228,7 @@ class CloudSyncModuleTest {
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 3, result.getInt("contractVersion"))
+        assertEquals(method, 4, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
