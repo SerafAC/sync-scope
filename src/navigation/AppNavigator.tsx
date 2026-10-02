@@ -1,8 +1,10 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useIsFocused } from '@react-navigation/native';
 import { Icon } from 'react-native-paper';
 
-import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { FilesProvider } from '../files/FilesProvider';
+import { FilesScreen } from '../screens/FilesScreen';
 import { ScanScreen } from '../screens/ScanScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 
@@ -14,15 +16,13 @@ export type RootTabParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-const filesPlaceholderDescription =
-  'File browsing will appear here after setup and a completed scan.';
-
-function FilesScreen(): React.JSX.Element {
+/** The Files tab: its view and filter live as long as the tab is mounted. */
+function FilesTab(): React.JSX.Element {
+  const focused = useIsFocused();
   return (
-    <PlaceholderScreen
-      description={filesPlaceholderDescription}
-      title="Files"
-    />
+    <FilesProvider>
+      <FilesScreen focused={focused} />
+    </FilesProvider>
   );
 }
 
@@ -58,7 +58,7 @@ export function AppNavigator(): React.JSX.Element {
       }}
     >
       <Tab.Screen
-        component={FilesScreen}
+        component={FilesTab}
         name="Files"
         options={{ tabBarIcon: tabBarIcons.Files }}
       />

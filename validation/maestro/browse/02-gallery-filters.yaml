@@ -1,0 +1,69 @@
+# Scenarios 2 and 3, FR-001, FR-003, SC-002 (SFTP): against the remote
+# gallery/ tree, Gallery holds sunset.png, beach.png and album/forest.png
+# (Synced) plus harbor.png and drafts/draft.png (Unsynced); GalleryTwin holds a
+# sunset.png of another size (Unsynced). The gallery shows images only, so the
+# chips read 6 / 3 / 3 / 0 (album/notes.txt is not counted), each filter shows
+# exactly its files, and only the two sunset.png tiles carry an origin badge
+# with their folder's alias. Self-contained: starts from clearState
+# (contracts/maestro-browse.md).
+appId: com.syncscope
+name: browse/02-gallery-filters
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Gallery,GalleryTwin"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+
+# Chip counts agree with the snapshot (scenario 2, SC-002).
+- extendedWaitUntil:
+    visible: "Filter All, 6"
+    timeout: 15000
+- assertVisible: "Filter Synced, 3"
+- assertVisible: "Filter Unsynced, 3"
+- assertVisible: "Filter Issues or unknown, 0"
+
+# Origin badges on the same-named tiles only (scenario 3, clarification 1).
+- assertVisible: "Origin Gallery"
+- assertVisible: "Origin GalleryTwin"
+- assertVisible: "beach.png, Synced"
+- assertNotVisible: "beach.png, Synced, from .+"
+
+# Synced: the three byte-identical copies, nothing local only.
+- tapOn: "Filter Synced, 3"
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "forest.png, Synced"
+- assertVisible: "sunset.png, Synced, from Gallery"
+- assertNotVisible: "harbor.png, Unsynced"
+
+# Unsynced: the local-only files and the twin of another size.
+- tapOn: "Filter Unsynced, 3"
+- extendedWaitUntil:
+    visible: "harbor.png, Unsynced"
+    timeout: 15000
+- assertVisible: "draft.png, Unsynced"
+- assertVisible: "sunset.png, Unsynced, from GalleryTwin"
+- assertNotVisible: "beach.png, Synced"
+
+# Issues or unknown: nothing could not be checked.
+- tapOn: "Filter Issues or unknown, 0"
+- extendedWaitUntil:
+    visible: "No files match this filter"
+    timeout: 15000

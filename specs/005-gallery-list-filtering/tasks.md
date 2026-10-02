@@ -204,16 +204,16 @@ and API 36 against the live SFTP container.
 
 - [X] T034 [P] [US1] Create `src/files/StatusChip.tsx`: a small, non-interactive Paper `Chip` (or `Text` with an icon) that shows `STATUS_LABEL[status]`, with a distinct icon per status (`check-circle-outline`, `cloud-off-outline`, `help-circle-outline`) and colours from the theme only. Export it for 007's status-aware rendering. Test in `src/files/__tests__/StatusChip.test.tsx`.
 - [X] T035 [P] [US1] Create `src/files/FilterChips.tsx`: four Paper `Chip`s in `ALL`, `SYNCED`, `UNSYNCED`, `ISSUES_UNKNOWN` order, with `selected` from `useFiles().filter`, `onPress` → `setFilter`, the text `FILTER_LABEL[f]` plus the count from `chipCount` (no count while `counts` is null), and `accessibilityLabel` from `filterChipLabel`. Spacing comes from `src/theme/spacing.ts`. Test in `src/files/__tests__/FilterChips.test.tsx`: counts render, a press changes the filter, labels are exact, and the a11y sweep (T019) passes.
-- [ ] T036 [P] [US1] Create `src/files/GalleryTile.tsx`: a fixed square (`(screenWidth - (gridColumns - 1) * density.tileGap) / gridColumns`). It shows the `useLocalImage` thumbnail, a placeholder while loading, and an `image-broken-variant` icon when it failed, with a `StatusChip` overlay. When `entry.nameInOtherSource` is true and the alias is known, it also shows an origin badge (Paper `Badge` or small `Chip`, `accessibilityLabel` `originBadgeLabel(alias)`). The tile's `accessibilityLabel` comes from `galleryTileLabel(name, status, nameInOtherSource ? alias : undefined)`. Test in `src/files/__tests__/GalleryTile.test.tsx`: there is no badge when `nameInOtherSource` is false, the badge shows the alias, the broken-image state, and the a11y sweep passes.
-- [ ] T037 [US1] Create `src/screens/GalleryScreen.tsx`:
+- [X] T036 [P] [US1] Create `src/files/GalleryTile.tsx`: a fixed square (`(screenWidth - (gridColumns - 1) * density.tileGap) / gridColumns`). It shows the `useLocalImage` thumbnail, a placeholder while loading, and an `image-broken-variant` icon when it failed, with a `StatusChip` overlay. When `entry.nameInOtherSource` is true and the alias is known, it also shows an origin badge (Paper `Badge` or small `Chip`, `accessibilityLabel` `originBadgeLabel(alias)`). The tile's `accessibilityLabel` comes from `galleryTileLabel(name, status, nameInOtherSource ? alias : undefined)`. Test in `src/files/__tests__/GalleryTile.test.tsx`: there is no badge when `nameInOtherSource` is false, the badge shows the alias, the broken-image state, and the a11y sweep passes.
+- [X] T037 [US1] Create `src/screens/GalleryScreen.tsx`:
   - a `FlatList` with `numColumns={gridColumns}`, `getItemLayout` for the fixed tile size, `onEndReached` → `loadMore`, and `windowSize={7}` / `maxToRenderPerBatch={30}` / `removeClippedSubviews`;
   - rows from `usePagedQuery` with `read = queryFiles` and query `{ filter, view: 'GALLERY', sort: 'TIME_DESC', pageSize: 100 }` (clarification 5);
   - an empty state `No files match this filter` when page 1 is empty, `No scan results yet` when there is no active snapshot, and a `Loading files` indicator during the first load;
   - an error state with the error's message and action and a `Retry` button.
 
   It reports `counts` up to `FilesScreen` through a prop callback. Test in `src/screens/__tests__/GalleryScreen.test.tsx` with a mocked `CloudSync`: the query is sent as specified, `loadMore` runs on end reached, the empty, no-snapshot and error states render, and the a11y sweep passes.
-- [ ] T038 [P] [US1] Create `src/files/Breadcrumb.tsx`: a horizontal `ScrollView` of Paper text `Button`s separated by `›` (`chevron-right` icon), each with `accessibilityLabel` from `breadcrumbLabel(name)` and `onPress` → `goTo(index)`; the last crumb is disabled. Test in `src/files/__tests__/Breadcrumb.test.tsx`.
-- [ ] T039 [US1] Create `src/screens/ListScreen.tsx`:
+- [X] T038 [P] [US1] Create `src/files/Breadcrumb.tsx`: a horizontal `ScrollView` of Paper text `Button`s separated by `›` (`chevron-right` icon), each with `accessibilityLabel` from `breadcrumbLabel(name)` and `onPress` → `goTo(index)`; the last crumb is disabled. Test in `src/files/__tests__/Breadcrumb.test.tsx`.
+- [X] T039 [US1] Create `src/screens/ListScreen.tsx`:
   - **Sources level.** One Paper `List.Item` per source (alias, folder icon, `N matching`), with the count from page-1 `counts` of a `queryTreeChildren(snapshotId, null, { filter, view: 'LIST', sort: 'NAME_ASC', sourceId, pageSize: 1 })` read per source, summed by `chipCount(filter, counts)` (research R4). Rows with a count of 0 are dimmed (`opacity` from a themed style, e.g. `theme.colors.onSurfaceDisabled` text) and still pressable. `accessibilityLabel` comes from `folderRowLabel`.
   - **Folder level.** `usePagedQuery` with `read = (s, q, t) => queryTreeChildren(s, location.path.at(-1).entryId, q, t)` and query `{ filter, view: 'LIST', sort: 'NAME_ASC', sourceId, pageSize: 100 }`, with fixed-height `List.Item` rows (`density.rowHeight`) and the `Breadcrumb` on top.
     - Directory rows: folder icon, `N matching` from `matchingFileCount` (no count when null), dimmed when 0, and a press → `openFolder`.
@@ -221,14 +221,14 @@ and API 36 against the live SFTP container.
     - An empty folder under a filter shows `No files match this filter`.
 
   Test in `src/screens/__tests__/ListScreen.test.tsx`: the sources level with counts, descending and ascending through the breadcrumb, dimming at 0 and at null, file rows without a badge, and the a11y sweep.
-- [ ] T040 [US1] Create `src/screens/FilesScreen.tsx`:
+- [X] T040 [US1] Create `src/screens/FilesScreen.tsx`:
   - a Paper `SegmentedButtons` with `Gallery view` and `List view` (`accessibilityLabel` on each), bound to `useFiles().view`;
   - `FilterChips` fed by the counts the active view reports;
   - the active view, both views mounted and only the active one visible, so each keeps its scroll position and location on switch;
   - a Paper `Snackbar` `Results updated` (`accessibilityLabel` the same, 4 s), shown when either view reports `snapshotChanged`, which then calls `acknowledgeSnapshotChange`. `ListScreen` runs `relocate()` before acknowledging.
 
   Test in `src/screens/__tests__/FilesScreen.test.tsx`: the view switch keeps the filter (FR-003), a snapshot change shows the snackbar once, and the a11y sweep passes.
-- [ ] T041 [US1] Wire the Files tab in `src/navigation/AppNavigator.tsx`. Replace the `FilesScreen` placeholder function with `src/screens/FilesScreen.tsx` wrapped in `FilesProvider`. Delete `src/screens/PlaceholderScreen.tsx` and its test if nothing else imports them (Principle II). Update any navigator test that asserted the placeholder text.
+- [X] T041 [US1] Wire the Files tab in `src/navigation/AppNavigator.tsx`. Replace the `FilesScreen` placeholder function with `src/screens/FilesScreen.tsx` wrapped in `FilesProvider`. Delete `src/screens/PlaceholderScreen.tsx` and its test if nothing else imports them (Principle II). Update any navigator test that asserted the placeholder text.
 
 **Checkpoint**: `pnpm lint && pnpm typecheck && pnpm test:ci` green; the app shows a working Files tab on an
 emulator with a scanned snapshot.
@@ -242,8 +242,8 @@ remote root named below (under the SFTP root, for example `${SFTP_ROOT}/gallery`
 [contracts/maestro-browse.md](./contracts/maestro-browse.md#selectors). Each task adds its flow to
 `flowsOrder` in `validation/maestro/config.yaml` after the last `scan/*` entry.
 
-- [ ] T042 [US1] Create `validation/maestro/browse/01-gallery-thousands.yaml` (`name: browse/01-gallery-thousands`). Use remote root `gallery` and source `SyncScopeE2E/GalleryBulk` only. Assert `Filter All, 2000`. Assert that a tile matching `g\d{4}\.png, Unsynced` is visible. Then run 15 `scroll` steps and assert again that a tile matching `g\d{4}\.png, Unsynced` is visible, proving that pages keep loading (scenario 1). Add it to `flowsOrder`.
-- [ ] T043 [US1] Create `validation/maestro/browse/02-gallery-filters.yaml` (`name: browse/02-gallery-filters`). Use remote root `gallery` and sources `SyncScopeE2E/Gallery` and `SyncScopeE2E/GalleryTwin`. Assert:
+- [X] T042 [US1] Create `validation/maestro/browse/01-gallery-thousands.yaml` (`name: browse/01-gallery-thousands`). Use remote root `gallery` and source `SyncScopeE2E/GalleryBulk` only. Assert `Filter All, 2000`. Assert that a tile matching `g\d{4}\.png, Unsynced` is visible. Then run 15 `scroll` steps and assert again that a tile matching `g\d{4}\.png, Unsynced` is visible, proving that pages keep loading (scenario 1). Add it to `flowsOrder`.
+- [X] T043 [US1] Create `validation/maestro/browse/02-gallery-filters.yaml` (`name: browse/02-gallery-filters`). Use remote root `gallery` and sources `SyncScopeE2E/Gallery` and `SyncScopeE2E/GalleryTwin`. Assert:
   - chips `Filter All, 6`, `Filter Synced, 3`, `Filter Unsynced, 3`, `Filter Issues or unknown, 0`;
   - under All, `Origin Gallery` and `Origin GalleryTwin` are visible, and `beach.png, Synced` is visible with no `from` suffix (scenario 3);
   - tap `Filter Synced, 3`: `beach.png, Synced`, `forest.png, Synced` and `sunset.png, Synced, from Gallery` are visible and `harbor.png, Unsynced` is not;

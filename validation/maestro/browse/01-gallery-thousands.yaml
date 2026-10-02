@@ -1,0 +1,41 @@
+# Scenario 1, FR-001 (SFTP): a snapshot of 2 000 local images opens as a
+# virtualized gallery read page by page. Every GalleryBulk file is local only
+# against the remote gallery/ tree, so all 2 000 are Unsynced. After 15
+# scroll gestures, far past the first 100-row page, a tile is still visible,
+# so later pages kept loading. Self-contained: starts from clearState
+# (contracts/maestro-browse.md).
+appId: com.syncscope
+name: browse/01-gallery-thousands
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "GalleryBulk"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "Filter All, 2000"
+    timeout: 30000
+- assertVisible: "g\\d{4}\\.png, Unsynced"
+- repeat:
+    times: 15
+    commands:
+      - scroll
+- extendedWaitUntil:
+    visible: "g\\d{4}\\.png, Unsynced"
+    timeout: 15000
+- assertVisible: "Filter All, 2000"

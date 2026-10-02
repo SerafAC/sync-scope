@@ -32,3 +32,5 @@ executionOrder:
     - scan/05-background-discards
     - scan/06-unreachable-fails
     - scan/07-revoked-source
+    - browse/01-gallery-thousands
+    - browse/02-gallery-filters
