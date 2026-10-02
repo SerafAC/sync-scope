@@ -10,6 +10,7 @@ flows:
   - "sources/*"
   - "scan/*"
   - "browse/*"
+  - "mvp/*"
 
 executionOrder:
   continueOnFailure: false

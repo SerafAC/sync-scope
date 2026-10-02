@@ -1,0 +1,13 @@
+# Staged pairs (feature 006, contracts/maestro-mvp.md › Runner additions).
+#
+# A flow that changes server or device state mid-scenario is split into parts
+# that live in this directory. config.yaml must never list staged/ or its
+# files, so the workspace run skips them; android-flow.sh runs them after the
+# workspace, one line at a time.
+#
+# Each line is an alternating sequence that starts and ends with a flow:
+#   <flow>|<hook and args>|<flow>[|<hook and args>|<flow>…]
+# Flows are paths relative to validation/maestro/. Hooks are scripts in
+# scripts/validation/hooks/, run on the host between the flows. Only the first
+# flow of a line starts from clearState. Blank lines and lines starting with #
+# are ignored.

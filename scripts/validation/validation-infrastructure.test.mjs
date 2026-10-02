@@ -384,6 +384,90 @@ test('seeds the gallery fixtures as distinct PNGs with fixed mtimes and one rest
   }
 });
 
+async function fixtureManifest(fixtures) {
+  const manifest = spawnSync(
+    process.execPath,
+    [new URL('fixture-manifest.mjs', import.meta.url).pathname, fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(manifest.status, 0, manifest.stderr);
+  return manifest.stdout;
+}
+
+test('seeds recheck/ as a byte-identical copy of gallery/ on every run (feature 006)', async t => {
+  const fixtures = await seedRemoteFixtures(t);
+
+  for (const relative of GALLERY_IMAGES) {
+    const copy = await readFile(join(fixtures, 'recheck', relative));
+    assert.ok(
+      copy.equals(await readFile(join(fixtures, 'gallery', relative))),
+      `recheck/${relative} must be byte-identical to gallery/${relative}`,
+    );
+    const metadata = await lstat(join(fixtures, 'recheck', relative), {
+      bigint: true,
+    });
+    assert.ok(metadata.isFile(), `recheck/${relative} must be a regular file`);
+    assert.equal(
+      metadata.mtimeNs,
+      1704067200000000000n,
+      `recheck/${relative} must have the fixed mtime`,
+    );
+    assert.equal(
+      Number(metadata.mode & 0o777n),
+      0o644,
+      `recheck/${relative} has the wrong mode`,
+    );
+  }
+  const modes = await directoryModes(fixtures);
+  for (const relative of ['recheck', 'recheck/album']) {
+    assert.equal(modes.get(relative), 0o755, `${relative} must be mode 755`);
+    const metadata = await lstat(join(fixtures, relative), {bigint: true});
+    assert.equal(
+      metadata.mtimeNs,
+      1704067200000000000n,
+      `${relative} must have the fixed mtime`,
+    );
+  }
+  const listed = new Set(
+    (await fixtureManifest(fixtures))
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line).path),
+  );
+  for (const relative of GALLERY_IMAGES) {
+    assert.ok(
+      listed.has(`recheck/${relative}`),
+      `the manifest must list recheck/${relative}`,
+    );
+  }
+
+  // Flow 06 deletes recheck/beach.png on the host. The next seed run (every
+  // service start seeds a fresh root) must bring it back unchanged.
+  const original = await fixtureManifest(fixtures);
+  await rm(join(fixtures, 'recheck/beach.png'));
+  const reseeded = await seedRemoteFixtures(t);
+  assert.ok(
+    (await readFile(join(reseeded, 'recheck/beach.png'))).equals(
+      await readFile(join(fixtures, 'gallery/beach.png')),
+    ),
+    'a second seed run must re-create recheck/beach.png',
+  );
+  assert.equal(
+    await fixtureManifest(reseeded),
+    original,
+    'a second seed run must produce the same recheck/ tree',
+  );
+  const source = await readFile(
+    new URL('fixture-seed.sh', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /rm -rf "\$root\/recheck"/,
+    'fixture-seed.sh must remove recheck/ before copying it from gallery/',
+  );
+});
+
 function decodedFixtureImages() {
   const images = spawnSync(
     'sh',
@@ -871,7 +955,11 @@ test('device fixture script seeds the gallery sources from the shared PNGs', asy
     (await readFile(join(remote, 'gallery/sunset.png'))).length,
     'the twin must differ in size from the remote sunset.png',
   );
-  assert.equal(pushes.length, 5, 'each image is pushed once');
+  assert.equal(
+    pushes.length,
+    6 * 4 + 1,
+    'the four tree images are pushed once per gallery tree, plus the twin',
+  );
 
   assert.ok(
     commands.includes(
@@ -900,6 +988,86 @@ test('device fixture script seeds the gallery sources from the shared PNGs', asy
     );
   }
   assert.doesNotMatch(commands, />>/);
+});
+
+const DEVICE_GALLERY_TREES = [
+  'Gallery',
+  'Delete',
+  'Recheck',
+  'Offline',
+  'Select',
+  'Changed',
+].map(name => `/sdcard/SyncScopeE2E/${name}`);
+
+test('device fixture script seeds every feature 006 source as a fresh copy of the gallery tree', async t => {
+  const remote = await seedRemoteFixtures(t);
+  const images = decodedFixtureImages();
+
+  const {seeded, calls, pushed} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const commands = calls.join('\n');
+  const pushedBytes = async path =>
+    readFile(join(pushed, path.replace(/\//g, '_')));
+
+  for (const tree of DEVICE_GALLERY_TREES) {
+    // Removed before it is re-created, so a file a flow deleted comes back.
+    const removed = calls.findIndex(call =>
+      new RegExp(`shell rm -rf ${escapeRegExp(tree)}$`).test(call),
+    );
+    assert.ok(removed !== -1, `${tree} must be removed first`);
+    for (const dir of [tree, `${tree}/album`, `${tree}/drafts`]) {
+      const created = calls.findIndex(call =>
+        call.includes(`mkdir -p ${dir}`),
+      );
+      assert.ok(created !== -1, `${dir} must be created`);
+      assert.ok(removed < created, `${tree} must be removed before ${dir} is created`);
+    }
+
+    for (const relative of GALLERY_IMAGES) {
+      const path = `${tree}/${relative}`;
+      assert.ok(
+        (await pushedBytes(path)).equals(
+          await readFile(join(remote, 'gallery', relative)),
+        ),
+        `${path} must match the remote gallery/${relative} byte for byte`,
+      );
+    }
+    assert.ok(
+      (await pushedBytes(`${tree}/harbor.png`)).equals(images.get('HARBOR')),
+      `${tree}/harbor.png must be PNG_HARBOR`,
+    );
+    assert.ok(
+      commands.includes(`cp ${tree}/harbor.png ${tree}/drafts/draft.png`),
+      `${tree}/drafts/draft.png must be a copy of harbor.png`,
+    );
+    assert.ok(
+      commands.includes(`printf 'gallery notes\\n' > ${tree}/album/notes.txt`),
+      `${tree}/album/notes.txt must be overwritten with its fixture contents`,
+    );
+    for (const relative of [
+      ...GALLERY_IMAGES,
+      'harbor.png',
+      'album/notes.txt',
+      'drafts/draft.png',
+    ]) {
+      const path = `${tree}/${relative}`;
+      assert.match(
+        commands,
+        new RegExp(`touch -d @1704067200 [^\\n]*${escapeRegExp(path)}(\\s|$)`),
+        `${path} must get the fixed mtime`,
+      );
+    }
+  }
+
+  const source = await readFile(
+    new URL('device-fixtures.sh', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /^seed_gallery_tree\(\) \{$/m,
+    'the gallery tree must have one definition, seed_gallery_tree',
+  );
 });
 
 test('device fixture script generates the gallery bulk source in one adb shell loop', async t => {
@@ -988,7 +1156,7 @@ test('e2e mode seeds device fixtures after the APK install and before Maestro', 
 test('e2e mode passes the per-run container credentials to Maestro without logging them', async () => {
   const source = await text('scripts/validation/android-flow.sh');
   const maestro = source.indexOf('"$repo/validation/maestro"');
-  const e2e = source.lastIndexOf('if [ "$mode" = e2e ]; then', maestro);
+  const e2e = source.lastIndexOf('if [ "$mode" != connected ]; then', maestro);
   assert.ok(e2e !== -1 && maestro !== -1);
   const block = source.slice(e2e, maestro);
 
@@ -1017,7 +1185,8 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
   assert.match(block, /_HOST=10\.0\.2\.2"/);
   assert.match(block, /sed -n 's\/\^username=\/\/p'/);
   assert.match(block, /sed -n 's\/\^password=\/\/p'/);
-  assert.match(source, /maestro\/bin\/maestro \\\n\s+test "\$@" "\$repo\/validation\/maestro"/);
+  assert.match(source, /^maestro_bin=\S+\/maestro\/bin\/maestro$/m);
+  assert.match(source, /"\$maestro_bin" \\\n\s+test "\$@" "\$repo\/validation\/maestro"/);
 
   assert.doesNotMatch(source, /set -[a-z]*x/, 'tracing would log the password');
   for (const line of source.split('\n')) {
@@ -1025,4 +1194,325 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
       assert.doesNotMatch(line, /\$\{?password\b|_PASSWORD/, line.trim());
     }
   }
+});
+
+// Feature 006 runner additions (contracts/maestro-mvp.md › Runner additions).
+
+const HOOKS = new URL('hooks/', import.meta.url);
+const STAGED = new URL('../../validation/maestro/staged/', import.meta.url);
+
+test('android-flow accepts the release-smoke mode and still rejects unknown modes', async t => {
+  const source = await text('scripts/validation/android-flow.sh');
+  assert.match(
+    source,
+    /case "\$mode" in connected\|e2e\|release-smoke\) ;; \*\) exit 64 ;; esac/,
+  );
+
+  const {home, sdk} = await fakeSdk(t);
+  for (const mode of ['bogus', '']) {
+    const run = spawnSync(
+      'sh',
+      [new URL('android-flow.sh', import.meta.url).pathname, mode],
+      {encoding: 'utf8', env: {...process.env, HOME: home, ANDROID_HOME: sdk}},
+    );
+    assert.equal(run.status, 64, `mode '${mode}' must exit 64`);
+  }
+
+  const packageJson = JSON.parse(await text('package.json'));
+  assert.equal(
+    packageJson.scripts['e2e:android:release-smoke'],
+    'scripts/validation/android-flow.sh release-smoke --api 31',
+  );
+});
+
+test('every staged pairs line alternates existing flows and executable hooks', async () => {
+  const pairs = await readFile(new URL('pairs.txt', STAGED), 'utf8');
+  for (const line of pairs.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      continue;
+    }
+    const parts = trimmed.split('|').map(part => part.trim());
+    assert.ok(
+      parts.length >= 3 && parts.length % 2 === 1,
+      `'${trimmed}' must be <flow>|<hook>|<flow>[|<hook>|<flow>…]`,
+    );
+    for (const [index, part] of parts.entries()) {
+      if (index % 2 === 0) {
+        assert.match(part, /^staged\/[^\s/]+\.yaml$/, `'${part}' is not a staged flow`);
+        const flow = await readFile(
+          new URL(`../../validation/maestro/${part}`, import.meta.url),
+          'utf8',
+        );
+        if (index > 0) {
+          assert.doesNotMatch(
+            flow,
+            /clearState/,
+            `${part} continues a staged line and must not clear state`,
+          );
+        }
+      } else {
+        const [hook] = part.split(/\s+/);
+        assert.match(hook, /^[a-z-]+\.sh$/, `'${part}' is not a hook`);
+        const mode = (await lstat(new URL(hook, HOOKS))).mode;
+        assert.ok(mode & 0o111, `${hook} must be executable`);
+      }
+    }
+  }
+});
+
+test('the Maestro workspace never lists the staged flows', async () => {
+  const config = await text('validation/maestro/config.yaml');
+  assert.doesNotMatch(config, /staged/);
+});
+
+test('remove-recheck-file.sh deletes exactly fixtures/recheck/beach.png', async t => {
+  const state = await mkdtemp(
+    join(tmpdir(), 'cloud-sync-checker-hook-test-'),
+  );
+  t.after(() => rm(state, {recursive: true, force: true}));
+  const fixtures = join(state, 'fixtures');
+  const files = [
+    'recheck/sunset.png',
+    'recheck/beach.png',
+    'recheck/album/forest.png',
+    'gallery/beach.png',
+  ];
+  for (const relative of files) {
+    await mkdir(dirname(join(fixtures, relative)), {recursive: true});
+    await writeFile(join(fixtures, relative), relative);
+  }
+
+  const run = spawnSync(
+    'sh',
+    [new URL('remove-recheck-file.sh', HOOKS).pathname],
+    {
+      encoding: 'utf8',
+      env: {...process.env, SYNCSCOPE_STATE_ROOT: state},
+    },
+  );
+  assert.equal(run.status, 0, run.stderr);
+
+  await assert.rejects(lstat(join(fixtures, 'recheck/beach.png')));
+  for (const relative of files.filter(f => f !== 'recheck/beach.png')) {
+    await lstat(join(fixtures, relative));
+  }
+});
+
+test('restore-recheck-file.sh puts the seeded recheck tree back after the hook', async t => {
+  const state = await mkdtemp(
+    join(tmpdir(), 'cloud-sync-checker-hook-test-'),
+  );
+  t.after(async () => {
+    for (const restricted of [
+      'scan/partial/restricted',
+      'gallery-partial/restricted',
+    ]) {
+      await chmod(join(state, 'fixtures', restricted), 0o755).catch(() => {});
+    }
+    await rm(state, {recursive: true, force: true});
+  });
+  const fixtures = join(state, 'fixtures');
+  const seed = spawnSync(
+    'sh',
+    [new URL('fixture-seed.sh', import.meta.url).pathname, '--root', fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(seed.status, 0, seed.stderr);
+  const seeded = await fixtureManifest(fixtures);
+  const env = {...process.env, SYNCSCOPE_STATE_ROOT: state};
+
+  for (const hook of ['remove-recheck-file.sh', 'restore-recheck-file.sh']) {
+    const run = spawnSync('sh', [new URL(hook, HOOKS).pathname], {
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(run.status, 0, `${hook}: ${run.stderr}`);
+  }
+  assert.equal(
+    await fixtureManifest(fixtures),
+    seeded,
+    'the restored tree must match the seeded manifest exactly',
+  );
+
+  const again = spawnSync(
+    'sh',
+    [new URL('restore-recheck-file.sh', HOOKS).pathname],
+    {encoding: 'utf8', env},
+  );
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(await fixtureManifest(fixtures), seeded, 'restore is idempotent');
+
+  for (const hook of ['remove-recheck-file.sh', 'restore-recheck-file.sh']) {
+    const rejected = spawnSync('sh', [new URL(hook, HOOKS).pathname], {
+      encoding: 'utf8',
+      env: {...process.env, SYNCSCOPE_STATE_ROOT: '/srv'},
+    });
+    assert.equal(rejected.status, 64, `${hook} must refuse a foreign root`);
+  }
+});
+
+async function fakeDockerPath(t) {
+  const bin = await mkdtemp(join(tmpdir(), 'cloud-sync-checker-hook-test-'));
+  t.after(() => rm(bin, {recursive: true, force: true}));
+  const log = join(bin, 'docker.log');
+  await writeFile(
+    join(bin, 'docker'),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`,
+  );
+  await chmod(join(bin, 'docker'), 0o755);
+  return {
+    env: {...process.env, PATH: `${bin}:${process.env.PATH}`},
+    calls: async () =>
+      (await readFile(log, 'utf8').catch(() => '')).trim().split('\n'),
+  };
+}
+
+test('pause and resume hooks only address the approved protocol services', async t => {
+  for (const [hook, verb] of [
+    ['pause-service.sh', 'pause'],
+    ['resume-service.sh', 'unpause'],
+  ]) {
+    const docker = await fakeDockerPath(t);
+    for (const invalid of ['', 'smb', 'sftp;ls']) {
+      const rejected = spawnSync(
+        'sh',
+        [new URL(hook, HOOKS).pathname, invalid],
+        {encoding: 'utf8', env: docker.env},
+      );
+      assert.equal(rejected.status, 64, `${hook} '${invalid}' must exit 64`);
+    }
+    assert.deepEqual(await docker.calls(), [''], `${hook} must not call docker`);
+
+    const run = spawnSync(
+      'sh',
+      [new URL(hook, HOOKS).pathname, 'sftp'],
+      {encoding: 'utf8', env: docker.env},
+    );
+    assert.equal(run.status, 0, run.stderr);
+    const calls = await docker.calls();
+    assert.equal(calls.length, 1, `${hook} must call docker once`);
+    assert.match(
+      calls[0],
+      new RegExp(
+        `^compose .*-f \\S*validation/services/compose\\.yaml .*${verb} sftp$`,
+      ),
+    );
+  }
+});
+
+test('change-device-files.sh removes beach.png and moves the sunset.png mtime on ANDROID_SERIAL', async t => {
+  const {home, sdk, log} = await fakeAdbSdk(t, '');
+  const run = spawnSync(
+    'sh',
+    [new URL('change-device-files.sh', HOOKS).pathname],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: home,
+        ANDROID_HOME: sdk,
+        ANDROID_SERIAL: 'emulator-5556',
+      },
+    },
+  );
+  assert.equal(run.status, 0, run.stderr);
+  const calls = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.ok(
+    calls.every(call => call.startsWith('-s emulator-5556 shell ')),
+    'every adb call must be a shell on ANDROID_SERIAL',
+  );
+  const commands = calls.join('\n');
+  assert.match(commands, /rm (-f )?\/sdcard\/SyncScopeE2E\/Changed\/beach\.png/);
+  assert.match(
+    commands,
+    /touch -d @1704153600 \/sdcard\/SyncScopeE2E\/Changed\/sunset\.png/,
+  );
+});
+
+test('every hook is a strict POSIX sh script', async () => {
+  for (const hook of [
+    'remove-recheck-file.sh',
+    'restore-recheck-file.sh',
+    'change-device-files.sh',
+    'pause-service.sh',
+    'resume-service.sh',
+  ]) {
+    const path = new URL(hook, HOOKS);
+    assert.ok((await lstat(path)).mode & 0o111, `${hook} must be executable`);
+    const source = await readFile(path, 'utf8');
+    assert.match(source, /^#!\/bin\/sh\n/, `${hook} must be POSIX sh`);
+    assert.match(source, /^set -eu$/m, `${hook} must use set -eu`);
+  }
+});
+
+test('e2e mode runs the staged pairs after the workspace with hooks in between', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const workspace = source.indexOf('"$repo/validation/maestro"');
+  assert.ok(
+    source.includes('validation/maestro/staged/pairs.txt'),
+    'the runner must read staged/pairs.txt',
+  );
+  const staged = source.indexOf('run_staged_pairs "$@"');
+  assert.ok(staged !== -1, 'e2e mode must run the staged pairs');
+  assert.ok(workspace < staged, 'staged pairs run after the workspace run');
+  assert.match(source, /scripts\/validation\/hooks\b/);
+  assert.match(source, /export ANDROID_SERIAL="\$serial"/);
+
+  // A paused service is always resumed, even when the run fails.
+  const cleanup = source.slice(
+    source.indexOf('cleanup() {'),
+    source.indexOf('trap cleanup EXIT'),
+  );
+  assert.match(cleanup, /resume-service\.sh/);
+  assert.match(source, /pause-service\.sh\*\)/);
+
+  for (const name of ['SIZE_BEACH', 'SIZE_SYNC_2', 'SIZE_IMAGES_5', 'SIZE_SYNCED_3']) {
+    assert.ok(source.includes(`-e "${name}=`), `${name} must be passed with -e`);
+  }
+  assert.match(source, /wc -c/, 'sizes are measured, never literals');
+  assert.doesNotMatch(source, /SIZE_[A-Z0-9_]+=[0-9]/);
+});
+
+test('release-smoke mode follows the contract steps in order', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const steps = [
+    'Release signing is not configured',
+    'keytool" -genkeypair',
+    'ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE',
+    'pnpm assemble:release',
+    'dump badging',
+    'uninstall com.syncscope',
+    'device-fixtures.sh',
+    'Error: Activity not started, unable to resolve Intent',
+    'mvp/90-release-smoke.yaml',
+    'install -r',
+    'mvp/91-release-update.yaml',
+  ];
+  const start = source.indexOf('release_smoke_build() {');
+  assert.ok(start !== -1, 'release-smoke builds in release_smoke_build');
+  let at = start;
+  for (const step of steps) {
+    const found = source.indexOf(step, at);
+    assert.ok(found !== -1, `release-smoke must contain '${step}' after the previous step`);
+    at = found;
+  }
+  for (const suffix of ['STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']) {
+    assert.ok(
+      source.includes(`ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_${suffix}`),
+      `${suffix} must be exported for the signed build`,
+    );
+  }
+  assert.match(source, /mktemp -d/);
+  const cleanup = source.slice(
+    source.indexOf('cleanup() {'),
+    source.indexOf('trap cleanup EXIT'),
+  );
+  assert.match(cleanup, /keystore_dir/, 'the keystore is removed in cleanup');
+  assert.match(source, /syncscope-debug:\/\/configure-repository/);
+  // Release-smoke never starts Metro.
+  assert.match(
+    source,
+    /if \[ "\$mode" = e2e \]; then\n\s+"\$repo\/scripts\/validation\/metro-service\.sh" start/,
+  );
 });

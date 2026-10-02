@@ -16,6 +16,7 @@
     "test:android:unit": "cd android && ./gradlew :app:testDebugUnitTest",
     "test:android:connected": "scripts/validation/android-flow.sh connected --api 31",
     "e2e:android": "scripts/validation/android-flow.sh e2e --api 31 --api 36",
+    "e2e:android:release-smoke": "scripts/validation/android-flow.sh release-smoke --api 31",
     "validation:fixtures": "scripts/validation/fixture-seed.sh",
     "validation:manifest": "scripts/validation/fixture-manifest.sh",
     "validation:services:start": "scripts/validation/protocol-services.sh start",
