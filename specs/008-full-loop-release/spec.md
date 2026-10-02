@@ -33,6 +33,18 @@ Consumes from all prior features (M001/S01–S06 → M001/S07): the assembled lo
 This feature exercises that loop end to end on both API 31 and API 36, and documents it in `./docs` and
 `README.md`.
 
+### Items to specify (handed over by earlier features)
+
+Settle these when this feature is specified:
+
+- **The include-hidden-files setting**: `getSettings` / `setIncludeHidden`, reassigned from feature 005
+  ([005 spec, Dependencies](../005-gallery-list-filtering/spec.md#dependencies)). Both still return
+  `NOT_IMPLEMENTED`, and scans run with `includeHidden = false`
+  ([004 research R8](../004-scan-engine-matching/research.md#r8-hidden-files)).
+- **Snapshot retention**: published snapshots are never pruned, and every app open publishes a
+  `LOCAL_REFRESH` snapshot, so the scan store grows over time. Decide how many snapshots to keep (for
+  example the last N) ([005 plan, Risks](../005-gallery-list-filtering/plan.md#risks)).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Run the whole loop on a real device build (Priority: P1)

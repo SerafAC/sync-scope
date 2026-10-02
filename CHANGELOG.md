@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- Files tab with a photo gallery and a folder list, filters for synced / unsynced / issues, and origin
+  badges on same-named photos from different folders (feature 005): the gallery is a virtualized grid of
+  local thumbnails, newest first, read page by page; the list browses each source folder by folder with a
+  breadcrumb; the filter and its counts are shared by both views; a folder with no matching files is
+  dimmed with "0 matching" but can still be opened; and a new scan result reloads the view with "Results
+  updated", keeping the filter and the folder. The UI uses Material 3 through `react-native-paper` with
+  no inline styles. Proven by Maestro flows in `validation/maestro/browse/`.
 - Scan your folders and see which files are backed up (SYNCED / UNSYNCED / UNKNOWN), with rescan and
   automatic local refresh (feature 004): the Scan tab shows live progress and can cancel; matching uses
   the NFC-normalized, case-sensitive name, the size and the modified time in the same precision bucket
@@ -39,6 +46,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- CloudSync contract version 4: `FileEntryDto` gains `nameInOtherSource` and `matchingFileCount`;
+  `getLocalImageHandle` is implemented (moved from feature 006) and returns local-only thumbnails; the
+  `IMAGE_UNAVAILABLE` error code was added; directories in `queryTreeChildren` ignore the filter, and the
+  gallery reads images only.
+- Scan store schema version 3: `local_node.descSynced`, `descUnsynced` and `descUnknown`, per-status
+  descendant file counts on directory rows, added by a Room auto-migration from version 2.
 - CloudSync contract version 3: `startScan` takes an optional mode (`FULL` or `LOCAL_REFRESH`);
   `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` are implemented; scan
   error codes and the file issue codes `REMOTE_MTIME_MISSING` and `LOCAL_UNAVAILABLE` were added.

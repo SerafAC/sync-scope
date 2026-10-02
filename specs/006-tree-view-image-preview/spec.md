@@ -22,6 +22,11 @@ Consumes from feature 005 (M001/S04 → M001/S05):
 - The Material 3 shell, filter-chip component and accessibility-label convention.
 - The shared paged-query hook over `queryFiles` and `queryTreeChildren`, with `STALE_GENERATION` recovery.
 - The browsable-navigation pattern (breadcrumb, descend, ascend) from list view.
+- `getLocalImageHandle` with a clamped `maxEdgePx`, the local-only image read. It moved from this feature
+  to 005 (user decision, 2026-10-01), because gallery tiles need thumbnails; the preview reuses it with the
+  screen's long edge ([005 research R7](../005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-006-user-decision-2026-10-01)).
+- `queryTreeChildren` returning every directory whatever the filter, each with `matchingFileCount` (the
+  directory rule below).
 
 Consumes from feature 004 (M001/S03 → M001/S05):
 
@@ -66,6 +71,9 @@ photo is worth keeping requires seeing it before an irreversible delete.
   children are all filtered out should stay visible, dimmed, with a count, rather than vanish, so
   navigation does not dead-end. Settle the exact behaviour (which count is shown, whether such directories
   can be expanded, and whether list view follows the same rule) when this feature is specified.]
+  Settled by feature 005 (clarification 3, shared by list and tree): such a directory stays visible,
+  dimmed, with the count of matching files anywhere beneath it (0), and can still be opened
+  ([005 spec, Edge Cases](../005-gallery-list-filtering/spec.md#edge-cases)).
 - **FR-002** (R014, core-capability): Users MUST be able to preview an image from any view. Images only for
   v1 (video and documents are out of scope, R029). Preview uses `getLocalImageHandle`, which reads local
   storage only and never downloads remote file content. A thumbnail grid alone is not enough to commit to
@@ -83,8 +91,8 @@ Supporting requirements (primary FR in another feature):
 To feature 007 (multi-select and deletion, M001/S05 → M001/S06):
 
 - Multi-select surfaced in tree view and preview, completing selection parity across all three views.
-- `getLocalImageHandle` implemented, establishing the local-content-read path that never touches remote
-  content.
+
+(`getLocalImageHandle` is no longer provided here: feature 005 implements it, see Dependencies.)
 
 ## Success Criteria *(mandatory)*
 

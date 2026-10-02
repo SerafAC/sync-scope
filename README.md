@@ -21,10 +21,12 @@ SyncScope is in early development and is **not yet usable end to end**.
   **SYNCED**, **UNSYNCED** or **UNKNOWN**, on the **Scan** tab (see [Scan](#scan)). This is proven
   against live FTP, SFTP and WebDAV test servers on Android 12 (API 31) and Android 16 (API 36)
   emulators.
+- **Available:** browsing the results on the **Files** tab as a photo gallery or folder by folder, and
+  filtering them to synced, unsynced or unchecked files (see [Browse your files](#browse-your-files)).
+  This is proven on Android 12 (API 31) and Android 16 (API 36) emulators.
 - **Not available yet:** setting up the remote connection from the app's screens (until then it can only
-  be set up in a developer build, see [DEVELOPMENT.md](./DEVELOPMENT.md#test-only-seams)), the gallery,
-  list and tree views of the results, filtering, image preview and deleting files. The **Files** tab is
-  still a placeholder.
+  be set up in a developer build, see [DEVELOPMENT.md](./DEVELOPMENT.md#test-only-seams)), the tree view
+  of the results, image preview and deleting files.
 
 What changes from one version to the next is listed in [CHANGELOG.md](./CHANGELOG.md).
 
@@ -136,6 +138,52 @@ It does not stop you.
 Scans run only while SyncScope is on screen. If you switch to another app or go to the home screen during
 a scan, the scan is cancelled and its partial result is thrown away. The screen then shows **Cancelled
 (app left)**, and your previous result stays. Start the scan again when you are back.
+
+## Browse your files
+
+The **Files** tab shows the result of your last scan, file by file. Switch between two views at the top:
+
+- **Gallery** shows the photos in your folders as a grid of thumbnails, newest first. Only images are
+  shown here. Each photo carries its status (**Synced**, **Unsynced** or **Unknown**).
+- **List** shows your folders by name. Tap a folder to open it, and keep going down into its subfolders.
+  Each file shows its size, date and status. The path at the top (**All folders › Camera › 2024**) takes
+  you back up: tap any part of it.
+
+Thumbnails are made from the photos on your device. SyncScope never downloads anything from the remote
+repository to show them.
+
+### Filters
+
+The chips under the view switch narrow what you see, in both views. Each chip shows how many files it
+matches (in the gallery, how many photos):
+
+- **All**: every file.
+- **Synced**: files that are backed up. These are the ones that are safe to delete.
+- **Unsynced**: files that were checked and are not in the backup.
+- **Issues or unknown**: files SyncScope could not check (see [What the results mean](#what-the-results-mean)).
+  These are never offered for deletion.
+
+The filter you choose stays selected when you switch between Gallery and List, until you close the app.
+
+### Origin badges
+
+Photos from different folders can look the same in the gallery. When a photo's file name also appears in
+another of your folders, its tile shows a small badge with the name of the folder it comes from, for
+example **Camera** or **Camera (SDCARD)**. A photo whose name is used in only one folder has no badge. The
+list view needs no badge, because you can see which folder you are in.
+
+### Dimmed folders
+
+Each folder in the list shows how many files anywhere inside it match the chosen filter, for example
+**12 matching**. A folder with **0 matching** is shown dimmed rather than hidden, so your folders always
+look the same. You can still open it; it then shows **No files match this filter**.
+
+### Results updated
+
+When a new result arrives while you are looking at the Files tab, for example after **Rescan from
+scratch** or when you come back to the app, the Files tab reloads by itself and shows **Results updated**
+for a moment. It keeps your view, your filter and the folder you were in. If that folder no longer exists,
+you are taken to the closest folder above it that does.
 
 ## For developers
 

@@ -65,6 +65,26 @@ and the constitution are readable by anyone.
 The gate every change must pass locally is `pnpm lint && pnpm typecheck && pnpm test:ci`, plus
 `pnpm test:android:unit` for changes that touch native code.
 
+#### No inline styles
+
+`.eslintrc.js` makes `react-native/no-inline-styles` an error (feature 005), so `pnpm lint` fails on a
+`style={{…}}` literal. Put styles in a `StyleSheet.create` at the bottom of the file and take sizes from
+`src/theme/spacing.ts` (`spacing`, `density`, `gridColumns`). When a style needs a theme colour, build the
+sheet from the `useTheme()` theme and memoise it, as `src/screens/ListScreen.tsx` does:
+
+```tsx
+function themedStyles(theme: MD3Theme) {
+  return StyleSheet.create({dimmed: {color: theme.colors.onSurfaceDisabled}});
+}
+
+// inside the component
+const theme = useTheme();
+const themed = useMemo(() => themedStyles(theme), [theme]);
+```
+
+Colours always come from the Paper MD3 theme in `src/theme/theme.ts`, never from hex literals, so light
+and dark mode stay correct.
+
 ### Validation services
 
 | Script | What it does |
@@ -147,15 +167,22 @@ validation/maestro/
 │   ├── pick-folder.yaml            # drives the system folder picker; env VOLUME, PATH
 │   ├── open-sources.yaml           # launches the app and opens Settings › Folders
 │   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT
-│   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true)
+│   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true), or the SOURCES list
 │   ├── open-scan.yaml              # opens the Scan tab
-│   └── start-scan.yaml             # taps Scan (or BUTTON) and waits for the run to end
+│   ├── start-scan.yaml             # taps Scan (or BUTTON) and waits for the run to end
+│   └── open-files.yaml             # opens the Files tab and waits for its first page
 ├── sources/         # one directory per feature area (feature 003)
 │   ├── 01-add-internal.yaml
 │   └── …
-└── scan/            # feature 004
-    ├── 01-clean-scan-{ftp,sftp,webdav}.yaml
-    └── …
+├── scan/            # feature 004
+│   ├── 01-clean-scan-{ftp,sftp,webdav}.yaml
+│   └── …
+└── browse/          # feature 005
+    ├── 01-gallery-thousands.yaml
+    ├── 02-gallery-filters.yaml
+    ├── 03-gallery-issues-unknown.yaml
+    ├── 04-list-browse.yaml
+    └── 05-results-updated.yaml
 ```
 
 - Flow files are named `NN-<verb>-<object>.yaml`, where `NN` is the order within the directory.
@@ -170,6 +197,12 @@ validation/maestro/
 - **App UI**: select by `id:`, using the React Native `testID`, named `<screen>.<element>[.<qualifier>]`
   in lower camel case, for example `sources.add`, `sources.row`, `sources.row.status`,
   `sources.dialog.confirm`. Rows that repeat share an ID and are told apart with `childOf` or `index`.
+- **Files tab** (feature 005): select by accessibility label. Every interactive element there has one,
+  built in `src/files/a11y.ts`, and the label is the selector, so a missing label fails a flow (spec
+  FR-004, SC-003). Examples: `Gallery view`, `Filter Synced, 3`, `sunset.png, Unsynced, from GalleryTwin`,
+  `Folder drafts, 0 matching, no matches`, `Breadcrumb All folders`. The full list is in
+  `specs/005-gallery-list-filtering/contracts/maestro-browse.md` (Selectors). A new label goes in `a11y.ts`
+  and its unit test, not inline in a component.
 - **System UI** (the folder picker, permission dialogs): select by visible text, and only inside
   `subflows/`. Differences between Android versions are handled there with `runFlow: when:` branches,
   never in feature flows. For example, `pick-folder.yaml` matches the picker's confirm buttons
@@ -182,8 +215,8 @@ validation/maestro/
 - A flow that depends on an earlier flow says so in a leading comment, for example
   `# requires: 01-add-internal`.
 - In `sources/`, only the first flow uses `launchApp: clearState: true`, and later flows build on its
-  state. Every `scan/` flow is self-contained instead: it starts from `clearState`, configures the
-  repository through the seam and adds only the sources it needs. A restart is `stopApp` then
+  state. Every `scan/` and `browse/` flow is self-contained instead: it starts from `clearState`,
+  configures the repository through the seam and adds only the sources it needs. A restart is `stopApp` then
   `launchApp` without `clearState`.
 
 ### Test-only seams
@@ -222,6 +255,23 @@ Each folder gets one small file. For the scan flows (feature 004) it also seeds,
   200 folders, regenerated on every run. Only the progress and backgrounding flow
   (`scan/05-background-discards`) adds it.
 
+For the browse flows (feature 005) it seeds three more sources on internal storage, made of real,
+decodable PNGs so the gallery can draw thumbnails:
+
+- `SyncScopeE2E/Gallery`: `sunset.png`, `beach.png` and `album/forest.png`, byte-identical to the remote
+  `gallery/` root (SYNCED), plus the local-only `harbor.png`, `drafts/draft.png` and `album/notes.txt`
+  (UNSYNCED; the text file counts in list view only).
+- `SyncScopeE2E/GalleryTwin`: a `sunset.png` of a different size, so it is UNSYNCED and shares its name
+  with the Gallery copy, which gives both tiles an origin badge.
+- `SyncScopeE2E/GalleryBulk`: `g0000.png` and on, `GALLERY_BULK_FILES` copies of one PNG (default 2 000,
+  whole numbers 1 to 9 999), regenerated on every run. Only `browse/01-gallery-thousands` adds it, and it
+  asserts `Filter All, 2000`, so keep the default when running that flow; spec scenario 1 needs at least
+  2 000.
+
+The images are embedded as base64 in `scripts/validation/fixture-images.sh`, which `device-fixtures.sh`
+and `fixture-seed.sh` both source, so no image tool is needed. The twin image must keep a different byte
+length from `sunset.png`, or the GalleryTwin copy would match and become SYNCED.
+
 The script is idempotent, and it fails with a clear message when no SD card is mounted, so
 removable-storage coverage is never skipped silently. New fixtures go in this script, under
 `SyncScopeE2E/`.
@@ -245,6 +295,16 @@ the first progress frame to the summary and set `BULK_FILES` (an environment var
   `0700` and owned by the host user, so each server answers with a real permission error. The
   `02-partial-listing-*` flows use it.
 
+The browse flows (feature 005) use two more roots, built from the same embedded PNGs:
+
+- `gallery/`: `sunset.png`, `beach.png` and `album/forest.png`. Flows `01`, `02`, `04` and `05` use it.
+- `gallery-partial/`: the same files plus `restricted/hidden.png` inside `restricted/`, which is `0700`
+  and host-owned like `scan/partial/restricted`, so the listing is incomplete and every unmatched file is
+  UNKNOWN. Flow `03-gallery-issues-unknown` uses it.
+
+The expected chip counts per root and view are in
+`specs/005-gallery-list-filtering/contracts/maestro-browse.md` (Fixtures).
+
 When the tree changes, update the exact-tree expectations in `ProtocolConnectInstrumentedTest` and
 `scripts/validation/validation-infrastructure.test.mjs` in the same change.
 
@@ -260,9 +320,25 @@ to `/tmp/cloud-sync-checker-syncscope-<protocol>/credentials` as `username=…` 
 | `FTP_HOST`, `SFTP_HOST`, `WEBDAV_HOST` | `10.0.2.2`, the emulator's alias for the host loopback |
 | `FTP_PORT`, `SFTP_PORT`, `WEBDAV_PORT` | `32120`, `32122`, `32180` |
 | `FTP_USER`, `FTP_PASSWORD` (and the `SFTP_` and `WEBDAV_` pairs) | the per-run credentials |
-| `FTP_ROOT`, `SFTP_ROOT`, `WEBDAV_ROOT` | `/`, `/srv/fixtures`, `/webdav`; each flow appends `/scan/clean` or `/scan/partial` |
+| `FTP_ROOT`, `SFTP_ROOT`, `WEBDAV_ROOT` | `/`, `/srv/fixtures`, `/webdav`; each flow appends its remote root, such as `/scan/clean`, `/scan/partial`, `/gallery` or `/gallery-partial` |
 
-Each scan flow passes the set it needs to `subflows/configure-repository.yaml`.
+Each scan flow passes the set it needs to `subflows/configure-repository.yaml`. The browse flows read only
+the local snapshot, so they are protocol-agnostic and all use SFTP; the three protocols are covered by the
+scan flows.
+
+### Browse flow order
+
+The `browse/` flows run after `scan/`, in the order pinned in `config.yaml`:
+
+| Flow | Remote root, sources | Proves |
+| --- | --- | --- |
+| `01-gallery-thousands` | `gallery`; GalleryBulk | 2 000 tiles render through paged reads and keep loading while scrolling |
+| `02-gallery-filters` | `gallery`; Gallery, GalleryTwin | chip counts 6 / 3 / 3 / 0, what each filter shows, and the origin badges |
+| `03-gallery-issues-unknown` | `gallery-partial`; Gallery, GalleryTwin | the Issues or unknown filter shows the UNKNOWN set |
+| `04-list-browse` | `gallery`; Gallery, GalleryTwin | descend and breadcrumb back up, a dimmed `0 matching` folder, and the filter shared with the gallery |
+| `05-results-updated` | `gallery`; Gallery | after a rescan, `Results updated` and the same folder found again |
+
+Each flow is self-contained, so any one can be run alone as described below.
 
 ### Running one flow
 

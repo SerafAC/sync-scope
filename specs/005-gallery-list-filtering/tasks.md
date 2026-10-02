@@ -277,17 +277,17 @@ on both API levels.
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 
-- [ ] T048 [P] Update `./docs` (Principle VII):
+- [X] T048 [P] Update `./docs` (Principle VII):
   - `docs/architecture.md`: the v4 read rules, the `image` package and the thumbnail cache path, the `src/theme/` and `src/files/` modules, and the delivery list where `getLocalImageHandle` moves from 006 to 005;
   - `docs/sync-and-deletion-safety.md`: how the four filters map to statuses, that `ISSUES_UNKNOWN` equals the UNKNOWN set, and that directories ignore filters and show matching counts;
   - `docs/overview.md`: the Files tab in the glossary/flow.
 
   Link to the spec and research rather than restating volatile details.
-- [ ] T049 [P] Update `docs/decisions/0010-snapshot-paging-and-origin-badge.md`: refine the badge rule to "same file name in another source folder; the badge shows the source's alias" (005 clarification 1), and add 005 to Related. The paging contract is unchanged.
-- [ ] T050 [P] Add a user-facing "Browse your files" section to `README.md`, after the Scan section (Principle VIII). Cover gallery vs list, what each of the four filters shows, what the origin badge means, why some folders are dimmed with "0 matching", and what "Results updated" means.
-- [ ] T051 [P] Update `DEVELOPMENT.md` (Principle IX): the gallery fixtures (sources, remote roots `gallery` / `gallery-partial`, `scripts/validation/fixture-images.sh`, `GALLERY_BULK_FILES`), the `browse/` flows and their order, and the `react-native/no-inline-styles` lint rule with the themed-StyleSheet pattern.
-- [ ] T052 [P] Add three entries under `Unreleased` in `CHANGELOG.md` (Principle VI): "Added: Files tab with a photo gallery and a folder list, filters for synced / unsynced / issues, and origin badges on same-named photos from different folders", "Changed: CloudSync contract version 4", and "Changed: scan store schema version 3".
-- [ ] T053 [P] Cross-feature spec follow-ups from [plan.md](./plan.md#integration-closure), wording only:
+- [X] T049 [P] Update `docs/decisions/0010-snapshot-paging-and-origin-badge.md`: refine the badge rule to "same file name in another source folder; the badge shows the source's alias" (005 clarification 1), and add 005 to Related. The paging contract is unchanged.
+- [X] T050 [P] Add a user-facing "Browse your files" section to `README.md`, after the Scan section (Principle VIII). Cover gallery vs list, what each of the four filters shows, what the origin badge means, why some folders are dimmed with "0 matching", and what "Results updated" means.
+- [X] T051 [P] Update `DEVELOPMENT.md` (Principle IX): the gallery fixtures (sources, remote roots `gallery` / `gallery-partial`, `scripts/validation/fixture-images.sh`, `GALLERY_BULK_FILES`), the `browse/` flows and their order, and the `react-native/no-inline-styles` lint rule with the themed-StyleSheet pattern.
+- [X] T052 [P] Add three entries under `Unreleased` in `CHANGELOG.md` (Principle VI): "Added: Files tab with a photo gallery and a folder list, filters for synced / unsynced / issues, and origin badges on same-named photos from different folders", "Changed: CloudSync contract version 4", and "Changed: scan store schema version 3".
+- [X] T053 [P] Cross-feature spec follow-ups from [plan.md](./plan.md#integration-closure), wording only:
   - in `specs/006-tree-view-image-preview/spec.md`, move `getLocalImageHandle` from "Provides" to "Consumes from feature 005", and note that the directory rule in FR-001's open question is settled by 005 (dimmed with a matching count, still navigable);
   - in `specs/008-full-loop-release/spec.md`, add the include-hidden-files setting (`getSettings` / `setIncludeHidden`, reassigned from 005) and snapshot retention (the plan's Risks) as items to specify.
 - [ ] T054 Run the quickstart end to end ([quickstart.md](./quickstart.md) §1 and §2): `pnpm lint && pnpm typecheck && pnpm test:ci && pnpm test:android:unit && pnpm test:foundation`, then `pnpm e2e:android` on API 31 and API 36. Record the results in the PR description. List quickstart §3 (manual aesthetic acceptance on a real device) as a checklist item for the human reviewer. Do not mark it done.

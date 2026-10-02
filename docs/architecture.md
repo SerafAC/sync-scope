@@ -14,7 +14,9 @@ record that holds its rationale, which this page does not repeat.
 - React Native 0.87 with the new architecture enabled, Hermes, TypeScript 6 strict, pnpm 11.3.0,
   Node 24.11.1.
 - Android: minSdk 31, compileSdk 37, targetSdk 36, Kotlin 2.2.0, KSP for Room code generation.
-- UI: a navigation shell with Material Design icons and `react-native-paper` 5.15.3.
+- UI: Material 3 through `react-native-paper` 5.15.3 only, with Material Design icons. The theme, spacing
+  and density scale live in `src/theme/`, and `react-native/no-inline-styles` is a lint error (see
+  [Material 3 shell](#material-3-shell-one-theme-module)).
 
 ## Key patterns
 
@@ -46,13 +48,16 @@ record that holds its rationale, which this page does not repeat.
   background dispatcher, and any throwable becomes a redacted `INTERNAL_ERROR` envelope, so no Kotlin
   exception crosses the bridge. The Kotlin and TypeScript error-code lists are kept in the same order, and a
   parity test compares them.
-- The contract is at version 3 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
+- The contract is at version 4 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
   Kotlin); the parity test checks that both sides carry the same version. Version 2 added the optional
   re-grant source ID to `launchSourcePicker`. Version 3 (feature 004) made `startScan` take an optional
   mode (`FULL` or `LOCAL_REFRESH`), implemented `startScan`, `cancelScan`, `getScanState`, `queryFiles`
   and `queryTreeChildren` with their scan DTOs, added the scan error codes (such as `SCAN_IN_PROGRESS` and
   `REFRESH_UNAVAILABLE`) and the file issue codes `REMOTE_MTIME_MISSING` and `LOCAL_UNAVAILABLE`, mirrored
-  in both languages under the parity test.
+  in both languages under the parity test. Version 4 (feature 005) added `nameInOtherSource` and
+  `matchingFileCount` to `FileEntryDto`, implemented `getLocalImageHandle` and added the
+  `IMAGE_UNAVAILABLE` error code; the details are in the
+  [005 browse contract](../specs/005-gallery-list-filtering/contracts/cloudsync-browse.md).
 
 ### Room scan store; credentials never touch it
 
@@ -66,10 +71,16 @@ full persistence surface — entities, DAOs, `SyncScopeDatabase`, `SnapshotQuery
 are reviewed source for migrations, and a mismatched on-disk schema fails rather than falling back to a
 destructive migration.
 
-The schema is at **version 2** (feature 004). It adds two columns through a Room `@AutoMigration` from
-version 1, covered by `MigrationTest`: `scan_run.mode` (`FULL` or `LOCAL_REFRESH`, default `FULL`) and
-the nullable `snapshot.remoteListedAtMillis`, the remote listing's age, which a local refresh copies from
-the snapshot it builds on.
+The schema is at **version 3** (feature 005). Each step is a Room `@AutoMigration`, covered by
+`MigrationTest`:
+
+- Version 2 (feature 004) added `scan_run.mode` (`FULL` or `LOCAL_REFRESH`, default `FULL`) and the
+  nullable `snapshot.remoteListedAtMillis`, the remote listing's age, which a local refresh copies from
+  the snapshot it builds on.
+- Version 3 (feature 005) added the nullable `local_node.descSynced`, `descUnsynced` and `descUnknown`:
+  on directory rows, the number of files anywhere beneath with each status, written by `DirectoryRollup`.
+  They are `NULL` on file rows and on rows written before version 3
+  ([005 data model](../specs/005-gallery-list-filtering/data-model.md#schema-change-version-2--3)).
 
 The password never enters Room: `repository_config` refers to it only by `credentialVersion`, and the
 secret itself lives in `CredentialStore` (Android Keystore-backed `EncryptedSharedPreferences`,
@@ -120,6 +131,47 @@ All three views read one consistent snapshot ([D010](./decisions/0010-snapshot-p
   mirror share the same edge cases (null, NaN or Infinity → 50; below 1 → 1; truncate; cap 200), and
   `SnapshotQueryTest` pins the Kotlin side to the same table.
 
+The read rules since contract version 4 (feature 005,
+[data model](../specs/005-gallery-list-filtering/data-model.md#read-rules-changes-to-snapshotstorequeryfilepage)):
+
+- The gallery (`view: GALLERY`) reads `FILE` rows with an `image/*` MIME type only.
+- `queryTreeChildren` always returns every directory child; the filter narrows file rows only. Each
+  directory carries `matchingFileCount`, its descendant count for the active filter, read from the
+  version 3 columns.
+- First-page `counts` are scoped by view (images only in the gallery) and by `sourceId`, never by the
+  filter, the parent or the search, so the chip counts match what the view can show.
+- `nameInOtherSource` is set on a gallery row when a file with the same name exists in another source of
+  the snapshot (one indexed `EXISTS` probe per row). It drives the origin badge
+  ([D010](./decisions/0010-snapshot-paging-and-origin-badge.md)) and is always false in list reads.
+
+On the JS side, `src/files/usePagedQuery.ts` holds the pages of one snapshot. When the active snapshot
+changes, or a read fails with `STALE_GENERATION`, `SNAPSHOT_NOT_FOUND` or `PAGE_TOKEN_MISMATCH`, it drops
+its rows and reloads from page 1 with the same query, and drops any response that belongs to an older
+snapshot or query ([005 research R1](../specs/005-gallery-list-filtering/research.md#r1-how-a-view-notices-a-new-snapshot-the-stale_generation-recovery-of-fr-005)).
+`useListNavigation.ts` finds the list view's folder again by name in the new snapshot, falling back to the
+nearest ancestor that still exists ([R2](../specs/005-gallery-list-filtering/research.md#r2-re-locating-the-current-folder-in-a-new-snapshot)).
+
+### Local thumbnails, never remote content
+
+`getLocalImageHandle(snapshotId, entryId, {maxEdgePx})` returns a `file://` URI of a downscaled JPEG in the
+app's cache, `cacheDir/thumbnails/`, named by a hash of the entry ID and the edge. The edge is clamped to
+64…2048 px on both sides of the bridge, gallery tiles ask for 256 px, and feature 006's preview reuses the
+method with the screen's long edge. `LocalImageStore` (the `image` package) serves a cached file without
+decoding, and otherwise decodes through `ContentResolver.loadThumbnail` with a `BitmapFactory` fallback, at
+most four decodes at once. It reads local storage only, never opens a remote connection (R026) and never
+passes or logs a document URI. An unreadable image is the typed `IMAGE_UNAVAILABLE` error. The cache is
+left to the OS to reclaim ([005 research R7](../specs/005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-006-user-decision-2026-10-01)).
+
+### Material 3 shell: one theme module
+
+`src/theme/` is the single source of the UI's look ([005 research R9](../specs/005-gallery-list-filtering/research.md#r9-material-3-shell-theme-spacing-and-density-no-inline-styles-fr-004)):
+`theme.ts` builds the Paper MD3 theme and the matching React Navigation theme, `spacing.ts` holds the
+spacing scale, the dense-layout sizes and the gallery column count, and `statusLabels.ts` holds the
+user-facing status and filter labels. Components style themselves through a `StyleSheet`, themed with
+`useTheme()` where colours are needed; inline styles fail lint. Every interactive element has an
+accessibility label, built in `src/files/a11y.ts`, and those labels are the Maestro selectors of the
+browse flows.
+
 ### Two-phase deletion
 
 `prepareLocalDeletion` returns a plan token plus an honest breakdown; `executeLocalDeletion` commits with
@@ -151,12 +203,13 @@ All under `android/app/src/main/java/com/syncscope/`:
 
 | Package | Role |
 | --- | --- |
-| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, and `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` into envelopes. |
+| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, and `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles`, `queryTreeChildren` and `getLocalImageHandle` into envelopes. |
 | `persistence` | The Room database (`SyncScopeDatabase`), its entities and DAOs, `SnapshotStore`, snapshot queries and the opaque page-token codec. |
 | `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
 | `credential` | `CredentialStore`: the repository password in `EncryptedSharedPreferences` under an Android Keystore `AES256_GCM` master key. |
 | `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract the scan consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
-| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first remote listing with retries and the `FAILED` boundary), `DirectoryRollup` (worst-of directory status), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
+| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first remote listing with retries and the `FAILED` boundary), `DirectoryRollup` (worst-of directory status and per-status descendant file counts), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
+| `image` | `LocalImageStore` (feature 005): local-only thumbnails for `getLocalImageHandle`, cached under `cacheDir/thumbnails/`; see [Local thumbnails](#local-thumbnails-never-remote-content). |
 
 ## Remote clients
 
@@ -175,7 +228,9 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | --- | --- |
 | `App.tsx`, `index.js` | App entry point. |
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
-| `src/navigation/`, `src/screens/` | The navigation shell and screens; `SettingsScreen` and `ScanScreen` are real, the others are still placeholders. |
+| `src/navigation/`, `src/screens/` | The navigation shell and screens: `SettingsScreen`, `ScanScreen` and the Files tab's `FilesScreen`, which switches between `GalleryScreen` and `ListScreen` under one set of filter chips. |
+| `src/theme/` | The Material 3 shell: Paper and navigation themes, spacing and density, status and filter labels. |
+| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 006 reuses the hooks for the tree view. |
 | `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
 | `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
@@ -184,7 +239,7 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | `android/app/src/androidTest/` | Instrumented tests, including `ProtocolConnectInstrumentedTest` against the live containers. |
 | `scripts/validation/` | Container, emulator, fixture and audit orchestration, with its `node --test` suites. |
 | `validation/services/` | The Compose file and server configs for the protocol containers. |
-| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`), with shared `subflows/` and a pinned `config.yaml` order. |
+| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`, `browse/`), with shared `subflows/` and a pinned `config.yaml` order. |
 
 ## Validation infrastructure
 
@@ -231,10 +286,12 @@ Environment prerequisites and known pitfalls are in [DEVELOPMENT.md](../DEVELOPM
 
 ## Not yet implemented
 
-5 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope:
+4 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope:
 
 - `getSettings` and `setIncludeHidden`, the include-hidden-files setting. Scans run with
-  `includeHidden = false` until then. Feature 005 is their proposed owner
+  `includeHidden = false` until then. Feature 008 owns them, reassigned from 005
   ([005 spec, Dependencies](../specs/005-gallery-list-filtering/spec.md#dependencies)).
-- `getLocalImageHandle`, delivered by feature 006.
 - `prepareLocalDeletion` and `executeLocalDeletion`, delivered by feature 007.
+
+`getLocalImageHandle` moved from feature 006 to feature 005, which delivers it for the gallery thumbnails;
+006 reuses it for the full preview.
