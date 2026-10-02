@@ -251,8 +251,8 @@ remote root named below (under the SFTP root, for example `${SFTP_ROOT}/gallery`
   - tap `Filter Issues or unknown, 0`: `No files match this filter` (scenario 2).
 
   Add it to `flowsOrder`.
-- [ ] T044 [US1] Create `validation/maestro/browse/03-gallery-issues-unknown.yaml` (`name: browse/03-gallery-issues-unknown`). Use remote root `gallery-partial` and the same two sources. Assert chips `Filter All, 6`, `Filter Synced, 3`, `Filter Unsynced, 0` and `Filter Issues or unknown, 3`. Tap Issues: `harbor.png, Unknown`, `draft.png, Unknown` and `sunset.png, Unknown, from GalleryTwin` are visible. Add it to `flowsOrder`.
-- [ ] T045 [US1] Create `validation/maestro/browse/04-list-browse.yaml` (`name: browse/04-list-browse`). Use remote root `gallery` and both sources. The steps:
+- [X] T044 [US1] Create `validation/maestro/browse/03-gallery-issues-unknown.yaml` (`name: browse/03-gallery-issues-unknown`). Use remote root `gallery-partial` and the same two sources. Assert chips `Filter All, 6`, `Filter Synced, 3`, `Filter Unsynced, 0` and `Filter Issues or unknown, 3`. Tap Issues: `harbor.png, Unknown`, `draft.png, Unknown` and `sunset.png, Unknown, from GalleryTwin` are visible. Add it to `flowsOrder`.
+- [X] T045 [US1] Create `validation/maestro/browse/04-list-browse.yaml` (`name: browse/04-list-browse`). Use remote root `gallery` and both sources. The steps:
   1. Tap `List view`: `Filter All, 7` is selected, and `Folder Gallery, 6 matching` and `Folder GalleryTwin, 1 matching` are visible.
   2. Tap `Folder Gallery, 6 matching` → `Folder album, 2 matching` → `forest.png, Synced` and `notes.txt, Unsynced` are visible.
   3. Tap `Breadcrumb Gallery` → `Folder album, 2 matching` is visible again.
@@ -262,13 +262,13 @@ remote root named below (under the SFTP root, for example `${SFTP_ROOT}/gallery`
   7. Tap `Gallery view`: `Filter Synced, 3` is still selected, and `harbor.png, Unsynced` is not visible (FR-003).
 
   Add it to `flowsOrder`.
-- [ ] T046 [US1] Create `validation/maestro/browse/05-results-updated.yaml` (`name: browse/05-results-updated`). Use remote root `gallery` and source `SyncScopeE2E/Gallery`. The steps:
+- [X] T046 [US1] Create `validation/maestro/browse/05-results-updated.yaml` (`name: browse/05-results-updated`). Use remote root `gallery` and source `SyncScopeE2E/Gallery`. The steps:
   1. Tap `List view` → `Folder Gallery, 6 matching` → `Folder album, 2 matching`.
   2. Run `subflows/open-scan.yaml`, tap `Rescan from scratch` and wait for the summary.
   3. Tap the Files tab: `Results updated`, `Breadcrumb album` and `forest.png, Synced` are visible (FR-005, clarification 4).
 
   Add it to `flowsOrder`.
-- [ ] T047 [US1] Run the whole Maestro workspace with `pnpm validation:services:start && pnpm e2e:android` on API 31 and API 36. The 003 and 004 flows must still pass, plus `browse/01`…`05`. If flow 01 is slow on API 31, do not lower `GALLERY_BULK_FILES` below 2 000 (spec scenario 1); tune the flow's waits and scroll count instead, and record the tuned values in `DEVELOPMENT.md`. Never weaken the other assertions. Run `pnpm validation:services:stop` and confirm that the protocol audit reports no content read or write. If a flow fails for a reason outside this feature, stop and escalate to the user.
+- [X] T047 [US1] Run the whole Maestro workspace with `pnpm validation:services:start && pnpm e2e:android` on API 31 and API 36. The 003 and 004 flows must still pass, plus `browse/01`…`05`. If flow 01 is slow on API 31, do not lower `GALLERY_BULK_FILES` below 2 000 (spec scenario 1); tune the flow's waits and scroll count instead, and record the tuned values in `DEVELOPMENT.md`. Never weaken the other assertions. Run `pnpm validation:services:stop` and confirm that the protocol audit reports no content read or write. If a flow fails for a reason outside this feature, stop and escalate to the user.
 
 **Checkpoint**: US1 is complete and independently proven: every acceptance scenario has a passing named flow
 on both API levels.

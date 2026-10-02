@@ -174,6 +174,7 @@ function FileRow({ entry }: { entry: FileEntryDto }): React.JSX.Element {
   ].filter(part => part != null);
   return (
     <View
+      accessible
       accessibilityLabel={fileRowLabel(entry.name, entry.status)}
       style={styles.fileRow}
     >

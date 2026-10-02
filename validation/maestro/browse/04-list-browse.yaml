@@ -1,0 +1,90 @@
+# Scenario 4, FR-002, FR-003, clarification 3 (SFTP): the list view starts at
+# the source folders, opens folders by name and goes back up through the
+# breadcrumb. Under a filter every folder stays visible with its matching-file
+# count; a folder with none is dimmed ("no matches") but still opens. The
+# filter is shared, so it is still selected back in the gallery. Against the
+# remote gallery/ tree the list counts every file (album/notes.txt included):
+# 7 / 3 / 4 / 0. Self-contained: starts from clearState
+# (contracts/maestro-browse.md).
+appId: com.syncscope
+name: browse/04-list-browse
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Gallery,GalleryTwin"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. The list view opens at the source folders, with every file counted.
+- tapOn: "List view"
+- extendedWaitUntil:
+    visible:
+      text: "Filter All, 7"
+      selected: true
+    timeout: 15000
+- assertVisible: "Folder Gallery, 6 matching"
+- assertVisible: "Folder GalleryTwin, 1 matching"
+
+# 2. Open folders by name (scenario 4).
+- tapOn: "Folder Gallery, 6 matching"
+- extendedWaitUntil:
+    visible: "Folder album, 2 matching"
+    timeout: 15000
+- tapOn: "Folder album, 2 matching"
+- extendedWaitUntil:
+    visible: "forest.png, Synced"
+    timeout: 15000
+- assertVisible: "notes.txt, Unsynced"
+
+# 3. Back up one level through the breadcrumb.
+- tapOn: "Breadcrumb Gallery"
+- extendedWaitUntil:
+    visible: "Folder album, 2 matching"
+    timeout: 15000
+
+# 4. Back to the source folders.
+- tapOn: "Breadcrumb All folders"
+- extendedWaitUntil:
+    visible: "Folder Gallery, 6 matching"
+    timeout: 15000
+
+# 5. Under Synced, every source stays visible with its matching count.
+- tapOn: "Filter Synced, 3"
+- extendedWaitUntil:
+    visible: "Folder Gallery, 3 matching"
+    timeout: 15000
+- assertVisible: "Folder GalleryTwin, 0 matching, no matches"
+
+# 6. A folder with no match is dimmed but still opens (clarification 3).
+- tapOn: "Folder Gallery, 3 matching"
+- extendedWaitUntil:
+    visible: "Folder drafts, 0 matching, no matches"
+    timeout: 15000
+- tapOn: "Folder drafts, 0 matching, no matches"
+- extendedWaitUntil:
+    visible: "No files match this filter"
+    timeout: 15000
+
+# 7. The filter is shared with the gallery (FR-003).
+- tapOn: "Gallery view"
+- extendedWaitUntil:
+    visible:
+      text: "Filter Synced, 3"
+      selected: true
+    timeout: 15000
+- assertNotVisible: "harbor.png, Unsynced"

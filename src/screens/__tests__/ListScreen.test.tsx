@@ -243,9 +243,10 @@ describe('ListScreen', () => {
     );
 
     fireEvent.press(screen.getByLabelText('Folder album, 2 matching'));
-    expect(
-      await screen.findByLabelText('forest.png, Synced'),
-    ).toBeOnTheScreen();
+    const forestRow = await screen.findByLabelText('forest.png, Synced');
+    expect(forestRow).toBeOnTheScreen();
+    // Android only exposes the row label when the row is one a11y node.
+    expect(forestRow.props.accessible).toBe(true);
     expect(screen.getByLabelText('notes.txt, Unsynced')).toBeOnTheScreen();
     expect(queryTreeChildrenMock).toHaveBeenCalledWith(
       'snap-1',
