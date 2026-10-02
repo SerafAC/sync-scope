@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
  * decision log 2026-10-01). A link without it sets the pause back to 0, so only the flows that ask
  * for it run paced.
  *
- * There is no Connect screen until feature 008, so the e2e flows configure the live containers here. It
+ * There is no Connect screen until feature 006 (MVP), so the e2e flows configure the live containers here. It
  * runs the production [RepositoryOperations] save, then test; when the test raises an SFTP host-key
  * challenge it approves it through the production [HostKeyTrustStore] and tests again. Nothing is faked:
  * the saved config, credential and trusted key are exactly what the real flow leaves.

@@ -32,7 +32,7 @@ like a clean one. See [sync and deletion safety](./sync-and-deletion-safety.md).
 4. **Browse and filter** the results on the **Files** tab in gallery, list or tree view (R008, R009,
    R010), filtered to all, synced, unsynced or issues-unknown (R011), with an image preview from any view
    (R014). Gallery and list view, with the filters, are delivered by feature 005; tree view and preview by
-   feature 006.
+   feature 007.
 5. **Select** files, from any of the three views (R012).
 6. **Delete locally**, after an honest pre-flight breakdown of what will happen (R012, R013).
 

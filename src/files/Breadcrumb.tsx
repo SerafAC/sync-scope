@@ -11,7 +11,7 @@ const SEPARATOR_SIZE = 16;
 /**
  * The list view's path (FR-002): `All folders › <alias> › …`. Pressing a
  * crumb goes back up to it; the last crumb is where the user is, so it is
- * disabled. Feature 006's tree view reuses it with `useListNavigation`.
+ * disabled. Feature 007's tree view reuses it with `useListNavigation`.
  */
 export function Breadcrumb({
   crumbs,

@@ -123,7 +123,7 @@ function emptyState(
  * change drops the rows and reloads page 1, and raises `snapshotChanged`
  * when rows had been shown; a query change (filter, folder) reloads quietly.
  *
- * Feature 006's tree view reuses this hook with a `queryTreeChildren` reader.
+ * Feature 007's tree view reuses this hook with a `queryTreeChildren` reader.
  */
 export function usePagedQuery({
   snapshotId,

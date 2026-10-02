@@ -41,7 +41,7 @@ const ICON_SIZE = 14;
 /**
  * A small, non-interactive status marker: icon plus `STATUS_LABEL[status]`,
  * coloured from the theme only. Used by gallery tiles and list rows, and by
- * 007's status-aware rendering.
+ * 006's (MVP) status-aware rendering.
  */
 export function StatusChip({
   status,

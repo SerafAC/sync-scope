@@ -155,12 +155,12 @@ nearest ancestor that still exists ([R2](../specs/005-gallery-list-filtering/res
 
 `getLocalImageHandle(snapshotId, entryId, {maxEdgePx})` returns a `file://` URI of a downscaled JPEG in the
 app's cache, `cacheDir/thumbnails/`, named by a hash of the entry ID and the edge. The edge is clamped to
-64…2048 px on both sides of the bridge, gallery tiles ask for 256 px, and feature 006's preview reuses the
+64…2048 px on both sides of the bridge, gallery tiles ask for 256 px, and feature 007's preview reuses the
 method with the screen's long edge. `LocalImageStore` (the `image` package) serves a cached file without
 decoding, and otherwise decodes through `ContentResolver.loadThumbnail` with a `BitmapFactory` fallback, at
 most four decodes at once. It reads local storage only, never opens a remote connection (R026) and never
 passes or logs a document URI. An unreadable image is the typed `IMAGE_UNAVAILABLE` error. The cache is
-left to the OS to reclaim ([005 research R7](../specs/005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-006-user-decision-2026-10-01)).
+left to the OS to reclaim ([005 research R7](../specs/005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-007-user-decision-2026-10-01)).
 
 ### Material 3 shell: one theme module
 
@@ -178,7 +178,7 @@ browse flows.
 per-file outcomes into `local_deletion_overlay`, recording successes only
 ([D008](./decisions/0008-two-phase-local-deletion.md)). UNKNOWN entries are refused outright
 ([D006](./decisions/0006-unknown-status-never-deletable.md)). Both methods are declared in the contract and
-are delivered by feature 007.
+are delivered by feature 006 (MVP).
 
 ### Local sources through the Storage Access Framework
 
@@ -230,7 +230,7 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
 | `src/navigation/`, `src/screens/` | The navigation shell and screens: `SettingsScreen`, `ScanScreen` and the Files tab's `FilesScreen`, which switches between `GalleryScreen` and `ListScreen` under one set of filter chips. |
 | `src/theme/` | The Material 3 shell: Paper and navigation themes, spacing and density, status and filter labels. |
-| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 006 reuses the hooks for the tree view. |
+| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 007 reuses the hooks for the tree view. |
 | `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
 | `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
@@ -289,9 +289,9 @@ Environment prerequisites and known pitfalls are in [DEVELOPMENT.md](../DEVELOPM
 4 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope:
 
 - `getSettings` and `setIncludeHidden`, the include-hidden-files setting. Scans run with
-  `includeHidden = false` until then. Feature 008 owns them, reassigned from 005
+  `includeHidden = false` until then. Feature 009 owns them, reassigned from 005
   ([005 spec, Dependencies](../specs/005-gallery-list-filtering/spec.md#dependencies)).
-- `prepareLocalDeletion` and `executeLocalDeletion`, delivered by feature 007.
+- `prepareLocalDeletion` and `executeLocalDeletion`, delivered by feature 006 (MVP).
 
-`getLocalImageHandle` moved from feature 006 to feature 005, which delivers it for the gallery thumbnails;
-006 reuses it for the full preview.
+`getLocalImageHandle` moved from feature 007 to feature 005, which delivers it for the gallery thumbnails;
+007 reuses it for the full preview.

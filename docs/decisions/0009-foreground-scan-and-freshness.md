@@ -35,4 +35,4 @@ none
 ## Related
 
 - Requirements: R006, R015, R016, R025
-- Features: specs/004-scan-engine-matching, specs/007-multiselect-local-deletion
+- Features: specs/004-scan-engine-matching, specs/006-mvp (absorbed specs/008-multiselect-local-deletion)

@@ -1,6 +1,6 @@
 # Feature Specification: Full-Loop Integration, Docs and Release APK
 
-**Feature Branch**: `008-full-loop-release`
+**Feature Branch**: `009-full-loop-release`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S07)
 
@@ -17,8 +17,9 @@
 [003-local-source-selection](../003-local-source-selection/spec.md),
 [004-scan-engine-matching](../004-scan-engine-matching/spec.md),
 [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md),
-[006-tree-view-image-preview](../006-tree-view-image-preview/spec.md) and
-[007-multiselect-local-deletion](../007-multiselect-local-deletion/spec.md).
+[006-mvp](../006-mvp/spec.md) and
+[007-tree-view-image-preview](../007-tree-view-image-preview/spec.md). Feature
+[008](../008-multiselect-local-deletion/spec.md) was merged into 006.
 
 ## Dependencies (integration closure)
 
@@ -27,8 +28,10 @@ Consumes from all prior features (M001/S01–S06 → M001/S07): the assembled lo
 - the registered `CloudSync` TurboModule and the live FTP, SFTP and WebDAV protocol clients (feature 002);
 - persisted local sources with durable SAF grants (feature 003);
 - a completed snapshot with SYNCED, UNSYNCED and UNKNOWN statuses (feature 004);
-- the three browsable views, gallery and list (feature 005) and tree with preview (feature 006);
-- two-phase local deletion with per-file outcomes (feature 007).
+- the Connect (repository) screen, first-run guidance and the installable APK build (feature 006);
+- the three browsable views, gallery and list (feature 005) and tree with preview (feature 007);
+- multi-select with the selection size, and two-phase local deletion with per-file outcomes (feature 006,
+  which absorbed feature 008).
 
 This feature exercises that loop end to end on both API 31 and API 36, and documents it in `./docs` and
 `README.md`.
@@ -99,11 +102,9 @@ and no duplicate FR is added for API 36.
 - **FR-003** (R022, operability): Docs under `./docs` MUST be updated in the same change as each
   behaviour change, and `README.md` MUST be user-focused. Updates happen per feature, not batched at the
   end; this feature owns the final coherence of the doc set.
-- **FR-004** (constitution Principle VI, versioning): The Android `versionName` and `versionCode` MUST be
-  derived from the `package.json` version, which is the single authoritative version source, and a unit
-  test MUST prove the derivation. Today `android/app/build.gradle` hard-codes `versionName "1.0"` and
-  `versionCode 1` while `package.json` says `0.0.1`; this Principle VI gap was deferred to this feature
-  in the Complexity Tracking table of feature 001's `plan.md` (the project-management migration).
+- **FR-004** (constitution Principle VI, versioning): **Moved to [006-mvp](../006-mvp/spec.md) FR-022**
+  (2026-10-02 analysis), because 006 ships the first APK meant for a real device. This feature keeps the
+  check that the release APK still reports the `package.json` version on API 36.
 
 ### Key Entities
 
@@ -125,8 +126,8 @@ the user can install on their own device.
   containers.
 - **SC-002**: The release APK installs and launches on both API levels.
 - **SC-003**: No method a feature claims to own returns `NOT_IMPLEMENTED`.
-- **SC-004**: The APK's `versionName` equals the `package.json` version, and the derivation's unit test
-  passes.
+- **SC-004**: The APK's `versionName` equals the `package.json` version on API 31 and API 36 (the
+  derivation and its test ship in 006).
 - **SC-005**: `README.md` leads with user-focused instructions, and `./docs` describes the shipped
   behaviour.
 

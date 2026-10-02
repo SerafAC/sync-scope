@@ -1,2 +1,6 @@
 minimumReleaseAgeExclude:
   - speckit-eye@1.0.0
+
+# RN's Gradle plugin expects hermesc at node_modules/hermes-compiler (transitive dep of react-native)
+publicHoistPattern:
+  - hermes-compiler

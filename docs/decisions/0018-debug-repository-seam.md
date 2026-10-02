@@ -5,13 +5,13 @@
   (Complexity Tracking) and research R11
 - **Scope**: testing
 - **Made by**: agent
-- **Revisable**: Yes. When feature 008 builds the Connect screen, the flows can configure the repository
+- **Revisable**: Yes. When feature 006 (MVP) builds the Connect screen, the flows can configure the repository
   through the UI instead, with the same assertions, and this seam can be removed.
 
 ## Context
 
 Every scan flow needs a saved and tested repository that points at the live FTP, SFTP or WebDAV container
-([D012](./0012-maestro-e2e-proof-bar.md)). The app has no Connect screen until feature 008, so Maestro has
+([D012](./0012-maestro-e2e-proof-bar.md)). The app has no Connect screen until feature 006 (MVP), so Maestro has
 no screen to type the server details into. The container credentials are random and regenerated on every
 service start ([D014](./0014-container-credentials-via-runner-args.md)), so they cannot be built into the
 app or the flows.
@@ -48,7 +48,7 @@ here, and real state rather than faked app state. The activity is not in the rel
 
 ## Alternatives rejected
 
-- Building the Connect screen now: it pulls feature 008's scope forward.
+- Building the Connect screen now: it pulls feature 006 (MVP)'s scope forward.
 - Pre-seeding Room and the Keystore from adb: it fakes app state and bypasses the credential boundary, so
   it would not prove that a saved repository works.
 - Passing the credentials through an `adb push`ed file: it leaves the secret on the device filesystem

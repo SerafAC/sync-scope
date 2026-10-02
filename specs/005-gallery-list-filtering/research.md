@@ -111,7 +111,7 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
 - **Alternatives rejected**: a JS-side count by paging everything (defeats D010); per-folder chip counts in
   list view (a recursive count per navigation, and the folder rows already show it).
 
-## R7. Gallery thumbnails: `getLocalImageHandle` (moved from 006, user decision 2026-10-01)
+## R7. Gallery thumbnails: `getLocalImageHandle` (moved from 007, user decision 2026-10-01)
 
 - **Decision**: `getLocalImageHandle(snapshotId, entryId, { maxEdgePx })` is implemented in this feature.
   - Native looks up the row (must be a published snapshot and a `FILE` with an `image/*` MIME type) and its
@@ -121,7 +121,7 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
     to `BitmapFactory` with `inSampleSize`.
   - The result is written as JPEG (quality 85) to `cacheDir/thumbnails/<sha256(entryId|maxEdge)>.jpg`,
     reused when present, and returned as `{ uri: "file://…" }`.
-  - `maxEdgePx` is clamped to 64…2048. The gallery asks for 256; 006's preview will ask for the screen's
+  - `maxEdgePx` is clamped to 64…2048. The gallery asks for 256; 007's preview will ask for the screen's
     long edge.
   - Work runs on `Dispatchers.IO.limitedParallelism(4)`, so a fast fling cannot start hundreds of decodes.
 - **Errors**: a new code `IMAGE_UNAVAILABLE` ("This image could not be read on the device." / "Check that
@@ -170,7 +170,7 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
 ## R10. Filter state shared across views
 
 - **Decision**: a `FilesProvider` around the Files tab holds `{ view: 'GALLERY' | 'LIST', filter }` in React
-  state. Gallery and list (and 006's tree) read the same filter. It is not persisted across restarts (the
+  state. Gallery and list (and 007's tree) read the same filter. It is not persisted across restarts (the
   clarify session left this as low-impact; the default is `ALL`).
 - **Rationale**: FR-003 requires consistency across views, not persistence. In-memory state is the
   simplest way to meet it.
@@ -182,12 +182,12 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
 - **Alternative rejected**: directories first (adds `kind` to the cursor and the token fingerprint for a
   cosmetic gain; it can come with a later sort feature).
 
-## R12. Selection model (spec "Provides" to 007)
+## R12. Selection model (spec "Provides" to 006)
 
 - **Decision**: not built here. This feature has no selection UI and no requirement that reads a
-  selection. 007 builds the selection model on top of the `entryId`-keyed rows and status chips delivered
+  selection. 006 builds the selection model on top of the `entryId`-keyed rows and status chips delivered
   here.
-- **Rationale**: Principle II (YAGNI). An unused hook would be dead code until 007.
+- **Rationale**: Principle II (YAGNI). An unused hook would be dead code until 006.
 - **Follow-up**: the spec's "Provides" list is updated accordingly (status-aware rendering stays).
 
 ## R13. End-to-end fixtures

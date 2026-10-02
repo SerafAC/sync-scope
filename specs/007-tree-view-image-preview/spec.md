@@ -1,6 +1,6 @@
 # Feature Specification: Browsable Tree View and Image Preview
 
-**Feature Branch**: `006-tree-view-image-preview`
+**Feature Branch**: `007-tree-view-image-preview`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S05)
 
@@ -13,7 +13,8 @@
 > verbatim in meaning. It has not been clarified or planned yet: complete it with `/speckit-specify` and
 > `/speckit-clarify` when this feature starts, then `/speckit-plan`.
 
-**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md).
+**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md) and [006-mvp](../006-mvp/spec.md)
+(selection model, selection bar and deletion).
 
 ## Dependencies
 
@@ -24,7 +25,7 @@ Consumes from feature 005 (M001/S04 → M001/S05):
 - The browsable-navigation pattern (breadcrumb, descend, ascend) from list view.
 - `getLocalImageHandle` with a clamped `maxEdgePx`, the local-only image read. It moved from this feature
   to 005 (user decision, 2026-10-01), because gallery tiles need thumbnails; the preview reuses it with the
-  screen's long edge ([005 research R7](../005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-006-user-decision-2026-10-01)).
+  screen's long edge ([005 research R7](../005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-007-user-decision-2026-10-01)).
 - `queryTreeChildren` returning every directory whatever the filter, each with `matchingFileCount` (the
   directory rule below).
 
@@ -84,13 +85,19 @@ Supporting requirements (primary FR in another feature):
 - R011 (feature 005): the all / synced / unsynced / issues-unknown filter applies consistently in tree
   view.
 - R021 (feature 005): tree view and preview use the Material 3 shell and accessibility labels.
-- R022 (feature 008): `./docs` is updated in the same change as this feature's behaviour.
+- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+
+## Selection in tree view and preview
+
+Multi-select and deletion moved into [006-mvp](../006-mvp/spec.md) (user decision, 2026-10-02), which
+delivers them for gallery and list view. This feature MUST extend the MVP's selection model, selection bar
+(count and total size in the bottom-left corner) and Delete action to tree view and to the image preview,
+completing selection parity across all three views. Directories stay unselectable, as in 006.
 
 ## Provides
 
-To feature 007 (multi-select and deletion, M001/S05 → M001/S06):
-
-- Multi-select surfaced in tree view and preview, completing selection parity across all three views.
+To feature 009 (full loop and release): tree view and preview with selection parity, for the full-loop
+flow's "browse, select" steps.
 
 (`getLocalImageHandle` is no longer provided here: feature 005 implements it, see Dependencies.)
 

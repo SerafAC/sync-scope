@@ -233,7 +233,7 @@ reproduce a real OS or app state through production code, never fake app state. 
   saves and tests a repository with the production `RepositoryOperations`, approving an SFTP host-key
   challenge on the way, and shows `Repository configured` or `Repository error: <CODE>`
   ([D018](./docs/decisions/0018-debug-repository-seam.md)). It stands in for the Connect screen until
-  feature 008. An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
+  feature 006 (MVP). An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
   (`ScanPacing`, a no-op in release builds), which the `01-clean-scan-*` flows use so the progress card
   stays visible; a link without it resets the pause to 0. Flows call it through
   `subflows/configure-repository.yaml`. The password travels in the link, which Android and Maestro may
@@ -395,7 +395,7 @@ For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webda
 - The project uses [Semantic Versioning](https://semver.org/). The `version` field in `package.json` is the
   single source of truth for the version.
 - The Android `versionName` and `versionCode` in `android/app/build.gradle` do not derive from it yet.
-  Deriving them from `package.json` is tracked in `specs/008-full-loop-release`.
+  Deriving them from `package.json` is tracked in `specs/009-full-loop-release`.
 
 ### Changelog
 
@@ -482,7 +482,7 @@ symlink. Unit tests also need JDK 21 through the Gradle toolchain (see MEM015 ab
   feature 003, and the API 36 AVD is provisioned as described in
   [Validation emulators](#validation-emulators). The live connect gate still runs on API 31 only
   (`pnpm validation:android:api31`); `pnpm validation:android:api36` exists but is not part of the gate
-  yet. Adding API 36 to the connect gate belongs to feature 008 (`specs/008-full-loop-release`).
+  yet. Adding API 36 to the connect gate belongs to feature 009 (`specs/009-full-loop-release`).
 
 ### An AVD with no SD card image (feature 003)
 

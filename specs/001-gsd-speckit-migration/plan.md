@@ -134,9 +134,9 @@ specs/
 ├── 003-local-source-selection/     # S02: spec (Draft, seeded)
 ├── 004-scan-engine-matching/       # S03
 ├── 005-gallery-list-filtering/     # S04
-├── 006-tree-view-image-preview/    # S05
-├── 007-multiselect-local-deletion/ # S06
-└── 008-full-loop-release/          # S07
+├── 007-tree-view-image-preview/    # S05
+├── 008-multiselect-local-deletion/ # S06
+└── 009-full-loop-release/          # S07
 .gitignore                   # GSD block removed; generic entries kept (research R8)
 
 # Removed in the final commit

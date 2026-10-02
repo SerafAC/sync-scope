@@ -158,13 +158,13 @@ open runs whichever tab is showing.
 
 ## Integration closure
 
-This feature hands feature 005 and feature 006:
+This feature hands feature 005 and feature 007:
 
 - a published `snapshot` whose `local_node` rows all carry `status`, `issueCode`, `parentId` and `kind`,
   with directory statuses rolled up;
 - working `queryFiles` and `queryTreeChildren` (top level when `parentId` is null);
 - `startScan`, `cancelScan` and `getScanState`, with the progress, summary and `remoteListedAtMillis`
-  that 007 also reads for the age near delete;
+  that 006 (MVP) also reads for the age near delete;
 - `ScanProvider` / `useScan` for any screen that needs scan state.
 
 ## Risks
@@ -176,10 +176,10 @@ This feature hands feature 005 and feature 006:
 | The backgrounding flow is timing-sensitive | The Bulk fixture is calibrated (task) for a scan of ≥ 15 s, and the flow presses Home right after tapping Scan. JVM tests prove the cancel path deterministically. |
 | `onHostPause` fires on events that are not really "leaving the app" | Documented behaviour: any pause cancels. It is a safe failure (the partial snapshot is discarded and the user rescans). |
 | Memory for 200 k remote files | The index is about 30 MB, discarded after the run. The scale target is recorded; larger remotes are a follow-up. |
-| 008 later builds a real Connect screen | The seam calls the same `RepositoryOperations`, so the flows switch to UI steps without changing their assertions. |
+| 006 (MVP) later builds a real Connect screen | The seam calls the same `RepositoryOperations`, so the flows switch to UI steps without changing their assertions. |
 
 ## Complexity Tracking
 
 | Addition | Why needed | Simpler alternative rejected because |
 | --- | --- | --- |
-| Debug-only `ConfigureRepositoryActivity` behind `syncscope-debug://configure-repository` (D018) | Every scan flow needs a saved, tested repository pointing at the live containers (D012). No Connect UI exists until feature 008. | Building the Connect screen now pulls 008's scope forward. Pre-seeding Room or Keystore from adb fakes app state and bypasses the credential boundary. The seam runs the production save, test and approve code. |
+| Debug-only `ConfigureRepositoryActivity` behind `syncscope-debug://configure-repository` (D018) | Every scan flow needs a saved, tested repository pointing at the live containers (D012). No Connect UI exists until feature 006 (MVP). | Building the Connect screen now pulls 006's scope forward. Pre-seeding Room or Keystore from adb fakes app state and bypasses the credential boundary. The seam runs the production save, test and approve code. |

@@ -32,4 +32,4 @@ batch, and recording only successes means the catalog never claims a deletion th
 ## Related
 
 - Requirements: R012, R013
-- Features: specs/007-multiselect-local-deletion
+- Features: specs/006-mvp (absorbed specs/008-multiselect-local-deletion)

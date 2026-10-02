@@ -246,7 +246,7 @@ clarifications (session 2026-09-30) are treated as fixed inputs, not re-litigate
   seconds. Commons Net leaves every Calendar field set except the one just below the printed precision, so
   `granularityOfCalendar` reads the first unset field from the coarse end (it used to read SECOND first and
   always answered 1 s, floored to a minute). See `docs/protocols.md`.
-- **Repository setup seam**: there is no Connect screen until feature 008. A debug-only
+- **Repository setup seam**: there is no Connect screen until feature 006 (MVP). A debug-only
   `syncscope-debug://configure-repository` activity (in `android/app/src/debug/`) takes protocol, host,
   port, username, password and root. It calls the production `RepositoryOperations.save` and `test`, and
   approves an SFTP host-key challenge through `approveSftpHostKey`. It runs real app code on real
@@ -255,7 +255,7 @@ clarifications (session 2026-09-30) are treated as fixed inputs, not re-litigate
 - **Protocols**: the clean scan flow runs once per protocol (FTP, SFTP, WebDAV), and the partial flow runs
   against all three (R5 risk). Rescan, reopen-refresh and backgrounding run on SFTP only, because their
   behaviour does not depend on the protocol.
-- **Alternatives rejected**: building a Connect screen early (feature 008 owns it); a debug seam that slows
+- **Alternatives rejected**: building a Connect screen early (feature 006, the MVP, owns it); a debug seam that slows
   the scan down (fakes app state, which violates the seam rule).
 
 ## R12. Documentation deltas (Principle VII)
