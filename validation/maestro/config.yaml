@@ -9,6 +9,7 @@
 flows:
   - "sources/*"
   - "scan/*"
+  - "browse/*"
 
 executionOrder:
   continueOnFailure: false

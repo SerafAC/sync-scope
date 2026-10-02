@@ -179,9 +179,12 @@ test('seeds the scan fixtures with NFD names, fixed mtimes and one restricted di
     join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
   );
   t.after(async () => {
-    await chmod(join(state, 'fixtures/scan/partial/restricted'), 0o755).catch(
-      () => {},
-    );
+    for (const restricted of [
+      'scan/partial/restricted',
+      'gallery-partial/restricted',
+    ]) {
+      await chmod(join(state, 'fixtures', restricted), 0o755).catch(() => {});
+    }
     await rm(state, {recursive: true, force: true});
   });
   const fixtures = join(state, 'fixtures');
@@ -225,7 +228,11 @@ test('seeds the scan fixtures with NFD names, fixed mtimes and one restricted di
     'scan/partial/restricted must be 0700',
   );
   for (const [relative, mode] of modes) {
-    if (relative !== 'scan/partial/restricted') {
+    // gallery-partial/restricted is covered by the gallery fixture test.
+    if (
+      relative !== 'scan/partial/restricted' &&
+      relative !== 'gallery-partial/restricted'
+    ) {
       assert.equal(mode, 0o755, `${relative} must be 0755`);
     }
   }
@@ -253,6 +260,176 @@ test('seeds the scan fixtures with NFD names, fixed mtimes and one restricted di
     ...SCAN_FIXTURES.keys(),
   ]) {
     assert.ok(listed.has(relative), `the manifest must list ${relative}`);
+  }
+});
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const GALLERY_IMAGES = ['sunset.png', 'beach.png', 'album/forest.png'];
+
+function assertPng(bytes, label) {
+  assert.deepEqual(
+    [...bytes.subarray(0, 8)],
+    PNG_SIGNATURE,
+    `${label} must be a PNG`,
+  );
+}
+
+async function seedRemoteFixtures(t) {
+  const state = await mkdtemp(
+    join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
+  );
+  const fixtures = join(state, 'fixtures');
+  t.after(async () => {
+    for (const restricted of [
+      'scan/partial/restricted',
+      'gallery-partial/restricted',
+    ]) {
+      await chmod(join(fixtures, restricted), 0o755).catch(() => {});
+    }
+    await rm(state, {recursive: true, force: true});
+  });
+  const seed = spawnSync(
+    'sh',
+    [new URL('fixture-seed.sh', import.meta.url).pathname, '--root', fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(seed.status, 0, seed.stderr);
+  return fixtures;
+}
+
+test('seeds the gallery fixtures as distinct PNGs with fixed mtimes and one restricted directory', async t => {
+  const fixtures = await seedRemoteFixtures(t);
+
+  const gallery = new Map();
+  for (const relative of GALLERY_IMAGES) {
+    const bytes = await readFile(join(fixtures, 'gallery', relative));
+    assertPng(bytes, `gallery/${relative}`);
+    gallery.set(relative, bytes);
+  }
+  const distinct = new Set([...gallery.values()].map(b => b.toString('hex')));
+  assert.equal(distinct.size, 3, 'the gallery PNGs must differ pairwise');
+
+  for (const [relative, bytes] of gallery) {
+    assert.ok(
+      (await readFile(join(fixtures, 'gallery-partial', relative))).equals(
+        bytes,
+      ),
+      `gallery-partial/${relative} must be byte-identical to gallery/`,
+    );
+  }
+  const hidden = await readFile(
+    join(fixtures, 'gallery-partial/restricted/hidden.png'),
+  );
+  assertPng(hidden, 'gallery-partial/restricted/hidden.png');
+
+  for (const relative of [
+    ...GALLERY_IMAGES.map(name => `gallery/${name}`),
+    ...GALLERY_IMAGES.map(name => `gallery-partial/${name}`),
+    'gallery-partial/restricted/hidden.png',
+  ]) {
+    const metadata = await lstat(join(fixtures, relative), {bigint: true});
+    assert.ok(metadata.isFile(), `${relative} must be a regular file`);
+    assert.equal(
+      metadata.mtimeNs,
+      1704067200000000000n,
+      `${relative} must have the fixed mtime`,
+    );
+  }
+
+  const modes = await directoryModes(fixtures);
+  const restricted = new Set([
+    'scan/partial/restricted',
+    'gallery-partial/restricted',
+  ]);
+  for (const relative of [
+    'gallery',
+    'gallery/album',
+    'gallery-partial',
+    'gallery-partial/album',
+    'gallery-partial/restricted',
+  ]) {
+    assert.ok(modes.has(relative), `${relative} must be a directory`);
+  }
+  for (const [relative, mode] of modes) {
+    assert.equal(
+      mode,
+      restricted.has(relative) ? 0o700 : 0o755,
+      `${relative} has the wrong mode`,
+    );
+  }
+
+  const manifest = spawnSync(
+    process.execPath,
+    [new URL('fixture-manifest.mjs', import.meta.url).pathname, fixtures],
+    {encoding: 'utf8'},
+  );
+  assert.equal(manifest.status, 0, manifest.stderr);
+  const listed = new Set(
+    manifest.stdout
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line).path),
+  );
+  for (const relative of [
+    'flat/exact.txt',
+    'scan/partial/restricted',
+    'gallery',
+    'gallery/album',
+    'gallery-partial/restricted',
+    'gallery-partial/restricted/hidden.png',
+    ...GALLERY_IMAGES.map(name => `gallery/${name}`),
+    ...GALLERY_IMAGES.map(name => `gallery-partial/${name}`),
+  ]) {
+    assert.ok(listed.has(relative), `the manifest must list ${relative}`);
+  }
+});
+
+function decodedFixtureImages() {
+  const images = spawnSync(
+    'sh',
+    [
+      '-c',
+      '. "$1"; for name in SUNSET BEACH FOREST HARBOR TWIN; do eval "printf \'%s %s\\n\' $name \\"\\$PNG_$name\\""; done',
+      'sh',
+      new URL('fixture-images.sh', import.meta.url).pathname,
+    ],
+    {encoding: 'utf8'},
+  );
+  assert.equal(images.status, 0, images.stderr);
+  return new Map(
+    images.stdout
+      .trim()
+      .split('\n')
+      .map(line => {
+        const [name, value] = line.split(' ');
+        return [name, Buffer.from(value, 'base64')];
+      }),
+  );
+}
+
+test('embedded fixture PNGs are distinct and the twin differs in size', async () => {
+  const images = decodedFixtureImages();
+  assert.equal(images.size, 5);
+  for (const [name, bytes] of images) {
+    assertPng(bytes, `PNG_${name}`);
+  }
+  assert.equal(
+    new Set([...images.values()].map(b => b.toString('hex'))).size,
+    5,
+    'the embedded PNGs must differ pairwise',
+  );
+  assert.notEqual(
+    images.get('TWIN').length,
+    images.get('SUNSET').length,
+    'PNG_TWIN must differ in size from PNG_SUNSET, or the twin comes out SYNCED',
+  );
+  for (const script of ['fixture-seed.sh', 'device-fixtures.sh']) {
+    const source = await readFile(new URL(script, import.meta.url), 'utf8');
+    assert.doesNotMatch(
+      source,
+      /iVBORw0KGgo/,
+      `${script} must source fixture-images.sh instead of copying PNGs`,
+    );
   }
 });
 
@@ -470,6 +647,7 @@ test('resolves the SDK before any script dereferences ANDROID_HOME', async () =>
 async function fakeAdbSdk(t, publicVolumes) {
   const {home, sdk} = await fakeSdk(t);
   const log = join(home, 'adb.log');
+  const pushed = join(home, 'pushed');
   await writeFile(
     join(sdk, 'platform-tools/adb'),
     `#!/bin/sh
@@ -479,10 +657,14 @@ case "$*" in
     printf '%b' '${publicVolumes}'
     ;;
 esac
+if [ "$3" = push ]; then
+  mkdir -p '${pushed}'
+  cp "$4" "${pushed}/$(printf '%s' "$5" | tr / _)"
+fi
 exit 0
 `,
   );
-  return {home, sdk, log};
+  return {home, sdk, log, pushed};
 }
 
 function runDeviceFixtures(env) {
@@ -520,7 +702,7 @@ test('device fixture script seeds primary and removable storage idempotently', a
 
   const calls = (await readFile(log, 'utf8')).trim().split('\n');
   assert.ok(
-    calls.every(call => call.startsWith('-s emulator-5554 shell ')),
+    calls.every(call => /^-s emulator-5554 (shell|push) /.test(call)),
     'every adb call must target ANDROID_SERIAL',
   );
   const commands = calls.join('\n');
@@ -551,7 +733,7 @@ const DEVICE_SCAN_FILES = new Map([
 ]);
 
 async function seededDeviceCommands(t, extraEnv = {}) {
-  const {sdk, log} = await fakeAdbSdk(
+  const {sdk, log, pushed} = await fakeAdbSdk(
     t,
     'public:179,1 mounted 1A2B-3C4D\\n',
   );
@@ -564,11 +746,14 @@ async function seededDeviceCommands(t, extraEnv = {}) {
   if (!('BULK_FILES' in extraEnv)) {
     delete env.BULK_FILES;
   }
+  if (!('GALLERY_BULK_FILES' in extraEnv)) {
+    delete env.GALLERY_BULK_FILES;
+  }
   const seeded = runDeviceFixtures(env);
   const calls = (await readFile(log, 'utf8').catch(() => ''))
     .trim()
     .split('\n');
-  return {seeded, calls};
+  return {seeded, calls, pushed};
 }
 
 test('device fixture script seeds the scan source with NFC names and fixed mtimes', async t => {
@@ -627,6 +812,132 @@ test('device fixture script generates the bulk source in one adb shell loop', as
     const rejected = await seededDeviceCommands(t, {BULK_FILES: invalid});
     assert.notEqual(rejected.seeded.status, 0, invalid);
     assert.match(rejected.seeded.stderr, /BULK_FILES/, invalid);
+  }
+});
+
+const DEVICE_GALLERY = '/sdcard/SyncScopeE2E/Gallery';
+const DEVICE_GALLERY_TWIN = '/sdcard/SyncScopeE2E/GalleryTwin';
+const DEVICE_GALLERY_BULK = '/sdcard/SyncScopeE2E/GalleryBulk';
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
+
+test('device fixture script seeds the gallery sources from the shared PNGs', async t => {
+  const remote = await seedRemoteFixtures(t);
+  const images = decodedFixtureImages();
+  const source = await readFile(
+    new URL('device-fixtures.sh', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /fixture-images\.sh/, 'must source fixture-images.sh');
+
+  const {seeded, calls, pushed} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const commands = calls.join('\n');
+
+  for (const dir of [
+    DEVICE_GALLERY,
+    `${DEVICE_GALLERY}/album`,
+    `${DEVICE_GALLERY}/drafts`,
+    DEVICE_GALLERY_TWIN,
+  ]) {
+    assert.ok(commands.includes(`mkdir -p ${dir}`), `${dir} must be created`);
+  }
+
+  const pushes = calls.filter(call => / push /.test(call));
+  const pushedBytes = async path =>
+    readFile(join(pushed, path.replace(/\//g, '_')));
+  // Synced: byte-identical to the remote gallery/ copies.
+  for (const relative of GALLERY_IMAGES) {
+    const path = `${DEVICE_GALLERY}/${relative}`;
+    assert.ok(
+      (await pushedBytes(path)).equals(
+        await readFile(join(remote, 'gallery', relative)),
+      ),
+      `${path} must match the remote gallery/${relative} byte for byte`,
+    );
+  }
+  assert.ok(
+    (await pushedBytes(`${DEVICE_GALLERY}/harbor.png`)).equals(
+      images.get('HARBOR'),
+    ),
+    'harbor.png must be PNG_HARBOR',
+  );
+  const twin = await pushedBytes(`${DEVICE_GALLERY_TWIN}/sunset.png`);
+  assert.ok(twin.equals(images.get('TWIN')), 'the twin must be PNG_TWIN');
+  assert.notEqual(
+    twin.length,
+    (await readFile(join(remote, 'gallery/sunset.png'))).length,
+    'the twin must differ in size from the remote sunset.png',
+  );
+  assert.equal(pushes.length, 5, 'each image is pushed once');
+
+  assert.ok(
+    commands.includes(
+      `cp ${DEVICE_GALLERY}/harbor.png ${DEVICE_GALLERY}/drafts/draft.png`,
+    ),
+    'drafts/draft.png must be a copy of harbor.png',
+  );
+  assert.ok(
+    commands.includes(
+      `printf 'gallery notes\\n' > ${DEVICE_GALLERY}/album/notes.txt`,
+    ),
+    'album/notes.txt must be overwritten with its fixture contents',
+  );
+
+  for (const path of [
+    ...GALLERY_IMAGES.map(name => `${DEVICE_GALLERY}/${name}`),
+    `${DEVICE_GALLERY}/harbor.png`,
+    `${DEVICE_GALLERY}/album/notes.txt`,
+    `${DEVICE_GALLERY}/drafts/draft.png`,
+    `${DEVICE_GALLERY_TWIN}/sunset.png`,
+  ]) {
+    assert.match(
+      commands,
+      new RegExp(`touch -d @1704067200 [^\\n]*${escapeRegExp(path)}(\\s|$)`),
+      `${path} must get the fixed mtime`,
+    );
+  }
+  assert.doesNotMatch(commands, />>/);
+});
+
+test('device fixture script generates the gallery bulk source in one adb shell loop', async t => {
+  const {seeded, calls} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+
+  const bulk = calls.filter(
+    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call),
+  );
+  assert.equal(bulk.length, 1, 'GalleryBulk is generated in one adb call');
+  assert.match(bulk[0], new RegExp(`rm -rf ${DEVICE_GALLERY_BULK}\\b`));
+  assert.match(bulk[0], /while /);
+  assert.match(bulk[0], /\b2000\b/, 'GALLERY_BULK_FILES defaults to 2000');
+  assert.match(bulk[0], /\bcp /, 'each file is a copy of one pushed PNG');
+  assert.match(bulk[0], /\/g\$\{[^}]+\}\.png/, 'files are named gNNNN.png');
+  assert.match(bulk[0], /touch -d @1704067200/);
+  assert.equal(
+    calls.filter(call => / push /.test(call) && call.includes('GalleryBulk'))
+      .length,
+    0,
+    'GalleryBulk copies an already pushed PNG',
+  );
+
+  const custom = await seededDeviceCommands(t, {GALLERY_BULK_FILES: '37'});
+  assert.equal(custom.seeded.status, 0, custom.seeded.stderr);
+  const customBulk = custom.calls.filter(
+    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call),
+  );
+  assert.equal(customBulk.length, 1);
+  assert.match(customBulk[0], /\b37\b/);
+  assert.doesNotMatch(customBulk[0], /\b2000\b/);
+
+  for (const invalid of ['abc', '0', '-5', '10000']) {
+    const rejected = await seededDeviceCommands(t, {
+      GALLERY_BULK_FILES: invalid,
+    });
+    assert.notEqual(rejected.seeded.status, 0, invalid);
+    assert.match(rejected.seeded.stderr, /GALLERY_BULK_FILES/, invalid);
   }
 });
 
