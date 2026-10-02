@@ -1,16 +1,13 @@
 import React from 'react';
 import { StatusBar, useColorScheme } from 'react-native';
-import {
-  DarkTheme as NavigationDarkTheme,
-  DefaultTheme as NavigationDefaultTheme,
-  NavigationContainer,
-} from '@react-navigation/native';
-import { MD3DarkTheme, MD3LightTheme, PaperProvider } from 'react-native-paper';
+import { NavigationContainer } from '@react-navigation/native';
+import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import MaterialDesignIcons from '@react-native-vector-icons/material-design-icons';
 
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ScanProvider } from './src/scan/ScanProvider';
+import { navigationThemeFor, paperThemeFor } from './src/theme/theme';
 
 // pnpm's isolated layout keeps optional peers out of Paper's require path, so
 // Paper receives its Material Design icon renderer explicitly instead of
@@ -28,28 +25,8 @@ const paperSettings: PaperSettings = {
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
-  const paperTheme = isDarkMode ? MD3DarkTheme : MD3LightTheme;
-  const navigationTheme = isDarkMode
-    ? {
-        ...NavigationDarkTheme,
-        colors: {
-          ...NavigationDarkTheme.colors,
-          background: paperTheme.colors.background,
-          card: paperTheme.colors.surface,
-          primary: paperTheme.colors.primary,
-          text: paperTheme.colors.onSurface,
-        },
-      }
-    : {
-        ...NavigationDefaultTheme,
-        colors: {
-          ...NavigationDefaultTheme.colors,
-          background: paperTheme.colors.background,
-          card: paperTheme.colors.surface,
-          primary: paperTheme.colors.primary,
-          text: paperTheme.colors.onSurface,
-        },
-      };
+  const paperTheme = paperThemeFor(isDarkMode);
+  const navigationTheme = navigationThemeFor(isDarkMode, paperTheme);
 
   return (
     <SafeAreaProvider>

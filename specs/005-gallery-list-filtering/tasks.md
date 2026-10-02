@@ -91,14 +91,14 @@ reads, the hooks and the screens all depend on.
 
 ### Material 3 shell (FR-004, research R9)
 
-- [ ] T015 [P] Create `src/theme/spacing.ts` with `spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const`, `density = { tileGap: 2, rowHeight: 56, chipHeight: 32 } as const` and `gridColumns = 3`. Create `src/theme/theme.ts`, which exports `paperThemeFor(isDark)` (`MD3DarkTheme` / `MD3LightTheme`) and `navigationThemeFor(isDark, paperTheme)`; move the navigation-theme mapping out of `App.tsx` verbatim. Update `App.tsx` to use both. Add `src/theme/__tests__/theme.test.ts`, which checks that the navigation colours equal the paper theme's `background`, `surface`, `primary` and `onSurface` in both modes.
-- [ ] T016 [P] Create `src/theme/statusLabels.ts` as the one source of truth for user-facing status and filter text:
+- [X] T015 [P] Create `src/theme/spacing.ts` with `spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const`, `density = { tileGap: 2, rowHeight: 56, chipHeight: 32 } as const` and `gridColumns = 3`. Create `src/theme/theme.ts`, which exports `paperThemeFor(isDark)` (`MD3DarkTheme` / `MD3LightTheme`) and `navigationThemeFor(isDark, paperTheme)`; move the navigation-theme mapping out of `App.tsx` verbatim. Update `App.tsx` to use both. Add `src/theme/__tests__/theme.test.ts`, which checks that the navigation colours equal the paper theme's `background`, `surface`, `primary` and `onSurface` in both modes.
+- [X] T016 [P] Create `src/theme/statusLabels.ts` as the one source of truth for user-facing status and filter text:
   - `STATUS_LABEL: Record<FileStatus, string>` = `{ SYNCED: 'Synced', UNSYNCED: 'Unsynced', UNKNOWN: 'Unknown' }`;
   - `FILTER_LABEL: Record<FileFilter, string>` = `{ ALL: 'All', SYNCED: 'Synced', UNSYNCED: 'Unsynced', ISSUES_UNKNOWN: 'Issues or unknown' }`;
   - `chipCount(filter, counts)`, implementing the chip model in [data-model.md](./data-model.md#chip-model): `ALL` = sum, `ISSUES_UNKNOWN` = `counts[UNKNOWN] ?? 0`, and a null `counts` → `null`.
 
   Unit-test it in `src/theme/__tests__/statusLabels.test.ts`. Replace any duplicated status strings in `src/scan/ScanSummaryCard.tsx` with `STATUS_LABEL` if the text is identical; if it differs, leave it and note why in the test file (Principle III, coincidental duplication).
-- [ ] T017 [P] Create `src/files/a11y.ts` with the label builders from [contracts/maestro-browse.md](./contracts/maestro-browse.md#selectors), each pure:
+- [X] T017 [P] Create `src/files/a11y.ts` with the label builders from [contracts/maestro-browse.md](./contracts/maestro-browse.md#selectors), each pure:
   - `filterChipLabel(filter, count)` → `Filter All, 6`;
   - `galleryTileLabel(name, status, originAlias?)` → `sunset.png, Unsynced, from GalleryTwin`;
   - `originBadgeLabel(alias)` → `Origin GalleryTwin`;
@@ -107,8 +107,8 @@ reads, the hooks and the screens all depend on.
   - `breadcrumbLabel(name)` → `Breadcrumb All folders`.
 
   Unit-test every builder in `src/files/__tests__/a11y.test.ts`.
-- [ ] T018 (after T015 and T016) Set `'react-native/no-inline-styles': 'error'` in `.eslintrc.js`. Move the existing inline colour styles in `src/screens/ScanScreen.tsx` (the `style={{color: theme.colors.onErrorContainer}}` uses), `src/scan/ScanSummaryCard.tsx` (`style={{color: theme.colors.error}}`) and `src/sources/SourcesSection.tsx` (`style={{color: chipColors.color}}`) to a themed `StyleSheet` created from `useTheme()` (for example a `useMemo` of `StyleSheet.create`), or to Paper's `textColor` / `theme` props. Rendering must be unchanged: the existing `ScanScreen`, `ScanSummaryCard` and `SourcesSection` tests must pass untouched. `pnpm lint` must pass with zero warnings.
-- [ ] T019 Add `src/test-utils/a11ySweep.ts`. Given a Testing Library render result, it finds every node with `onPress` or `accessibilityRole` in `button | link | checkbox | togglebutton | tab`, and fails with the node's text when its `accessibilityLabel` is missing or empty. Add `src/test-utils/__tests__/a11ySweep.test.tsx`, which proves that it fails on an unlabeled `Pressable` and passes on a labeled one.
+- [X] T018 (after T015 and T016) Set `'react-native/no-inline-styles': 'error'` in `.eslintrc.js`. Move the existing inline colour styles in `src/screens/ScanScreen.tsx` (the `style={{color: theme.colors.onErrorContainer}}` uses), `src/scan/ScanSummaryCard.tsx` (`style={{color: theme.colors.error}}`) and `src/sources/SourcesSection.tsx` (`style={{color: chipColors.color}}`) to a themed `StyleSheet` created from `useTheme()` (for example a `useMemo` of `StyleSheet.create`), or to Paper's `textColor` / `theme` props. Rendering must be unchanged: the existing `ScanScreen`, `ScanSummaryCard` and `SourcesSection` tests must pass untouched. `pnpm lint` must pass with zero warnings.
+- [X] T019 Add `src/test-utils/a11ySweep.ts`. Given a Testing Library render result, it finds every node with `onPress` or `accessibilityRole` in `button | link | checkbox | togglebutton | tab`, and fails with the node's text when its `accessibilityLabel` is missing or empty. Add `src/test-utils/__tests__/a11ySweep.test.tsx`, which proves that it fails on an unlabeled `Pressable` and passes on a labeled one.
 
 **Checkpoint**: contract v4 compiles on both sides with parity green; schema 3 migrates; scans write the
 descendant counts; theme, labels and the a11y sweep exist; lint forbids inline styles. `pnpm lint &&

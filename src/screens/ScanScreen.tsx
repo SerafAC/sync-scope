@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {ScrollView, StyleSheet, View} from 'react-native';
 import {
   ActivityIndicator,
@@ -83,36 +83,36 @@ function LastScan({run}: {run: ScanRunDto}): React.JSX.Element {
 /** Why the last run the user needs to know about did not complete (FR-001, FR-006). */
 function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
   const theme = useTheme();
+  const themed = useMemo(
+    () =>
+      StyleSheet.create({
+        failedCard: {backgroundColor: theme.colors.errorContainer},
+        onError: {color: theme.colors.onErrorContainer},
+      }),
+    [theme.colors.errorContainer, theme.colors.onErrorContainer],
+  );
   if (run.terminalState === 'FAILED') {
     return (
       <Surface
         accessibilityLabel="Scan failed"
         elevation={0}
-        style={[styles.card, {backgroundColor: theme.colors.errorContainer}]}>
-        <Text
-          style={{color: theme.colors.onErrorContainer}}
-          variant="titleMedium">
+        style={[styles.card, themed.failedCard]}>
+        <Text style={themed.onError} variant="titleMedium">
           Scan failed
         </Text>
         {run.error != null ? (
           <>
-            <Text
-              style={{color: theme.colors.onErrorContainer}}
-              variant="bodyMedium">
+            <Text style={themed.onError} variant="bodyMedium">
               {run.error.message}
             </Text>
             {run.error.action ? (
-              <Text
-                style={{color: theme.colors.onErrorContainer}}
-                variant="bodyMedium">
+              <Text style={themed.onError} variant="bodyMedium">
                 {run.error.action}
               </Text>
             ) : null}
           </>
         ) : null}
-        <Text
-          style={{color: theme.colors.onErrorContainer}}
-          variant="bodySmall">
+        <Text style={themed.onError} variant="bodySmall">
           The previous results below are unchanged.
         </Text>
       </Surface>
