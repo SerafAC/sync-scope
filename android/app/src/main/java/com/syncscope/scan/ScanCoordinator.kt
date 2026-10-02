@@ -23,6 +23,15 @@ class ScanInProgress : Exception(CloudSyncErrorCode.SCAN_IN_PROGRESS.name)
 /** A scan or deletion step while a deletion prepare or execute runs (`DELETION_IN_PROGRESS`, FR-021). */
 class DeletionInProgress : Exception(CloudSyncErrorCode.DELETION_IN_PROGRESS.name)
 
+/** What keeps the coordinator busy, so a refusal can name it (`SCAN_IN_PROGRESS` or `DELETION_IN_PROGRESS`). */
+enum class BusyState {
+  NONE,
+  SCAN,
+
+  /** A [ScanCoordinator.runExclusive] block (a deletion prepare or execute) runs. */
+  DELETION,
+}
+
 /** `cancelScan` named a run that does not exist (`SCAN_NOT_FOUND`). */
 class ScanNotFound : Exception(CloudSyncErrorCode.SCAN_NOT_FOUND.name)
 
@@ -180,7 +189,15 @@ class ScanCoordinator(
   }
 
   /** True while a scan run or an exclusive block is active. */
-  fun isBusy(): Boolean = active.get() != null || exclusive
+  fun isBusy(): Boolean = busyState() != BusyState.NONE
+
+  /** Which of a scan run or an exclusive block is active; a run wins if both are seen. */
+  fun busyState(): BusyState =
+    when {
+      active.get() != null -> BusyState.SCAN
+      exclusive -> BusyState.DELETION
+      else -> BusyState.NONE
+    }
 
   /** Waits for the active run, if any, to end. */
   internal suspend fun awaitIdle() {

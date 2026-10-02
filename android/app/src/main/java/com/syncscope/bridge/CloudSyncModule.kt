@@ -17,6 +17,7 @@ import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.scan.BusyState
 import com.syncscope.scan.ScanCoordinator
 import com.syncscope.scan.ScanEngine
 import com.syncscope.scan.ScanPacing
@@ -87,6 +88,8 @@ class CloudSyncModule(
       hostKeys = { hostKeys },
       clients = { remoteClients ?: defaultClients },
       envelope = envelope,
+      // A coordinator never built has no run and no exclusive block.
+      busy = { if (coordinatorHolder.isInitialized()) coordinatorHolder.value.busyState() else BusyState.NONE },
     )
 
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }

@@ -150,7 +150,7 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
 
 ### Native
 
-- [ ] T019 [P] [US1] Create `KTEST/bridge/RepositoryOperationsTest.kt` with fake DAO, credential, host-key and client factories, following `CloudSyncHostKeyModuleTest.kt`. It covers:
+- [X] T019 [P] [US1] Create `KTEST/bridge/RepositoryOperationsTest.kt` with fake DAO, credential, host-key and client factories, following `CloudSyncHostKeyModuleTest.kt`. It covers:
   - `webdavHttps` saved and returned by `summary()`, with absent meaning `false`;
   - `revision` in the summary;
   - port null → 21, 22, 80, or 443 with `webdavHttps`, read from `RepositoryDefaultPorts`;
@@ -158,14 +158,14 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
   - `save` while `isBusy()` → `SCAN_IN_PROGRESS`, or `DELETION_IN_PROGRESS` when the coordinator reports an exclusive block, and nothing written;
   - the actions of `REPOSITORY_NOT_CONFIGURED` ("Set up your server in Settings › Repository.") and `CREDENTIAL_UNAVAILABLE` ("Enter the password again in Settings › Repository.");
   - SC-005: after `save` and `test` with the password `s3cret-Log-Probe`, no Robolectric `ShadowLog` entry contains that string.
-- [ ] T020 [US1] Implement T019 in `KT/bridge/RepositoryOperations.kt`:
+- [X] T020 [US1] Implement T019 in `KT/bridge/RepositoryOperations.kt`:
   - parse `webdavHttps`;
   - `defaultPort(protocol, https)` from `RepositoryDefaultPorts`, replacing the inline `when`;
   - put `revision` and `webdavHttps` in the summary;
   - check busy through a constructor parameter `busy: () -> BusyState` (none / scan / deletion), wired in `KT/bridge/CloudSyncModule.kt` from the coordinator;
   - the reworded `NOT_CONFIGURED_ACTION` and `CREDENTIAL_UNAVAILABLE_ACTION`;
   - pass `webdavHttps` into `RemoteConfig` in `toRemoteConfig()`.
-- [ ] T021 [P] [US1] In `KT/remote/RemoteClient.kt`, add `RemoteConfig.webdavHttps: Boolean = false`, still excluded from `toString()`. In `KT/remote/WebDavRemoteClient.kt`:
+- [X] T021 [P] [US1] In `KT/remote/RemoteClient.kt`, add `RemoteConfig.webdavHttps: Boolean = false`, still excluded from `toString()`. In `KT/remote/WebDavRemoteClient.kt`:
   - extract `internal fun webdavScheme(config): String` (`https` when `webdavHttps`) and use it where the `HttpUrl.Builder` is built;
   - map `javax.net.ssl.SSLHandshakeException` and `SSLPeerUnverifiedException` to `RemoteClientException(TLS_UNTRUSTED, …)` in the existing failure mapping.
 
@@ -173,14 +173,14 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
 
 ### JS
 
-- [ ] T022 [P] [US1] Update the repository wrappers in `src/native/CloudSync.ts`: `saveRepository` sends `webdavHttps`; the summary parser reads `revision` and `webdavHttps`; the error parser keeps `field` when it is a known `RepositoryField`. Add tests to `src/native/__tests__/CloudSync.test.ts`.
-- [ ] T023 [US1] Turn `src/navigation/AppNavigator.tsx` into a root native stack (`createNativeStackNavigator<RootStackParamList>()`, with `RootStackParamList = {Tabs: undefined; Repository: undefined}`).
+- [X] T022 [P] [US1] Update the repository wrappers in `src/native/CloudSync.ts`: `saveRepository` sends `webdavHttps`; the summary parser reads `revision` and `webdavHttps`; the error parser keeps `field` when it is a known `RepositoryField`. Add tests to `src/native/__tests__/CloudSync.test.ts`.
+- [X] T023 [US1] Turn `src/navigation/AppNavigator.tsx` into a root native stack (`createNativeStackNavigator<RootStackParamList>()`, with `RootStackParamList = {Tabs: undefined; Repository: undefined}`).
   - `Tabs` renders the existing bottom-tab navigator with `headerShown: false`.
   - `Repository` renders `RepositoryScreen` (T026) with title "Repository".
   - Export the param list types.
 
   Update `__tests__/App.test.tsx` so that it still renders.
-- [ ] T024 [P] [US1] Create `src/repository/useRepository.ts` and `src/repository/__tests__/useRepository.test.tsx` (mocked `CloudSync`). The hook implements the state machine in [data-model.md](./data-model.md#repository-form-js-repositoryscreen--userepository): `idle → saving → testing → connected | failed | hostKeyPrompt`, then `rejected`. Tests cover:
+- [X] T024 [P] [US1] Create `src/repository/useRepository.ts` and `src/repository/__tests__/useRepository.test.tsx` (mocked `CloudSync`). The hook implements the state machine in [data-model.md](./data-model.md#repository-form-js-repositoryscreen--userepository): `idle → saving → testing → connected | failed | hostKeyPrompt`, then `rejected`. Tests cover:
   - save ok then test ok → `connected` with `entryCount`;
   - save `INVALID_QUERY` with a field → `failed` with that field;
   - test `AUTH_FAILED` → `failed`;
@@ -191,10 +191,10 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
   - test `CONNECTION_TIMEOUT` → `failed` with the timeout message (spec edge case "Slow or hanging server").
 
   The password is passed straight from the call argument and never kept in hook state.
-- [ ] T025 [P] [US1] Create `src/repository/HostKeyDialog.tsx` and `src/repository/__tests__/HostKeyDialog.test.tsx`. It is a Paper `Dialog` showing the algorithm and fingerprint (`Server key fingerprint <fp>`) with `Trust server key` and `Reject server key`.
+- [X] T025 [P] [US1] Create `src/repository/HostKeyDialog.tsx` and `src/repository/__tests__/HostKeyDialog.test.tsx`. It is a Paper `Dialog` showing the algorithm and fingerprint (`Server key fingerprint <fp>`) with `Trust server key` and `Reject server key`.
   - When `changed`, it shows `Server key changed warning` first and labels the button `Trust new key`. The first tap reveals "Tap again to trust the new key", and only the second tap calls `onTrust`.
   - The tests cover both variants and the double confirmation.
-- [ ] T026 [US1] Create `src/screens/RepositoryScreen.tsx` and `src/screens/__tests__/RepositoryScreen.test.tsx`. The screen has:
+- [X] T026 [US1] Create `src/screens/RepositoryScreen.tsx` and `src/screens/__tests__/RepositoryScreen.test.tsx`. The screen has:
   - a protocol `SegmentedButtons` (`Protocol FTP|SFTP|WebDAV`) and the text inputs `Host`, `Port` (placeholder from `REPOSITORY_DEFAULT_PORTS`, 443 when HTTPS), `User name`, `Password` (secure) and `Remote folder`;
   - a `Use HTTPS` switch shown only for WebDAV, on by default for a new configuration (research R4);
   - `Unencrypted connection warning` for FTP, or for WebDAV with HTTPS off;

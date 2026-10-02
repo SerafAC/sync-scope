@@ -4,9 +4,11 @@ import {
   CLOUD_SYNC_CONTRACT_VERSION,
   CLOUD_SYNC_MODULE_NAME,
   CloudSyncErrorCode,
+  REPOSITORY_FIELDS,
   clampImageEdge,
   clampPageSize,
   type CloudSyncError,
+  type HostKeyChallengeDto,
   type LaunchSourcePickerResult,
   type ListSourcesResult,
   type LocalImageHandleResult,
@@ -15,6 +17,11 @@ import {
   type OperationResult,
   type QueryFilesResult,
   type QuerySpec,
+  type RepositoryConfigInput,
+  type RepositoryConnectionDto,
+  type RepositoryField,
+  type RepositorySummaryDto,
+  type RepositorySummaryResult,
   type ActiveSnapshotDto,
   type ScanMode,
   type ScanRunDto,
@@ -22,6 +29,7 @@ import {
   type SourceDto,
   type SourcePickerOutcome,
   type StartScanResult,
+  type TestRepositoryResult,
 } from './CloudSyncContracts';
 import type {Spec} from './specs/NativeCloudSync';
 
@@ -123,6 +131,8 @@ type NativeEnvelope = {
   run?: unknown;
   active?: unknown;
   handle?: unknown;
+  repository?: unknown;
+  connection?: unknown;
 };
 
 type NativeErrorShape = {
@@ -130,7 +140,38 @@ type NativeErrorShape = {
   message?: unknown;
   action?: unknown;
   conflictingSource?: {sourceId?: unknown; alias?: unknown} | null;
+  hostKeyChallenge?: unknown;
+  field?: unknown;
 };
+
+function isRepositoryField(value: unknown): value is RepositoryField {
+  return (REPOSITORY_FIELDS as readonly unknown[]).includes(value);
+}
+
+function hostKeyChallengeOf(value: unknown): HostKeyChallengeDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const c = value as Record<string, unknown>;
+  if (
+    typeof c.challengeId !== 'string' ||
+    typeof c.host !== 'string' ||
+    typeof c.port !== 'number' ||
+    typeof c.algorithm !== 'string' ||
+    typeof c.fingerprint !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    challengeId: c.challengeId,
+    host: c.host,
+    port: c.port,
+    algorithm: c.algorithm,
+    fingerprint: c.fingerprint,
+    previousFingerprint:
+      typeof c.previousFingerprint === 'string' ? c.previousFingerprint : null,
+  };
+}
 
 function contractVersionOf(result: NativeEnvelope): number {
   return typeof result.contractVersion === 'number'
@@ -164,6 +205,14 @@ function normalizeOperationError(result: NativeEnvelope): OperationError {
         ? {sourceId: conflict.sourceId, alias: conflict.alias}
         : null,
   };
+  // Kept only when typed: an unknown field name never reaches the form.
+  if (isRepositoryField(nativeError.field)) {
+    error.field = nativeError.field;
+  }
+  const challenge = hostKeyChallengeOf(nativeError.hostKeyChallenge);
+  if (challenge != null) {
+    error.hostKeyChallenge = challenge;
+  }
   return {contractVersion: contractVersionOf(result), status: 'error', error};
 }
 
@@ -333,6 +382,140 @@ export async function getLocalImageHandle(
   };
 }
 
+/** The saved repository, or REPOSITORY_NOT_CONFIGURED. Never carries the password. */
+export async function getRepositorySummary(): Promise<RepositorySummaryResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.getRepositorySummary()) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const repository = repositorySummaryOf(result.repository);
+  if (repository == null) {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok', repository};
+}
+
+function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const r = value as Record<string, unknown>;
+  if (
+    (r.protocol !== 'FTP' && r.protocol !== 'SFTP' && r.protocol !== 'WEBDAV') ||
+    typeof r.host !== 'string' ||
+    typeof r.port !== 'number' ||
+    typeof r.username !== 'string' ||
+    typeof r.remoteRoot !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    protocol: r.protocol,
+    host: r.host,
+    port: r.port,
+    username: r.username,
+    remoteRoot: r.remoteRoot,
+    precisionMillis:
+      typeof r.precisionMillis === 'number' ? r.precisionMillis : null,
+    credentialPresent: r.credentialPresent === true,
+    hostKeyTrusted:
+      typeof r.hostKeyTrusted === 'boolean' ? r.hostKeyTrusted : null,
+    revision: typeof r.revision === 'number' ? r.revision : 0,
+    webdavHttps: r.webdavHttps === true,
+  };
+}
+
+/**
+ * Saves the single repository. [password] is sent only when typed: null keeps the
+ * stored one for the same server and account (native rule). A parse failure is
+ * INVALID_QUERY with `error.field` naming the form field.
+ */
+export async function saveRepository(
+  config: RepositoryConfigInput,
+  password?: string | null,
+): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.saveRepository(
+    {
+      protocol: config.protocol,
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      remoteRoot: config.remoteRoot,
+      webdavHttps: config.webdavHttps ?? false,
+    },
+    password != null && password !== '' ? password : null,
+  )) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok'};
+}
+
+/**
+ * Connects to the saved repository and lists its folder. An unknown or changed SFTP
+ * key resolves SFTP_HOST_KEY_UNVERIFIED / _CHANGED with `error.hostKeyChallenge`.
+ */
+export async function testRepository(): Promise<TestRepositoryResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.testRepository()) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const connection = result.connection as
+    | Partial<RepositoryConnectionDto>
+    | null
+    | undefined;
+  if (connection == null || typeof connection.entryCount !== 'number') {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    connection: connection as RepositoryConnectionDto,
+  };
+}
+
+/** Trusts the SFTP key of [challengeId]; the caller tests again afterwards. */
+export async function approveSftpHostKey(
+  challengeId: string,
+): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.approveSftpHostKey(challengeId)) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok'};
+}
+
+/** Rejects the SFTP key of [challengeId]; nothing is trusted. */
+export async function rejectSftpHostKey(
+  challengeId: string,
+): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = (await module.rejectSftpHostKey(challengeId)) as NativeEnvelope;
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok'};
+}
+
 export const CloudSync = {
   isAvailable: isCloudSyncAvailable,
   getContractVersion,
@@ -345,4 +528,9 @@ export const CloudSync = {
   cancelScan,
   getScanState,
   getLocalImageHandle,
+  getRepositorySummary,
+  saveRepository,
+  testRepository,
+  approveSftpHostKey,
+  rejectSftpHostKey,
 };

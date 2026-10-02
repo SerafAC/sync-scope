@@ -2,14 +2,19 @@ import {TurboModuleRegistry} from 'react-native';
 
 import {
   CloudSync,
+  approveSftpHostKey,
   cancelScan,
   getLocalImageHandle,
+  getRepositorySummary,
   getScanState,
   launchSourcePicker,
   listSources,
   queryFiles,
+  rejectSftpHostKey,
   removeSource,
+  saveRepository,
   startScan,
+  testRepository,
 } from '../CloudSync';
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
@@ -674,6 +679,245 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     expect(result.status).toBe('error');
     if (result.status === 'error') {
       expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
+    }
+  });
+});
+
+describe('CloudSync repository wrappers (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const summary = {
+    protocol: 'WEBDAV',
+    host: 'nas.local',
+    port: 443,
+    username: 'alice',
+    remoteRoot: '/photos',
+    precisionMillis: null,
+    credentialPresent: true,
+    hostKeyTrusted: null,
+    revision: 3,
+    webdavHttps: true,
+  };
+
+  it('saveRepository sends webdavHttps and the typed password', async () => {
+    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({saveRepository: save});
+
+    const result = await saveRepository(
+      {
+        protocol: 'WEBDAV',
+        host: 'nas.local',
+        port: null,
+        username: 'alice',
+        remoteRoot: '/photos',
+        webdavHttps: true,
+      },
+      'secret',
+    );
+
+    expect(result).toEqual({contractVersion: 5, status: 'ok'});
+    expect(save).toHaveBeenCalledWith(
+      {
+        protocol: 'WEBDAV',
+        host: 'nas.local',
+        port: null,
+        username: 'alice',
+        remoteRoot: '/photos',
+        webdavHttps: true,
+      },
+      'secret',
+    );
+  });
+
+  it('saveRepository sends webdavHttps false when absent and null for an empty password', async () => {
+    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({saveRepository: save});
+
+    await saveRepository(
+      {protocol: 'FTP', host: 'h', port: 21, username: 'u', remoteRoot: '/'},
+      '',
+    );
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({webdavHttps: false}),
+      null,
+    );
+  });
+
+  it('keeps a known error field and drops an unknown one', async () => {
+    const error = (field: unknown) => ({
+      contractVersion: 5,
+      status: 'error',
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'The repository port is invalid.',
+        action: 'Correct the port and save again.',
+        field,
+      },
+    });
+    const save = jest
+      .fn()
+      .mockResolvedValueOnce(error('port'))
+      .mockResolvedValueOnce(error('webdavHttps'));
+    mockNative({saveRepository: save});
+    const config = {
+      protocol: 'FTP' as const,
+      host: 'h',
+      port: 0,
+      username: 'u',
+      remoteRoot: '/',
+    };
+
+    const known = await saveRepository(config, 'p');
+    const unknown = await saveRepository(config, 'p');
+
+    expect(known.status === 'error' && known.error.field).toBe('port');
+    expect(unknown.status === 'error' && unknown.error.field).toBeUndefined();
+    expect(unknown.status === 'error' && unknown.error.code).toBe(
+      'INVALID_QUERY',
+    );
+  });
+
+  it('getRepositorySummary reads revision and webdavHttps', async () => {
+    mockNative({
+      getRepositorySummary: jest
+        .fn()
+        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: summary}),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result).toEqual({contractVersion: 5, status: 'ok', repository: summary});
+  });
+
+  it('getRepositorySummary defaults a missing revision and webdavHttps', async () => {
+    const older: Record<string, unknown> = {...summary};
+    delete older.revision;
+    delete older.webdavHttps;
+    mockNative({
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        repository: {...older, protocol: 'SFTP', hostKeyTrusted: false},
+      }),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.repository.revision).toBe(0);
+      expect(result.repository.webdavHttps).toBe(false);
+      expect(result.repository.hostKeyTrusted).toBe(false);
+    }
+  });
+
+  it('getRepositorySummary passes REPOSITORY_NOT_CONFIGURED through', async () => {
+    mockNative({
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'error',
+        error: {
+          code: 'REPOSITORY_NOT_CONFIGURED',
+          message: 'No repository has been set up yet.',
+          action: 'Set up your server in Settings › Repository.',
+        },
+      }),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status === 'error' && result.error.code).toBe(
+      'REPOSITORY_NOT_CONFIGURED',
+    );
+  });
+
+  it('getRepositorySummary treats a malformed repository as INTERNAL_ERROR', async () => {
+    mockNative({
+      getRepositorySummary: jest
+        .fn()
+        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: {}}),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status === 'error' && result.error.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('testRepository returns the connection and carries a host-key challenge', async () => {
+    const connection = {
+      protocol: 'SFTP',
+      reachable: true,
+      entryCount: 4,
+      precisionMillis: 1000,
+      precisionBasis: 'SFTP_V3_WHOLE_SECONDS',
+      precisionPersisted: true,
+    };
+    const challenge = {
+      challengeId: 'c-1',
+      host: 'nas.local',
+      port: 22,
+      algorithm: 'ssh-ed25519',
+      fingerprint: 'SHA256:abc',
+      previousFingerprint: null,
+    };
+    mockNative({
+      testRepository: jest
+        .fn()
+        .mockResolvedValueOnce({contractVersion: 5, status: 'ok', connection})
+        .mockResolvedValueOnce({
+          contractVersion: 5,
+          status: 'error',
+          error: {
+            code: 'SFTP_HOST_KEY_UNVERIFIED',
+            message: 'The server key is not trusted yet.',
+            action: null,
+            hostKeyChallenge: challenge,
+          },
+        }),
+    });
+
+    const ok = await testRepository();
+    const prompt = await testRepository();
+
+    expect(ok).toEqual({contractVersion: 5, status: 'ok', connection});
+    expect(prompt.status === 'error' && prompt.error.hostKeyChallenge).toEqual(
+      challenge,
+    );
+  });
+
+  it('approve and reject pass the challenge ID through', async () => {
+    const approve = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    const reject = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({approveSftpHostKey: approve, rejectSftpHostKey: reject});
+
+    expect((await approveSftpHostKey('c-1')).status).toBe('ok');
+    expect((await rejectSftpHostKey('c-2')).status).toBe('ok');
+    expect(approve).toHaveBeenCalledWith('c-1');
+    expect(reject).toHaveBeenCalledWith('c-2');
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    for (const result of [
+      await getRepositorySummary(),
+      await saveRepository({
+        protocol: 'FTP',
+        host: 'h',
+        port: null,
+        username: 'u',
+        remoteRoot: '/',
+      }),
+      await testRepository(),
+      await approveSftpHostKey('c'),
+      await rejectSftpHostKey('c'),
+    ]) {
+      expect(result.status === 'error' && result.error.code).toBe(
+        'NATIVE_MODULE_UNAVAILABLE',
+      );
     }
   });
 });

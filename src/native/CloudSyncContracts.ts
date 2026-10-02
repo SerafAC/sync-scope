@@ -251,13 +251,16 @@ export interface CloudSyncError {
 }
 
 /** The repository form fields an error can name in `CloudSyncError.field`. */
-export type RepositoryField =
-  | 'protocol'
-  | 'host'
-  | 'port'
-  | 'username'
-  | 'password'
-  | 'remoteRoot';
+export const REPOSITORY_FIELDS = [
+  'protocol',
+  'host',
+  'port',
+  'username',
+  'password',
+  'remoteRoot',
+] as const;
+
+export type RepositoryField = (typeof REPOSITORY_FIELDS)[number];
 
 export interface HostKeyChallengeDto {
   challengeId: string;
@@ -316,6 +319,26 @@ export interface RepositorySummaryOk {
 }
 
 export type RepositorySummaryResult = RepositorySummaryOk | OperationError;
+
+/** What testRepository found at the saved repository's remote folder. */
+export interface RepositoryConnectionDto {
+  protocol: RepositoryProtocol;
+  reachable: boolean;
+  /** Direct children of the remote folder. */
+  entryCount: number;
+  precisionMillis: number;
+  precisionBasis: string;
+  /** False when a save landed during the test, so the precision was not written. */
+  precisionPersisted: boolean;
+}
+
+export interface TestRepositoryOk {
+  contractVersion: number;
+  status: 'ok';
+  connection: RepositoryConnectionDto;
+}
+
+export type TestRepositoryResult = TestRepositoryOk | OperationError;
 
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';
 export type LocalNodeKind = 'FILE' | 'DIRECTORY';

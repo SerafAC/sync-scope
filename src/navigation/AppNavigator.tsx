@@ -1,10 +1,12 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useIsFocused } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Icon } from 'react-native-paper';
 
 import { FilesProvider } from '../files/FilesProvider';
 import { FilesScreen } from '../screens/FilesScreen';
+import { RepositoryScreen } from '../screens/RepositoryScreen';
 import { ScanScreen } from '../screens/ScanScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 
@@ -14,7 +16,17 @@ export type RootTabParamList = {
   Settings: undefined;
 };
 
+/**
+ * The root stack (research R1): the bottom tabs, with the Repository form pushed
+ * above them so back handling and the discard prompt come from the stack.
+ */
+export type RootStackParamList = {
+  Tabs: undefined;
+  Repository: undefined;
+};
+
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /** The Files tab: its view and filter live as long as the tab is mounted. */
 function FilesTab(): React.JSX.Element {
@@ -48,7 +60,7 @@ const tabBarIcons: Record<
   Settings: makeTabBarIcon('cog-outline'),
 };
 
-export function AppNavigator(): React.JSX.Element {
+function TabsNavigator(): React.JSX.Element {
   return (
     <Tab.Navigator
       initialRouteName="Files"
@@ -73,5 +85,22 @@ export function AppNavigator(): React.JSX.Element {
         options={{ tabBarIcon: tabBarIcons.Settings }}
       />
     </Tab.Navigator>
+  );
+}
+
+export function AppNavigator(): React.JSX.Element {
+  return (
+    <Stack.Navigator initialRouteName="Tabs">
+      <Stack.Screen
+        component={TabsNavigator}
+        name="Tabs"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={RepositoryScreen}
+        name="Repository"
+        options={{ title: 'Repository' }}
+      />
+    </Stack.Navigator>
   );
 }
