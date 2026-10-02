@@ -43,12 +43,12 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
-  fun contractVersionIsThree() {
-    assertEquals(3, CloudSyncContracts.CONTRACT_VERSION)
+  fun contractVersionIsFour() {
+    assertEquals(4, CloudSyncContracts.CONTRACT_VERSION)
   }
 
   @Test
-  fun sourceAndScanErrorCodesSitJustBeforeInternalErrorInOrder() {
+  fun sourceScanAndImageErrorCodesSitJustBeforeInternalErrorInOrder() {
     val names = CloudSyncErrorCode.entries.map { it.name }
     assertEquals(
       listOf(
@@ -61,9 +61,10 @@ class CloudSyncContractsParityTest {
         "SCAN_IN_PROGRESS",
         "SCAN_NOT_FOUND",
         "REFRESH_UNAVAILABLE",
+        "IMAGE_UNAVAILABLE",
         "INTERNAL_ERROR",
       ),
-      names.takeLast(10),
+      names.takeLast(11),
     )
   }
 
@@ -80,6 +81,7 @@ class CloudSyncContractsParityTest {
   fun fixedErrorTextMatchesTsExactly() {
     val sourceText = tsErrorText("SOURCE_ERROR_TEXT")
     val scanText = tsErrorText("SCAN_ERROR_TEXT")
+    val imageText = tsErrorText("IMAGE_ERROR_TEXT")
     val ktText = CloudSyncErrorCode.entries
       .filter { it.defaultMessage != null }
       .associate { it.name to (it.defaultMessage!! to it.defaultAction!!) }
@@ -92,7 +94,13 @@ class CloudSyncContractsParityTest {
       setOf("NO_SOURCES_SELECTED", "SCAN_IN_PROGRESS", "SCAN_NOT_FOUND", "REFRESH_UNAVAILABLE"),
       scanText.keys,
     )
-    assertEquals(sourceText + scanText, ktText)
+    assertEquals(setOf("IMAGE_UNAVAILABLE"), imageText.keys)
+    assertEquals(sourceText + scanText + imageText, ktText)
+    assertEquals(
+      "This image could not be read on the device." to
+        "Check that the folder is still available, then rescan.",
+      ktText["IMAGE_UNAVAILABLE"],
+    )
     assertEquals(
       "No folders are selected to check." to "Add a folder in Settings › Folders.",
       ktText["NO_SOURCES_SELECTED"],
@@ -132,5 +140,30 @@ class CloudSyncContractsParityTest {
     assertEquals(37, CloudSyncContracts.clampPageSize(37.8))
     assertEquals(200, CloudSyncContracts.clampPageSize(201.0))
     assertEquals(200, CloudSyncContracts.clampPageSize(1e12))
+  }
+
+  @Test
+  fun localImageEdgeBoundsMatchTs() {
+    assertEquals(tsNumber("LOCAL_IMAGE_MIN_EDGE_PX"), LocalImageSpec.MIN_EDGE_PX)
+    assertEquals(tsNumber("LOCAL_IMAGE_MAX_EDGE_PX"), LocalImageSpec.MAX_EDGE_PX)
+    assertEquals(64, LocalImageSpec.MIN_EDGE_PX)
+    assertEquals(2048, LocalImageSpec.MAX_EDGE_PX)
+  }
+
+  @Test
+  fun imageEdgeClampMatchesTsClampImageEdge() {
+    // Expected values are those of the TS `clampImageEdge` (asserted on the same inputs in
+    // src/native/__tests__/CloudSyncContracts.test.ts).
+    val expected = mapOf(-1 to 64, 0 to 64, 63 to 64, 64 to 64, 256 to 256, 2048 to 2048, 2049 to 2048)
+    expected.forEach { (input, bounded) ->
+      assertEquals("bounded($input)", bounded, LocalImageSpec.bounded(input))
+    }
+    assertTrue(
+      "clampImageEdge must clamp between the two edge constants",
+      Regex(
+        """export function clampImageEdge\(px: number\): number \{.*?LOCAL_IMAGE_MIN_EDGE_PX.*?LOCAL_IMAGE_MAX_EDGE_PX""",
+        RegexOption.DOT_MATCHES_ALL,
+      ).containsMatchIn(tsSource),
+    )
   }
 }

@@ -1,0 +1,15 @@
+# Subflow: open the Files tab from any other tab and wait until the browser
+# has read its first page. Never run on its own.
+appId: com.syncscope
+---
+# The Files tab is the one left of Scan; "Scan" may also be a source alias, so
+# the tab is anchored by position.
+- tapOn:
+    text: "Files"
+    leftOf: "Scan"
+- extendedWaitUntil:
+    visible: "Gallery view"
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Loading files"
+    timeout: 15000

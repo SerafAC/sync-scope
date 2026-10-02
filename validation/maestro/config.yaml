@@ -9,6 +9,7 @@
 flows:
   - "sources/*"
   - "scan/*"
+  - "browse/*"
 
 executionOrder:
   continueOnFailure: false
@@ -31,3 +32,8 @@ executionOrder:
     - scan/05-background-discards
     - scan/06-unreachable-fails
     - scan/07-revoked-source
+    - browse/01-gallery-thousands
+    - browse/02-gallery-filters
+    - browse/03-gallery-issues-unknown
+    - browse/04-list-browse
+    - browse/05-results-updated

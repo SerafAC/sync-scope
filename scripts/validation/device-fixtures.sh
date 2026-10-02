@@ -11,13 +11,21 @@
 # name in NFC), and SyncScopeE2E/Bulk, BULK_FILES generated files spread over
 # 200 directories for the progress and backgrounding flows.
 #
+# Feature 005 (research R13) adds SyncScopeE2E/Gallery (real PNGs, three of
+# them byte-identical to the remote gallery/ root, plus local-only files),
+# SyncScopeE2E/GalleryTwin (a sunset.png of a different size) and
+# SyncScopeE2E/GalleryBulk, GALLERY_BULK_FILES copies of one PNG. The images
+# come from fixture-images.sh, which fixture-seed.sh shares.
+#
 # Targets the device in ANDROID_SERIAL. Idempotent: directories use mkdir -p,
 # fixture files are overwritten and the bulk tree is regenerated from scratch.
 # Fails loudly when no public removable volume is mounted (R10: never skip
 # removable-storage coverage).
 set -eu
 
-. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/android-sdk.sh"
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/android-sdk.sh"
+. "$here/fixture-images.sh"
 android_sdk_resolve
 
 serial=${ANDROID_SERIAL:-}
@@ -35,6 +43,18 @@ case "$bulk_files" in
 esac
 if [ "$bulk_files" -gt 99999 ]; then
   printf '%s\n' "BULK_FILES must be a whole number from 1 to 99999." >&2
+  exit 64
+fi
+
+gallery_bulk_files=${GALLERY_BULK_FILES:-2000}
+case "$gallery_bulk_files" in
+  '' | *[!0-9]* | 0*)
+    printf '%s\n' "GALLERY_BULK_FILES must be a whole number from 1 to 9999." >&2
+    exit 64
+    ;;
+esac
+if [ "$gallery_bulk_files" -gt 9999 ]; then
+  printf '%s\n' "GALLERY_BULK_FILES must be a whole number from 1 to 9999." >&2
   exit 64
 fi
 
@@ -85,5 +105,35 @@ seed_scan_file only-here.txt 'only in restricted'
 # stripping the leading 1 zero-pads the directory and file numbers.
 bulk=/sdcard/SyncScopeE2E/Bulk
 adb_shell "rm -rf $bulk && i=0 && while [ \$i -lt 200 ]; do n=\$((i + 1000)); mkdir -p $bulk/d\${n#1}; i=\$((i + 1)); done && i=0 && while [ \$i -lt $bulk_files ]; do d=\$((i % 200 + 1000)); f=\$((i + 100000)); echo \"bulk \${f#1}\" > $bulk/d\${d#1}/f\${f#1}.txt; i=\$((i + 1)); done" 600
+
+# Gallery sources: each image is pushed once from a temp file (adb push does
+# not keep mtimes, so every file is touched afterwards).
+gallery=/sdcard/SyncScopeE2E/Gallery
+twin=/sdcard/SyncScopeE2E/GalleryTwin
+png_tmp=$(mktemp)
+trap 'rm -f "$png_tmp"' EXIT
+push_png() {
+  write_png "$1" "$png_tmp"
+  timeout --signal=TERM --kill-after=10 60 \
+    "$ANDROID_HOME/platform-tools/adb" -s "$serial" push "$png_tmp" "$2" >/dev/null
+  adb_shell "touch -d @1704067200 $2"
+}
+adb_shell "mkdir -p $gallery/album"
+adb_shell "mkdir -p $gallery/drafts"
+adb_shell "mkdir -p $twin"
+push_png "$PNG_SUNSET" "$gallery/sunset.png"
+push_png "$PNG_BEACH" "$gallery/beach.png"
+push_png "$PNG_FOREST" "$gallery/album/forest.png"
+push_png "$PNG_HARBOR" "$gallery/harbor.png"
+push_png "$PNG_TWIN" "$twin/sunset.png"
+adb_shell "cp $gallery/harbor.png $gallery/drafts/draft.png"
+adb_shell "touch -d @1704067200 $gallery/drafts/draft.png"
+adb_shell "printf 'gallery notes\\n' > $gallery/album/notes.txt"
+adb_shell "touch -d @1704067200 $gallery/album/notes.txt"
+
+# GalleryBulk: one adb shell loop copying the pushed harbor.png. Adding 10000
+# and stripping the leading 1 zero-pads the file numbers to g0000…g9999.
+gallery_bulk=/sdcard/SyncScopeE2E/GalleryBulk
+adb_shell "rm -rf $gallery_bulk && mkdir -p $gallery_bulk && i=0 && while [ \$i -lt $gallery_bulk_files ]; do f=\$((i + 10000)); cp $gallery/harbor.png $gallery_bulk/g\${f#1}.png; i=\$((i + 1)); done && touch -d @1704067200 $gallery_bulk/*.png" 600
 
 printf '%s\n' "Seeded SyncScopeE2E fixtures on primary storage and /storage/$uuid."

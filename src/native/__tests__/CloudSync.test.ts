@@ -3,6 +3,7 @@ import {TurboModuleRegistry} from 'react-native';
 import {
   CloudSync,
   cancelScan,
+  getLocalImageHandle,
   getScanState,
   launchSourcePicker,
   listSources,
@@ -10,7 +11,14 @@ import {
   removeSource,
   startScan,
 } from '../CloudSync';
-import {MAX_PAGE_SIZE} from '../CloudSyncContracts';
+import {
+  CLOUD_SYNC_CONTRACT_VERSION,
+  GALLERY_THUMBNAIL_EDGE_PX,
+  IMAGE_ERROR_TEXT,
+  LOCAL_IMAGE_MAX_EDGE_PX,
+  LOCAL_IMAGE_MIN_EDGE_PX,
+  MAX_PAGE_SIZE,
+} from '../CloudSyncContracts';
 import type {Spec} from '../specs/NativeCloudSync';
 
 describe('CloudSync typed wrapper', () => {
@@ -545,6 +553,127 @@ describe('CloudSync scan wrappers', () => {
       if (result.status === 'error') {
         expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
       }
+    }
+  });
+});
+
+describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+
+  it('passes the IDs and the edge through and normalises ok', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      handle: {uri: 'file:///cache/thumbnails/e-1_256.jpg', stray: 'ignored'},
+      stray: 'ignored',
+    });
+    mockNative({getLocalImageHandle: native});
+
+    const result = await getLocalImageHandle('snap-1', 'e-1', {
+      maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX,
+    });
+
+    expect(native).toHaveBeenCalledWith('snap-1', 'e-1', {maxEdgePx: 256});
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      handle: {uri: 'file:///cache/thumbnails/e-1_256.jpg'},
+    });
+  });
+
+  it('normalises an IMAGE_UNAVAILABLE error envelope', async () => {
+    mockNative({
+      getLocalImageHandle: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'IMAGE_UNAVAILABLE',
+          ...IMAGE_ERROR_TEXT.IMAGE_UNAVAILABLE,
+        },
+      }),
+    });
+
+    expect(
+      await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256}),
+    ).toEqual({
+      contractVersion: v,
+      status: 'error',
+      error: {
+        code: 'IMAGE_UNAVAILABLE',
+        message: 'This image could not be read on the device.',
+        action: 'Check that the folder is still available, then rescan.',
+        conflictingSource: null,
+      },
+    });
+  });
+
+  it.each([
+    ['an ok envelope without a handle', {contractVersion: v, status: 'ok'}],
+    [
+      'an ok envelope with a non-string uri',
+      {contractVersion: v, status: 'ok', handle: {uri: 42}},
+    ],
+    ['an error envelope without a code', {contractVersion: v, status: 'error'}],
+    ['a null result', null],
+    ['a non-object result', 'ok'],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, envelope) => {
+    mockNative({getLocalImageHandle: jest.fn().mockResolvedValue(envelope)});
+
+    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+      expect(result.contractVersion).toBe(v);
+    }
+  });
+
+  it('turns a rejected native call into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      getLocalImageHandle: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('clamps the requested edge before the native call', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      handle: {uri: 'file:///cache/thumbnails/e-1.jpg'},
+    });
+    mockNative({getLocalImageHandle: native});
+
+    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 10});
+    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 9999});
+    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: Number.NaN});
+    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 512.7});
+
+    expect(native.mock.calls.map(call => call[2])).toEqual([
+      {maxEdgePx: LOCAL_IMAGE_MIN_EDGE_PX},
+      {maxEdgePx: LOCAL_IMAGE_MAX_EDGE_PX},
+      {maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX},
+      {maxEdgePx: 512},
+    ]);
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
     }
   });
 });

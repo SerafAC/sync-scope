@@ -1,0 +1,48 @@
+# Scenario 2, FR-003, SC-002, the unknown set (SFTP): the remote root
+# gallery-partial/ is gallery/ plus a 0700 restricted/ folder the server
+# account cannot list. The three byte-identical copies still match (Synced),
+# but every other image could sit in the unreadable folder, so it is Unknown,
+# never Unsynced: the chips read 6 / 3 / 0 / 3 and the Issues filter shows
+# harbor.png, draft.png and the GalleryTwin sunset.png. Self-contained: starts
+# from clearState (contracts/maestro-browse.md).
+appId: com.syncscope
+name: browse/03-gallery-issues-unknown
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery-partial'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Gallery,GalleryTwin"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertVisible: "1 remote folder could not be read"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+
+# Chip counts: nothing is Unsynced against a partial listing (scenario 2, SC-002).
+- extendedWaitUntil:
+    visible: "Filter All, 6"
+    timeout: 15000
+- assertVisible: "Filter Synced, 3"
+- assertVisible: "Filter Unsynced, 0"
+- assertVisible: "Filter Issues or unknown, 3"
+
+# Issues or unknown: exactly the files that could not be checked.
+- tapOn: "Filter Issues or unknown, 3"
+- extendedWaitUntil:
+    visible: "harbor.png, Unknown"
+    timeout: 15000
+- assertVisible: "draft.png, Unknown"
+- assertVisible: "sunset.png, Unknown, from GalleryTwin"
+- assertNotVisible: "beach.png, Synced"

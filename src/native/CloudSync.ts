@@ -4,10 +4,13 @@ import {
   CLOUD_SYNC_CONTRACT_VERSION,
   CLOUD_SYNC_MODULE_NAME,
   CloudSyncErrorCode,
+  clampImageEdge,
   clampPageSize,
   type CloudSyncError,
   type LaunchSourcePickerResult,
   type ListSourcesResult,
+  type LocalImageHandleResult,
+  type LocalImageSpec,
   type OperationError,
   type OperationResult,
   type QueryFilesResult,
@@ -119,6 +122,7 @@ type NativeEnvelope = {
   generation?: unknown;
   run?: unknown;
   active?: unknown;
+  handle?: unknown;
 };
 
 type NativeErrorShape = {
@@ -289,6 +293,46 @@ export async function getScanState(): Promise<ScanStateResult> {
   };
 }
 
+/**
+ * A local-only, downscaled JPEG of the image [entryId] of snapshot [snapshotId] (contract v4).
+ * `spec.maxEdgePx` is clamped to LOCAL_IMAGE_MIN_EDGE_PX..LOCAL_IMAGE_MAX_EDGE_PX before the call.
+ * Resolves an envelope for every outcome: a missing module, a rejected call or an unexpected
+ * shape becomes a typed error, never a throw.
+ */
+export async function getLocalImageHandle(
+  snapshotId: string,
+  entryId: string,
+  spec: LocalImageSpec,
+): Promise<LocalImageHandleResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.getLocalImageHandle(snapshotId, entryId, {
+      maxEdgePx: clampImageEdge(spec.maxEdgePx),
+    })) as NativeEnvelope | null | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({status: 'error', error: null});
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const handle = result.handle as {uri?: unknown} | null | undefined;
+  if (handle == null || typeof handle.uri !== 'string') {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    handle: {uri: handle.uri},
+  };
+}
+
 export const CloudSync = {
   isAvailable: isCloudSyncAvailable,
   getContractVersion,
@@ -300,4 +344,5 @@ export const CloudSync = {
   startScan,
   cancelScan,
   getScanState,
+  getLocalImageHandle,
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {Surface, Text, useTheme} from 'react-native-paper';
 
@@ -6,6 +6,7 @@ import type {
   ActiveSnapshotDto,
   SkippedSourceDto,
 } from '../native/CloudSyncContracts';
+import {STATUS_LABEL} from '../theme/statusLabels';
 
 const SKIP_REASON_TEXT: Record<SkippedSourceDto['reason'], string> = {
   GRANT_REVOKED: 'Access lost',
@@ -71,6 +72,10 @@ export function ScanSummaryCard({
   now,
 }: ScanSummaryCardProps): React.JSX.Element {
   const theme = useTheme();
+  const themed = useMemo(
+    () => StyleSheet.create({error: {color: theme.colors.error}}),
+    [theme.colors.error],
+  );
   const {summary} = active;
   const interruption = summary.remoteListingInterruptedBy;
   const listedAt = active.remoteListedAtMillis;
@@ -80,30 +85,27 @@ export function ScanSummaryCard({
       <Text accessibilityRole="header" variant="titleMedium">
         Scan summary
       </Text>
-      <Text variant="bodyLarge">{`Synced: ${summary.synced}`}</Text>
-      <Text variant="bodyLarge">{`Unsynced: ${summary.unsynced}`}</Text>
+      <Text variant="bodyLarge">{`${STATUS_LABEL.SYNCED}: ${summary.synced}`}</Text>
+      <Text variant="bodyLarge">{`${STATUS_LABEL.UNSYNCED}: ${summary.unsynced}`}</Text>
       <View accessibilityLabel="Files that could not be checked">
         <Text variant="bodyLarge">
           {`Files that could not be checked: ${summary.unknown}`}
         </Text>
       </View>
       {summary.unreadableRemoteDirectories > 0 ? (
-        <Text style={{color: theme.colors.error}} variant="bodyMedium">
+        <Text style={themed.error} variant="bodyMedium">
           {unreadableFoldersText(summary.unreadableRemoteDirectories)}
         </Text>
       ) : null}
       {interruption != null ? (
-        <Text style={{color: theme.colors.error}} variant="bodyMedium">
+        <Text style={themed.error} variant="bodyMedium">
           {`The remote listing was interrupted: ${
             INTERRUPTION_TEXT[interruption] ?? interruption
           }.`}
         </Text>
       ) : null}
       {summary.skippedSources.map(source => (
-        <Text
-          key={source.sourceId}
-          style={{color: theme.colors.error}}
-          variant="bodyMedium">
+        <Text key={source.sourceId} style={themed.error} variant="bodyMedium">
           {`Skipped ${source.alias}: ${SKIP_REASON_TEXT[source.reason]}`}
         </Text>
       ))}

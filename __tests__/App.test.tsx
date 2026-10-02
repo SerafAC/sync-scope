@@ -32,10 +32,19 @@ describe('SyncScope application shell', () => {
     render(<App />);
 
     expect(screen.getByText('SyncScope')).toBeOnTheScreen();
-    expect(screen.getByRole('header', { name: 'Files' })).toBeOnTheScreen();
+    expect(screen.getByText('Files')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Gallery view')).toBeOnTheScreen();
+    expect(screen.getByLabelText('List view')).toBeOnTheScreen();
     expect(screen.getByText('Scan')).toBeOnTheScreen();
     expect(screen.getByText('Settings')).toBeOnTheScreen();
     await waitFor(() => expect(getScanState).toHaveBeenCalled());
+  });
+
+  it('shows the Files tab with no scan results before any scan', async () => {
+    render(<App />);
+
+    expect(await screen.findByText('No scan results yet')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Filter All')).toBeSelected();
   });
 
   it('does not start a local refresh without an active snapshot', async () => {

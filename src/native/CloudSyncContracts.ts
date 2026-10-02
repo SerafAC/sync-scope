@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 3;
+export const CLOUD_SYNC_CONTRACT_VERSION = 4;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -57,6 +57,8 @@ export const CloudSyncErrorCode = {
   SCAN_NOT_FOUND: 'SCAN_NOT_FOUND',
   /** LOCAL_REFRESH has no current remote listing to reuse. */
   REFRESH_UNAVAILABLE: 'REFRESH_UNAVAILABLE',
+  /** getLocalImageHandle could not read or decode the local image (contract version 4). */
+  IMAGE_UNAVAILABLE: 'IMAGE_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -129,6 +131,22 @@ export const SCAN_ERROR_TEXT: Readonly<
   REFRESH_UNAVAILABLE: {
     message: 'There is no up-to-date remote listing to refresh against.',
     action: 'Run a full scan.',
+  },
+};
+
+export type ImageErrorCode = 'IMAGE_UNAVAILABLE';
+
+/**
+ * Exact redacted message and recovery action for the local image error codes
+ * (contract version 4). Mirrored by the Kotlin `CloudSyncErrorCode` entries and
+ * checked by CloudSyncContractsParityTest.
+ */
+export const IMAGE_ERROR_TEXT: Readonly<
+  Record<ImageErrorCode, {message: string; action: string}>
+> = {
+  IMAGE_UNAVAILABLE: {
+    message: 'This image could not be read on the device.',
+    action: 'Check that the folder is still available, then rescan.',
   },
 };
 
@@ -206,6 +224,16 @@ export interface FileEntryDto {
   modifiedUtcMillis: number | null;
   status: FileStatus;
   issueCode: string | null;
+  /**
+   * GALLERY reads: a FILE with the same name exists in another source of this snapshot,
+   * so the tile shows its source's alias as an origin badge. Always false for LIST reads.
+   */
+  nameInOtherSource: boolean;
+  /**
+   * DIRECTORY rows: files anywhere beneath it that match the query's filter. 0 means the row is shown
+   * dimmed. null for FILE rows and for snapshots written before contract 4.
+   */
+  matchingFileCount: number | null;
 }
 
 export interface StatusCountDto {
@@ -247,6 +275,30 @@ export interface OperationError {
 
 /** Envelope for operations implemented by later features. */
 export type OperationResult = OperationOk | OperationError;
+
+export interface LocalImageSpec {
+  /** Longest edge in px of the returned image; clamped to 64…2048. */
+  maxEdgePx: number;
+}
+
+export interface LocalImageHandleDto {
+  /** `file://` URI of a JPEG in the app's own cache. Never a document URI or a user path. */
+  uri: string;
+}
+
+export interface LocalImageHandleOk {
+  contractVersion: number;
+  status: 'ok';
+  handle: LocalImageHandleDto;
+}
+
+export type LocalImageHandleResult = LocalImageHandleOk | OperationError;
+
+/** Bounds of `LocalImageSpec.maxEdgePx`; mirrored by the Kotlin `LocalImageSpec`. */
+export const LOCAL_IMAGE_MIN_EDGE_PX = 64;
+export const LOCAL_IMAGE_MAX_EDGE_PX = 2048;
+/** Gallery tiles request this edge (research R7). */
+export const GALLERY_THUMBNAIL_EDGE_PX = 256;
 
 /**
  * Availability of an added source, computed at call time: the persisted
@@ -417,4 +469,20 @@ export function clampPageSize(pageSize?: number | null): number {
     return 1;
   }
   return Math.min(truncated, MAX_PAGE_SIZE);
+}
+
+/**
+ * Normalizes a requested image edge into LOCAL_IMAGE_MIN_EDGE_PX..LOCAL_IMAGE_MAX_EDGE_PX.
+ * A non-finite value maps to GALLERY_THUMBNAIL_EDGE_PX. The native engine applies the same
+ * clamp (`LocalImageSpec.bounded`), checked by CloudSyncContractsParityTest.
+ */
+export function clampImageEdge(px: number): number {
+  if (!Number.isFinite(px)) {
+    return GALLERY_THUMBNAIL_EDGE_PX;
+  }
+  const truncated = Math.trunc(px);
+  return Math.min(
+    Math.max(truncated, LOCAL_IMAGE_MIN_EDGE_PX),
+    LOCAL_IMAGE_MAX_EDGE_PX,
+  );
 }

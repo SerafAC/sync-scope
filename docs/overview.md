@@ -29,8 +29,10 @@ like a clean one. See [sync and deletion safety](./sync-and-deletion-safety.md).
    host keys are trusted on first use (R002).
 2. **Pick folders** on device or removable storage through the Storage Access Framework (R005).
 3. **Scan** in the foreground, with visible progress and cancellation (R006).
-4. **Browse and filter** the results in gallery, list or tree view (R008, R009, R010), filtered to all,
-   synced, unsynced or issues-unknown (R011), with an image preview from any view (R014).
+4. **Browse and filter** the results on the **Files** tab in gallery, list or tree view (R008, R009,
+   R010), filtered to all, synced, unsynced or issues-unknown (R011), with an image preview from any view
+   (R014). Gallery and list view, with the filters, are delivered by feature 005; tree view and preview by
+   feature 006.
 5. **Select** files, from any of the three views (R012).
 6. **Delete locally**, after an honest pre-flight breakdown of what will happen (R012, R013).
 
@@ -47,3 +49,5 @@ Scope limits for v1 are in [scope](./scope.md).
 | Remote root | The single folder on the remote repository that every local file is compared against. v1 has one remote root for all selected folders. |
 | Source | A local folder the user selected through the Storage Access Framework, from on-device or removable storage, in **Settings › Folders**. Sources persist across restarts. Sources never overlap: a folder that is the same as, inside, or around an existing source is rejected with a message naming that source. Each source gets an alias generated once when it is added and never edited: the folder name, extended with the volume label and then parent folder names only as far as needed to be unique (for example "Camera" and "Camera (SDCARD)"). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
 | Source availability | Computed each time the list is shown, never stored. **Available**: the folder can be read. **Access lost** (`GRANT_REVOKED`): Android no longer grants the app access; the user can Re-grant by picking the same folder again, or remove the source. **Storage missing** (`STORAGE_MISSING`): access is granted but the folder or its volume cannot be reached, for example because the SD card was taken out. An unavailable source stays listed rather than vanishing, and scanning (feature 004) treats it as skipped, never as empty. |
+| Files tab | Where the results of the active snapshot are browsed. **Gallery** is a grid of the local images, newest first; **List** browses the selected sources folder by folder, with a breadcrumb back up. One set of filter chips (All, Synced, Unsynced, Issues or unknown) applies to both, and each chip shows how many files of that view match it ([005 spec](../specs/005-gallery-list-filtering/spec.md)). |
+| Origin badge | A label on a gallery tile naming the tile's source by its alias. It appears only when a file with the same name exists in another source, because a flat grid gives no other clue which folder a photo is from ([D010](./decisions/0010-snapshot-paging-and-origin-badge.md)). |

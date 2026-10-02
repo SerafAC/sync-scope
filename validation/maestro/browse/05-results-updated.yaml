@@ -1,0 +1,62 @@
+# FR-005, clarification 4 (SFTP): while the list view is open inside a folder,
+# a new scan replaces the snapshot. Back on the Files tab the app says
+# "Results updated" and keeps the user in the same folder, found again by
+# name in the new snapshot. Self-contained: starts from clearState
+# (contracts/maestro-browse.md).
+appId: com.syncscope
+name: browse/05-results-updated
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Gallery"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. Open Gallery › album in the list view.
+- tapOn: "List view"
+- extendedWaitUntil:
+    visible: "Folder Gallery, 6 matching"
+    timeout: 15000
+- tapOn: "Folder Gallery, 6 matching"
+- extendedWaitUntil:
+    visible: "Folder album, 2 matching"
+    timeout: 15000
+- tapOn: "Folder album, 2 matching"
+- extendedWaitUntil:
+    visible: "forest.png, Synced"
+    timeout: 15000
+
+# 2. A new full scan publishes a new snapshot.
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+
+# 3. Back on Files: the notice, and the same folder in the new snapshot.
+- tapOn:
+    text: "Files"
+    leftOf: "Scan"
+- extendedWaitUntil:
+    visible: "Results updated"
+    timeout: 15000
+- assertVisible: "Breadcrumb album"
+- assertVisible: "forest.png, Synced"

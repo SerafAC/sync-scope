@@ -3,6 +3,8 @@ package com.syncscope.bridge
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
+import com.syncscope.image.ImageUnavailable
+import com.syncscope.image.LocalImageStore
 import com.syncscope.persistence.FileFilter
 import com.syncscope.persistence.FilePage
 import com.syncscope.persistence.FileSort
@@ -25,9 +27,10 @@ import com.syncscope.scan.ScanRefused
 import com.syncscope.scan.ScanRunView
 
 /**
- * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren, resolved as envelopes
- * (contracts/cloudsync-scan.md "Behaviour"). No `documentId`, `documentUri`, path or host ever goes
- * into a result: rows are mapped field by field, and run errors were redacted when they were stored.
+ * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle,
+ * resolved as envelopes (contracts/cloudsync-scan.md and cloudsync-browse.md "Behaviour"). No
+ * `documentId`, `documentUri`, path or host ever goes into a result: rows are mapped field by field,
+ * image handles are cache files named by a hash, and run errors were redacted when they were stored.
  */
 class ScanOperations(
   private val coordinator: () -> ScanCoordinator,
@@ -35,6 +38,7 @@ class ScanOperations(
   private val sources: () -> SourceRootDao,
   private val repositories: () -> RepositoryConfigDao,
   private val envelope: CloudSyncEnvelope,
+  private val images: () -> LocalImageStore,
 ) {
 
   /** `StartScanResult`; a null [mode] means FULL. */
@@ -89,6 +93,54 @@ class ScanOperations(
     page(snapshotId, querySpec, pageToken) { query ->
       store().queryFilePage(snapshotId, query.copy(parentId = parentId), pageToken, topLevelOnly = parentId == null)
     }
+
+  /**
+   * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle"): a `file://` URI of
+   * a cached JPEG thumbnail of an `image/` `FILE` entry of a published snapshot. Reads local storage
+   * only and never opens a remote connection.
+   */
+  suspend fun imageHandle(snapshotId: String, entryId: String, spec: ReadableMap): WritableMap {
+    val entry =
+      try {
+        store().imageEntry(snapshotId, entryId)
+      } catch (_: SnapshotNotFoundException) {
+        return envelope.error(
+          CloudSyncErrorCode.SNAPSHOT_NOT_FOUND,
+          "That scan result is no longer available.",
+          "Refresh the scan screen.",
+        )
+      }
+    if (entry == null || entry.mimeType?.startsWith(IMAGE_MIME_PREFIX) != true) {
+      return envelope.error(
+        CloudSyncErrorCode.INVALID_QUERY,
+        "The image entryId is invalid.",
+        "Reload the gallery and try again.",
+        field = "entryId",
+      )
+    }
+    val edge =
+      maxEdgeOf(spec)
+        ?: return envelope.error(
+          CloudSyncErrorCode.INVALID_QUERY,
+          "The image maxEdgePx is invalid.",
+          "Request a numeric edge between 64 and 2048.",
+          field = "maxEdgePx",
+        )
+    return try {
+      val uri = images().handle(entryId, entry.documentUri, edge)
+      envelope.ok("handle", envelope.map().apply { putString("uri", uri) })
+    } catch (_: ImageUnavailable) {
+      envelope.sourceError(CloudSyncErrorCode.IMAGE_UNAVAILABLE)
+    }
+  }
+
+  /** A finite numeric `maxEdgePx`, truncated; the store clamps it. Null when missing or not a number. */
+  private fun maxEdgeOf(spec: ReadableMap): Int? {
+    if (!spec.hasKey("maxEdgePx") || spec.getType("maxEdgePx") != ReadableType.Number) return null
+    val value = spec.getDouble("maxEdgePx")
+    if (value.isNaN() || value.isInfinite()) return null
+    return value.toLong().coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+  }
 
   // --- startScan refusals ---
 
@@ -234,6 +286,8 @@ class ScanOperations(
           putNullableNumber("modifiedUtcMillis", entry.modifiedUtcMillis)
           putString("status", entry.status)
           putNullableString("issueCode", entry.issueCode)
+          putBoolean("nameInOtherSource", entry.nameInOtherSource)
+          putNullableNumber("matchingFileCount", entry.matchingFileCount)
         }
       )
     }
@@ -303,5 +357,6 @@ class ScanOperations(
 
   private companion object {
     val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
+    const val IMAGE_MIME_PREFIX = "image/"
   }
 }

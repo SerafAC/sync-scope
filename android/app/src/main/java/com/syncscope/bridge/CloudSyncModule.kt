@@ -8,6 +8,8 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
 import com.syncscope.credential.CredentialStore
+import com.syncscope.image.ContentResolverThumbnailSource
+import com.syncscope.image.LocalImageStore
 import com.syncscope.persistence.RepositoryConfigDao
 import com.syncscope.persistence.SnapshotStore
 import com.syncscope.persistence.SourceRootDao
@@ -44,8 +46,10 @@ import kotlinx.coroutines.launch
  * `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` delegate to
  * [ScanOperations] over one [ScanCoordinator] running on this module's scope; a
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
- * Methods not yet built (`getSettings`, `setIncludeHidden`, `getLocalImageHandle`,
- * `prepareLocalDeletion`, `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
+ * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
+ * dispatcher caps concurrent decodes at four.
+ * Methods not yet built (`getSettings`, `setIncludeHidden`, `prepareLocalDeletion`,
+ * `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -60,6 +64,9 @@ class CloudSyncModule(
   snapshotStore: () -> SnapshotStore = { SnapshotStore(SyncScopeDatabase.get(reactContext)) },
   localSources: () -> LocalSourceEnumerator = {
     DocumentsContractSourceEnumerator(safAccess(), reactContext.contentResolver)
+  },
+  localImages: () -> LocalImageStore = {
+    LocalImageStore(reactContext.cacheDir, ContentResolverThumbnailSource(reactContext.contentResolver))
   },
 ) : NativeCloudSyncSpec(reactContext) {
 
@@ -110,6 +117,7 @@ class CloudSyncModule(
       sources = sourceRootDao,
       repositories = repositoryDao,
       envelope = envelope,
+      images = memoize(localImages),
     )
 
   /** Leaving the foreground cancels an active run as BACKGROUNDED; a coordinator never built has no run. */
@@ -206,7 +214,7 @@ class CloudSyncModule(
     entryId: String,
     spec: ReadableMap,
     promise: Promise,
-  ) = notImplemented("getLocalImageHandle", promise)
+  ) = runOperation("getLocalImageHandle", promise) { scans.imageHandle(snapshotId, entryId, spec) }
 
   override fun prepareLocalDeletion(snapshotId: String, entryIds: ReadableArray, promise: Promise) =
     notImplemented("prepareLocalDeletion", promise)

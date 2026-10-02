@@ -370,6 +370,65 @@ class ScanEngineTest {
     assertEquals(before.runId, h.db.scanRunDao().latest()!!.runId)
   }
 
+  // --- directory descendant counts (schema version 3) ---
+
+  @Test
+  fun fullAndRefreshSnapshotsCarryDescendantCountsOnDirectoriesOnly() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22), remoteDir("a"))
+    h.remote.dir("$REMOTE_ROOT/a", remoteFile("reusable.jpg", 27))
+    h.enumerator.files(
+      "src-1",
+      localFile("d-exact", "exact.txt", size = 22),
+      localFile("d-top-new", "top-new.txt", size = 3),
+      localDir("d-photos", "Photos"),
+      localDir("d-empty", "Empty"),
+      localFile("d-reuse", "reusable.jpg", size = 27, parent = "d-photos"),
+      localFile("d-new", "new.jpg", size = 5, parent = "d-photos"),
+      localDir("d-nested", "Nested", parent = "d-photos"),
+      localFile("d-unread", "unreadable.txt", size = null, parent = "d-nested"),
+      localDir("d-deep", "Deep", parent = "d-nested"),
+      localFile("d-deep-new", "deep-new.png", size = 9, parent = "d-deep"),
+    )
+    // Hand-computed: Photos ⊃ {reusable SYNCED, new UNSYNCED, Nested ⊃ {unreadable UNKNOWN, Deep ⊃ {deep-new
+    // UNSYNCED}}}; Empty has nothing; the two top-level files count in no directory.
+    val expected =
+      mapOf(
+        "Photos" to Triple(1L, 2L, 1L),
+        "Nested" to Triple(0L, 1L, 1L),
+        "Deep" to Triple(0L, 1L, 0L),
+        "Empty" to Triple(0L, 0L, 0L),
+      )
+
+    val full = (h.scan() as ScanOutcome.Published).snapshotId
+    assertDescendantCounts(full, expected)
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+    assertTrue(full != refreshed)
+    assertEquals("LOCAL_REFRESH", h.db.scanRunDao().byId(h.db.snapshotDao().byId(refreshed)!!.scanRunId)!!.mode)
+    assertDescendantCounts(refreshed, expected)
+  }
+
+  private suspend fun assertDescendantCounts(snapshotId: String, expected: Map<String, Triple<Long, Long, Long>>) {
+    val nodes = h.nodes(snapshotId)
+    val directories = nodes.filter { it.kind == "DIRECTORY" }
+    assertEquals(expected.keys, directories.map { it.name }.toSet())
+    for (dir in directories) {
+      assertNotNull("${dir.name}.descSynced", dir.descSynced)
+      assertNotNull("${dir.name}.descUnsynced", dir.descUnsynced)
+      assertNotNull("${dir.name}.descUnknown", dir.descUnknown)
+      assertEquals(dir.name, expected.getValue(dir.name), Triple(dir.descSynced, dir.descUnsynced, dir.descUnknown))
+    }
+    val files = nodes.filter { it.kind == "FILE" }
+    assertEquals(6, files.size)
+    for (file in files) {
+      assertNull("${file.name}.descSynced", file.descSynced)
+      assertNull("${file.name}.descUnsynced", file.descUnsynced)
+      assertNull("${file.name}.descUnknown", file.descUnknown)
+    }
+  }
+
   // --- start preconditions ---
 
   @Test

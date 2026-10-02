@@ -307,10 +307,16 @@ class ScanEngine(
     }
     flushFiles(acc)
 
-    val verdicts = acc.rollup.finish()
+    val rolledUp = acc.rollup.finish()
     val directories = acc.directories.map { dir ->
-      val verdict = verdicts.getValue(dir.entryId)
-      dir.copy(status = verdict.status.name, issueCode = verdict.issueCode)
+      val (verdict, counts) = rolledUp.getValue(dir.entryId)
+      dir.copy(
+        status = verdict.status.name,
+        issueCode = verdict.issueCode,
+        descSynced = counts.synced,
+        descUnsynced = counts.unsynced,
+        descUnknown = counts.unknown,
+      )
     }
     for (batch in directories.chunked(BATCH_SIZE)) {
       currentCoroutineContext().ensureActive()

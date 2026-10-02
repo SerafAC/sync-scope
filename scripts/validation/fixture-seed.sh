@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/fixture-images.sh"
+
 root=
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -42,7 +44,10 @@ mkdir -p \
   "$root/scan/clean/a" \
   "$root/scan/clean/b" \
   "$root/scan/partial/readable" \
-  "$root/scan/partial/restricted"
+  "$root/scan/partial/restricted" \
+  "$root/gallery/album" \
+  "$root/gallery-partial/album" \
+  "$root/gallery-partial/restricted"
 
 printf '%s\n' 'exact metadata fixture' >"$root/flat/exact.txt"
 printf '%s\n' 'nested metadata fixture' >"$root/nested/alpha/nested.txt"
@@ -67,6 +72,17 @@ printf '%s\n' 'intentionally different size' >"$root/scan/clean/size-mismatch.tx
 printf '%s\n' 'exact metadata fixture' >"$root/scan/partial/readable/exact.txt"
 printf '%s\n' 'only in restricted' >"$root/scan/partial/restricted/only-here.txt"
 
+# Gallery fixtures (feature 005, research R13): real, decodable images for the
+# device SyncScopeE2E/Gallery source. gallery-partial is the same tree plus one
+# unreadable directory, so every unmatched device file becomes UNKNOWN.
+write_png "$PNG_SUNSET" "$root/gallery/sunset.png"
+write_png "$PNG_BEACH" "$root/gallery/beach.png"
+write_png "$PNG_FOREST" "$root/gallery/album/forest.png"
+cp "$root/gallery/sunset.png" "$root/gallery-partial/sunset.png"
+cp "$root/gallery/beach.png" "$root/gallery-partial/beach.png"
+cp "$root/gallery/album/forest.png" "$root/gallery-partial/album/forest.png"
+write_png "$PNG_HARBOR" "$root/gallery-partial/restricted/hidden.png"
+
 # The host owner retains cleanup rights. Container accounts map to different
 # UIDs and receive only read/execute bits, while each server also enforces its
 # protocol-level read-only mode.
@@ -75,6 +91,7 @@ find "$root" -type f -exec chmod 0644 {} +
 # Host-owned and closed to the container accounts, so every server reports a
 # real permission error for this one directory.
 chmod 0700 "$root/scan/partial/restricted"
+chmod 0700 "$root/gallery-partial/restricted"
 touch -d '@1704067200.000000000' \
   "$root/flat/exact.txt" \
   "$root/nested/alpha/nested.txt" \
@@ -90,7 +107,14 @@ touch -d '@1704067200.000000000' \
   "$root/scan/clean/é-decomposed.txt" \
   "$root/scan/clean/size-mismatch.txt" \
   "$root/scan/partial/readable/exact.txt" \
-  "$root/scan/partial/restricted/only-here.txt"
+  "$root/scan/partial/restricted/only-here.txt" \
+  "$root/gallery/sunset.png" \
+  "$root/gallery/beach.png" \
+  "$root/gallery/album/forest.png" \
+  "$root/gallery-partial/sunset.png" \
+  "$root/gallery-partial/beach.png" \
+  "$root/gallery-partial/album/forest.png" \
+  "$root/gallery-partial/restricted/hidden.png"
 touch -d '@1704067200.000000000' "$root/timestamps/bucket-start.bin"
 touch -d '@1704067200.999000000' "$root/timestamps/bucket-end.bin"
 touch -h -d '@1704067200.000000000' "$root/non-regular/escape-link"

@@ -67,6 +67,31 @@ UNSYNCED if any is UNSYNCED, else SYNCED. An empty directory is SYNCED, since th
 lose. A folder never looks safer than its contents. Directory rows have no `issueCode`, and the summary
 counts files only.
 
+## Filters: isolating the synced and the unknown sets
+
+The four filters exist so the user can isolate the set that is safe to delete and the set that must never
+be deleted (R011). One filter is shared by every view (gallery, list and, in feature 006, tree), and it
+maps directly to the stored file status:
+
+| Filter | Files shown |
+| --- | --- |
+| `ALL` | every file |
+| `SYNCED` | status SYNCED |
+| `UNSYNCED` | status UNSYNCED |
+| `ISSUES_UNKNOWN` | status UNKNOWN, whatever its `issueCode`: exactly the set that is never deletable |
+
+- **Counts come from the same snapshot as the rows.** Each chip's count is read with the first page, from
+  the same snapshot, and counts what that view can show: image files in the gallery, all files in list
+  view (so list counts equal the Scan summary). When a rescan publishes a new snapshot, the view drops
+  its rows and reloads them and the counts together, so a count never describes a different snapshot
+  than the rows below it ([005 spec, FR-005](../specs/005-gallery-list-filtering/spec.md#functional-requirements)).
+- **Directories ignore the filter.** A filter narrows file rows only. Every directory stays listed, with
+  the number of files beneath it that match the filter. A directory with no match is dimmed with
+  "0 matching" but can still be opened, so the folder structure looks the same under every filter. Feature
+  006's tree view follows the same rule
+  ([005 research R3](../specs/005-gallery-list-filtering/research.md#r3-directory-rows-under-a-filter-clarification-3)).
+  A directory's own worst-of status is unchanged and still shown.
+
 ## Precision is discovered at connect time
 
 Timestamp precision is measured for each server when the app connects, not hardcoded per protocol

@@ -19,6 +19,11 @@ All views read one snapshot through opaque page tokens clamped to 200: gallery f
 and tree parent-scoped via `queryTreeChildren`. The origin badge appears in gallery only, on duplicates
 only, naming the originating local folder.
 
+**Badge rule, refined by feature 005** (clarification 1): a gallery tile is a duplicate when a file with the
+same name exists in another source folder of the snapshot; size and modified time are not compared, and
+same-named files within one source folder are not duplicates. The badge shows that tile's source alias,
+never the remote path. The paging contract above is unchanged.
+
 ## Rationale
 
 Thousands of files across three views need one consistent read, and page tokens rejected on snapshot, query
@@ -34,4 +39,6 @@ disambiguate identical-looking tiles.
 ## Related
 
 - Requirements: R008, R009, R010, R011
-- Features: specs/005-gallery-list-filtering, specs/006-tree-view-image-preview
+- Features: [005](../../specs/005-gallery-list-filtering/spec.md) (gallery, list view and the refined
+  badge rule, [research R5](../../specs/005-gallery-list-filtering/research.md#r5-duplicate-tiles-and-the-origin-badge-clarification-1-fr-001)),
+  specs/006-tree-view-image-preview

@@ -1,11 +1,14 @@
 package com.syncscope.bridge
 
+import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import com.facebook.react.bridge.JavaOnlyArray
 import com.facebook.react.bridge.JavaOnlyMap
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
+import com.syncscope.image.LocalImageStore
+import com.syncscope.image.ThumbnailSource
 import com.syncscope.scan.REMOTE_HOST
 import com.syncscope.scan.REMOTE_ROOT
 import com.syncscope.scan.ScanCoordinator
@@ -15,6 +18,8 @@ import com.syncscope.scan.localFile
 import com.syncscope.scan.remoteDir
 import com.syncscope.scan.remoteFile
 import com.syncscope.source.SourceAvailability
+import java.io.File
+import java.io.FileNotFoundException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +45,12 @@ class ScanOperationsTest {
   private val h = ScanHarness(ApplicationProvider.getApplicationContext())
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
   private val coordinator = ScanCoordinator(h.engine, h.store, scope, h.clock)
+  private val thumbnails = FakeThumbnails()
+  private val images =
+    LocalImageStore(
+      File(ApplicationProvider.getApplicationContext<android.content.Context>().cacheDir, "scan-ops-test"),
+      thumbnails,
+    )
   private val ops =
     ScanOperations(
       coordinator = { coordinator },
@@ -47,10 +58,12 @@ class ScanOperationsTest {
       sources = { h.db.sourceRootDao() },
       repositories = { h.db.repositoryConfigDao() },
       envelope = CloudSyncEnvelope({ JavaOnlyMap() }, { JavaOnlyArray() }),
+      images = { images },
     )
 
   @After
   fun tearDown() {
+    File(ApplicationProvider.getApplicationContext<android.content.Context>().cacheDir, "scan-ops-test").deleteRecursively()
     h.remote.release()
     scope.cancel()
     h.close()
@@ -291,11 +304,126 @@ class ScanOperationsTest {
     assertTrue(invalid.isNull("page"))
   }
 
+  @Test
+  fun everyEntryCarriesTheContract4FieldsAndNoDocumentIdentity() = runBlocking<Unit> {
+    ready()
+    h.addSource("src-2")
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Photos"),
+      image("d2", "a.png", parent = "d1"),
+      localFile("d3", "notes.txt", parent = "d1"),
+      image("d4", "solo.png"),
+    )
+    h.enumerator.files("src-2", image("e1", "a.png"))
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+
+    val reads =
+      listOf(
+        "list top" to ops.queryTreeChildren(snapshotId, null, spec(), null),
+        "list all" to ops.queryFiles(snapshotId, spec(), null),
+        "gallery" to ops.queryFiles(snapshotId, JavaOnlyMap.of("view", "GALLERY", "sort", "NAME_ASC"), null),
+      )
+    for ((label, result) in reads) {
+      assertEquals(label, "ok", result.getString("status"))
+      val entries = result.getMap("page")!!.getArray("entries")!!
+      assertTrue(label, entries.size() > 0)
+      for (i in 0 until entries.size()) {
+        val entry = entries.getMap(i)!!
+        assertTrue("$label ${entry.getString("name")}", entry.hasKey("nameInOtherSource"))
+        assertTrue("$label ${entry.getString("name")}", entry.hasKey("matchingFileCount"))
+        for (key in listOf("documentUri", "documentId", "path", "treeUri", "documentPath")) {
+          assertFalse("$label carries $key", entry.hasKey(key))
+        }
+      }
+      assertNoPathOrHost(result)
+    }
+
+    val listEntries = reads[1].second.getMap("page")!!.getArray("entries")!!
+    for (i in 0 until listEntries.size()) {
+      val entry = listEntries.getMap(i)!!
+      assertFalse("LIST rows never flag a twin", entry.getBoolean("nameInOtherSource"))
+      if (entry.getString("kind") == "FILE") assertTrue(entry.isNull("matchingFileCount"))
+    }
+    val photos = (0 until listEntries.size()).map { listEntries.getMap(it)!! }.single { it.getString("name") == "Photos" }
+    assertEquals(2.0, photos.getDouble("matchingFileCount"), 0.0)
+
+    val gallery = reads[2].second.getMap("page")!!.getArray("entries")!!
+    val twins = (0 until gallery.size()).map { gallery.getMap(it)!! }.map { it.getString("name") to it.getBoolean("nameInOtherSource") }
+    assertEquals(listOf("a.png" to true, "a.png" to true, "solo.png" to false), twins)
+  }
+
+  // --- getLocalImageHandle ---
+
+  @Test
+  fun imageHandleFollowsTheBehaviourTable() = runBlocking<Unit> {
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Photos"),
+      image("d2", "secret-photo.png", parent = "d1"),
+      localFile("d3", "notes.txt", parent = "d1"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    val idOf = (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
+    val photo = idOf.getValue("secret-photo.png")
+    val edge = JavaOnlyMap.of("maxEdgePx", 256.0)
+
+    assertError(ops.imageHandle("no-such-snapshot", photo, edge), "SNAPSHOT_NOT_FOUND")
+    for (entryId in listOf("no-such-entry", idOf.getValue("Photos"), idOf.getValue("notes.txt"))) {
+      assertEquals(entryId, "entryId", assertError(ops.imageHandle(snapshotId, entryId, edge), "INVALID_QUERY").getString("field"))
+    }
+    for (bad in listOf(JavaOnlyMap(), JavaOnlyMap.of("maxEdgePx", "256"), JavaOnlyMap.of("maxEdgePx", Double.NaN))) {
+      assertEquals("maxEdgePx", assertError(ops.imageHandle(snapshotId, photo, bad), "INVALID_QUERY").getString("field"))
+    }
+    assertEquals(0, thumbnails.loads)
+
+    val ok = ops.imageHandle(snapshotId, photo, edge)
+    assertEquals("ok", ok.getString("status"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, ok.getInt("contractVersion"))
+    val uri = ok.getMap("handle")!!.getString("uri")!!
+    assertTrue(uri, uri.startsWith("file://"))
+    assertFalse(uri, uri.contains("secret"))
+    assertFalse(uri, uri.contains("content://"))
+    assertEquals(setOf("uri"), ok.getMap("handle")!!.toHashMap().keys)
+    assertNoPathOrHost(ok)
+    assertEquals(1, thumbnails.loads)
+    // A clamped edge is the same cache entry: no second decode.
+    assertEquals(uri, ops.imageHandle(snapshotId, photo, JavaOnlyMap.of("maxEdgePx", 256.9)).getMap("handle")!!.getString("uri"))
+    assertEquals(1, thumbnails.loads)
+
+    thumbnails.failure = FileNotFoundException("content://gone/secret-photo.png")
+    val unavailable = assertError(ops.imageHandle(snapshotId, photo, JavaOnlyMap.of("maxEdgePx", 512.0)), "IMAGE_UNAVAILABLE")
+    assertEquals("This image could not be read on the device.", unavailable.getString("message"))
+    assertEquals("Check that the folder is still available, then rescan.", unavailable.getString("action"))
+    assertNoPathOrHost(unavailable)
+  }
+
+  /** Returns a small bitmap, or throws [failure] when set. */
+  private class FakeThumbnails : ThumbnailSource {
+    @Volatile var loads = 0
+    @Volatile var failure: Exception? = null
+
+    override fun load(documentUri: String, edgePx: Int): Bitmap? {
+      loads++
+      failure?.let { throw it }
+      return Bitmap.createBitmap(edgePx, edgePx, Bitmap.Config.ARGB_8888)
+    }
+  }
+
   private suspend fun ready() {
     h.configure()
     h.addSource("src-1")
     if (REMOTE_ROOT !in h.remote.tree) h.remote.dir(REMOTE_ROOT)
   }
+
+  private fun image(documentId: String, name: String, parent: String? = null) =
+    localFile(documentId, name, parent = parent).copy(mimeType = "image/png")
 
   private fun spec(pageSize: Double? = null): ReadableMap =
     JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC").apply { pageSize?.let { putDouble("pageSize", it) } }

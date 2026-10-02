@@ -21,6 +21,9 @@ import org.robolectric.annotation.Config
 /**
  * Schema version 1 → 2 (feature 004): `scan_run.mode` and `snapshot.remoteListedAtMillis` are added by
  * the Room auto-migration against the exported schemas, keeping every existing row and index.
+ *
+ * Schema version 2 → 3 (feature 005): `local_node.descSynced`, `descUnsynced` and `descUnknown` are added
+ * as nullable columns; every existing row survives unchanged and reads `NULL` counts.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -93,6 +96,59 @@ class MigrationTest {
   }
 
   @Test
+  fun version2RowsMigrateToVersion3WithNullDescendantCounts() {
+    val v2 = helper.createDatabase(DB_NAME, 2)
+    v2.execSQL(
+      "INSERT INTO scan_run (runId, generation, configRevision, includeHidden, phase, startedAtMillis, " +
+        "finishedAtMillis, terminalState, errorCode, errorSummary, mode) " +
+        "VALUES ('run-1', 7, 3, 0, 'PUBLISHED', 1000, 2000, 'COMPLETED', NULL, NULL, 'FULL')",
+    )
+    v2.execSQL(
+      "INSERT INTO snapshot (snapshotId, scanRunId, completedAtMillis, coverage, configRevision, " +
+        "includeHidden, publishable, remoteListedAtMillis) VALUES ('snap-1', 'run-1', 2000, 'COMPLETE', 3, 0, 1, 1500)",
+    )
+    v2.execSQL(
+      "INSERT INTO source_root (sourceId, treeUri, authority, volumeId, documentPath, canonicalRoot, alias, " +
+        "canWrite, addedAtMillis) VALUES ('src-1', 'content://tree/1', 'auth', 'primary', 'DCIM', " +
+        "'primary:DCIM', 'DCIM', 1, 10)",
+    )
+    v2.execSQL(
+      "INSERT INTO local_node (entryId, snapshotId, sourceId, parentId, kind, documentUri, documentId, name, " +
+        "mimeType, sizeBytes, modifiedUtcMillis, precisionMillis, status, issueCode) VALUES " +
+        "('dir-1', 'snap-1', 'src-1', NULL, 'DIRECTORY', 'content://doc/dir', 'doc-dir', 'album', " +
+        "NULL, NULL, NULL, 1000, 'UNSYNCED', NULL)",
+    )
+    v2.execSQL(
+      "INSERT INTO local_node (entryId, snapshotId, sourceId, parentId, kind, documentUri, documentId, name, " +
+        "mimeType, sizeBytes, modifiedUtcMillis, precisionMillis, status, issueCode) VALUES " +
+        "('file-1', 'snap-1', 'src-1', 'dir-1', 'FILE', 'content://doc/file', 'doc-file', 'a.png', " +
+        "'image/png', 70, 1704067200000, 1000, 'UNSYNCED', 'LOCAL_UNAVAILABLE')",
+    )
+    val rowsBefore = localNodeRows(v2, V2_LOCAL_NODE_COLUMNS)
+    val indicesBefore = indices(v2)
+    v2.close()
+
+    val v3 = helper.runMigrationsAndValidate(DB_NAME, 3, true)
+
+    for (name in listOf("descSynced", "descUnsynced", "descUnknown")) {
+      val col = column(v3, "local_node", name)
+      assertEquals("local_node.$name type", "INTEGER", col.type)
+      assertTrue("local_node.$name must be nullable", !col.notNull)
+    }
+    assertEquals(rowsBefore, localNodeRows(v3, V2_LOCAL_NODE_COLUMNS))
+    v3.query("SELECT entryId, descSynced, descUnsynced, descUnknown FROM local_node ORDER BY entryId").use { c ->
+      assertEquals(2, c.count)
+      while (c.moveToNext()) {
+        assertTrue("${c.getString(0)}.descSynced", c.isNull(1))
+        assertTrue("${c.getString(0)}.descUnsynced", c.isNull(2))
+        assertTrue("${c.getString(0)}.descUnknown", c.isNull(3))
+      }
+    }
+    assertEquals(indicesBefore, indices(v3))
+    v3.close()
+  }
+
+  @Test
   fun migratedDatabaseOpensWithRoomAndReadsTheEntities(): Unit = runBlocking {
     helper.createDatabase(DB_NAME, 1).apply {
       execSQL(
@@ -137,6 +193,25 @@ class MigrationTest {
     }
   }
 
+  /** Every local_node row as a map of the given columns, ordered by entryId. */
+  private fun localNodeRows(db: SupportSQLiteDatabase, columns: List<String>): List<Map<String, Any?>> {
+    val out = mutableListOf<Map<String, Any?>>()
+    db.query("SELECT ${columns.joinToString()} FROM local_node ORDER BY entryId").use { c ->
+      while (c.moveToNext()) {
+        out +=
+          columns.indices.associate { i ->
+            columns[i] to
+              when {
+                c.isNull(i) -> null
+                c.getType(i) == android.database.Cursor.FIELD_TYPE_INTEGER -> c.getLong(i)
+                else -> c.getString(i)
+              }
+          }
+      }
+    }
+    return out
+  }
+
   private data class ColumnInfo(val type: String, val notNull: Boolean)
 
   private fun column(db: SupportSQLiteDatabase, table: String, name: String): ColumnInfo {
@@ -172,5 +247,10 @@ class MigrationTest {
   private companion object {
     const val DB_NAME = "migration-test.db"
     const val UNKNOWN_DB_NAME = "migration-test-unknown.db"
+    val V2_LOCAL_NODE_COLUMNS =
+      listOf(
+        "entryId", "snapshotId", "sourceId", "parentId", "kind", "documentUri", "documentId", "name",
+        "mimeType", "sizeBytes", "modifiedUtcMillis", "precisionMillis", "status", "issueCode",
+      )
   }
 }

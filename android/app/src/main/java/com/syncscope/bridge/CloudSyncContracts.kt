@@ -8,7 +8,7 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 3
+  const val CONTRACT_VERSION = 4
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -31,10 +31,24 @@ object CloudSyncContracts {
 }
 
 /**
+ * Bounds of `getLocalImageHandle`'s `maxEdgePx`, mirroring `LOCAL_IMAGE_MIN_EDGE_PX`,
+ * `LOCAL_IMAGE_MAX_EDGE_PX` and `clampImageEdge` in the TypeScript contract (checked by
+ * CloudSyncContractsParityTest).
+ */
+object LocalImageSpec {
+  const val MIN_EDGE_PX = 64
+  const val MAX_EDGE_PX = 2048
+
+  /** Same clamp as the TS `clampImageEdge` for integral edges. */
+  fun bounded(px: Int): Int = px.coerceIn(MIN_EDGE_PX, MAX_EDGE_PX)
+}
+
+/**
  * Stable, machine-readable error codes; the wire value is the enum name.
  *
  * Codes with a fixed user-facing text carry it as [defaultMessage]/[defaultAction]; the text must match
- * `SOURCE_ERROR_TEXT` / `SCAN_ERROR_TEXT` in the TypeScript contract (checked by CloudSyncContractsParityTest).
+ * `SOURCE_ERROR_TEXT` / `SCAN_ERROR_TEXT` / `IMAGE_ERROR_TEXT` in the TypeScript contract (checked by
+ * CloudSyncContractsParityTest).
  */
 enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAction: String? = null) {
   NOT_IMPLEMENTED,
@@ -90,6 +104,10 @@ enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAct
   REFRESH_UNAVAILABLE(
     "There is no up-to-date remote listing to refresh against.",
     "Run a full scan.",
+  ),
+  IMAGE_UNAVAILABLE(
+    "This image could not be read on the device.",
+    "Check that the folder is still available, then rescan.",
   ),
   INTERNAL_ERROR,
 }

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {
   ActivityIndicator,
@@ -45,15 +45,20 @@ function SourceRow({
 }: SourceRowProps): React.JSX.Element {
   const theme = useTheme();
   const available = source.availability === 'AVAILABLE';
-  const chipColors = available
-    ? {
-        backgroundColor: theme.colors.secondaryContainer,
-        color: theme.colors.onSecondaryContainer,
-      }
-    : {
-        backgroundColor: theme.colors.errorContainer,
-        color: theme.colors.onErrorContainer,
-      };
+  const chipBackground = available
+    ? theme.colors.secondaryContainer
+    : theme.colors.errorContainer;
+  const chipText = available
+    ? theme.colors.onSecondaryContainer
+    : theme.colors.onErrorContainer;
+  const chipStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        background: {backgroundColor: chipBackground},
+        text: {color: chipText},
+      }),
+    [chipBackground, chipText],
+  );
 
   return (
     <Surface elevation={1} style={styles.row} testID="sources.row">
@@ -64,10 +69,9 @@ function SourceRow({
           variant="titleMedium">
           {source.alias}
         </Text>
-        <View
-          style={[styles.chip, {backgroundColor: chipColors.backgroundColor}]}>
+        <View style={[styles.chip, chipStyles.background]}>
           <Text
-            style={{color: chipColors.color}}
+            style={chipStyles.text}
             testID="sources.row.status"
             variant="labelMedium">
             {STATUS_TEXT[source.availability]}
