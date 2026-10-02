@@ -128,7 +128,7 @@ all three.
   - a second `runExclusive { }` throws `DeletionInProgress` while the first is still running, so only one prepare or execute runs at a time (FR-021);
   - `isBusy()` is true in both cases;
   - an exclusive block that throws still releases the coordinator.
-- [ ] T018 Implement T017 in `KT/scan/ScanCoordinator.kt`:
+- [X] T018 Implement T017 in `KT/scan/ScanCoordinator.kt`:
   - `class DeletionInProgress : Exception(CloudSyncErrorCode.DELETION_IN_PROGRESS.name)`;
   - `suspend fun <T> runExclusive(block: suspend () -> T): T`, which under the existing `mutex` throws `ScanInProgress` if a run is active and `DeletionInProgress` if the exclusive flag is already set, then sets the flag, runs `block` outside the mutex, and clears the flag in `finally`;
   - `fun isBusy(): Boolean`.
