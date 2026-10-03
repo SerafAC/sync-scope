@@ -1,0 +1,27 @@
+# Story 6 sc. 8, FR-018a, SC-010 (SFTP), part b of a staged pair: runs while
+# the SFTP container is paused, without a state reset. The server check cannot
+# connect, so the deletion stops with the CONNECTION_* message and Retry, and
+# no confirmation is ever shown: nothing can be deleted without the check.
+appId: com.syncscope
+name: staged/07-delete-offline-b
+---
+- launchApp
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- longPressOn: "beach.png, Synced"
+- extendedWaitUntil:
+    visible: "beach.png, Synced, selected"
+    timeout: 15000
+- tapOn: "Delete selected"
+
+# A paused container accepts the TCP connection and never answers, or refuses
+# it, depending on the port proxy; either way the code is a CONNECTION_* one.
+- extendedWaitUntil:
+    visible: "The SFTP (server could not be reached or refused the connection|server did not respond in time|connection was lost)\\."
+    timeout: 180000
+- assertVisible: "Nothing was deleted"
+- assertVisible: "Retry"
+- assertNotVisible: "Delete [0-9]+ backed-up files, .+"
+- assertNotVisible: "Deleted [0-9]+ files, .+"

@@ -1,0 +1,30 @@
+# Story 6 sc. 8, FR-018a, SC-010 (SFTP), part a of a staged pair: against the
+# remote gallery/ tree, the Offline source holds sunset.png, beach.png and
+# album/forest.png (Synced). After this scan the host hook pause-service.sh
+# pauses the SFTP container, so the server check in part b cannot connect.
+# Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/07-delete-offline-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Offline"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
