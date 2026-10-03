@@ -10,6 +10,7 @@ import {
   useTheme,
 } from 'react-native-paper';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useNavigation, type NavigationProp} from '@react-navigation/native';
 
 import type {
   CloudSyncError,
@@ -17,8 +18,16 @@ import type {
   ScanPhase,
   ScanRunDto,
 } from '../native/CloudSyncContracts';
+import type {RootStackParamList, RootTabParamList} from '../navigation/AppNavigator';
+import {GoThereButton} from '../navigation/fixTargets';
 import {ScanSummaryCard, formatTimestamp} from '../scan/ScanSummaryCard';
 import {useScan} from '../scan/useScan';
+import {spacing} from '../theme/spacing';
+import {
+  useSetupChecklist,
+  type FoldersItem,
+  type RepositoryItem,
+} from '../setup/useSetupChecklist';
 
 const MODE_TEXT: Record<ScanMode, string> = {
   FULL: 'Full scan',
@@ -36,6 +45,84 @@ const PHASE_TEXT: Record<ScanPhase, string> = {
   FAILED: 'Failed',
   ABORTED: 'Stopped when the app closed',
 };
+
+const REPOSITORY_TEXT: Record<Exclude<RepositoryItem, 'ready'>, string> = {
+  missing: 'Enter the details of the server that holds your backup.',
+  needsPassword: 'Enter the server password again.',
+};
+
+const FOLDERS_TEXT: Record<Exclude<FoldersItem, 'ready'>, string> = {
+  none: 'Add a folder from this device to check.',
+  noneAvailable:
+    'None of your folders can be read any more. Add a folder or allow access again.',
+};
+
+type ChecklistNavigation = NavigationProp<
+  Pick<RootStackParamList, 'Repository'> & Pick<RootTabParamList, 'Settings'>
+>;
+
+/**
+ * "Before you can scan" (FR-007, research R6): each missing item says what is
+ * missing and opens the place where it is set up.
+ */
+function SetupChecklistCard({
+  repository,
+  folders,
+}: {
+  repository: RepositoryItem;
+  folders: FoldersItem;
+}): React.JSX.Element {
+  const navigation = useNavigation<ChecklistNavigation>();
+  return (
+    <Surface
+      accessibilityLabel="Before you can scan"
+      elevation={1}
+      style={styles.card}>
+      <Text variant="titleMedium">Before you can scan</Text>
+      {repository !== 'ready' ? (
+        <View style={styles.checklistItem}>
+          <Text variant="bodyMedium">{REPOSITORY_TEXT[repository]}</Text>
+          <Button
+            accessibilityLabel="Set up the server"
+            icon="server"
+            mode="contained-tonal"
+            onPress={() => navigation.navigate('Repository')}
+            style={styles.checklistButton}>
+            Set up the server
+          </Button>
+        </View>
+      ) : null}
+      {folders !== 'ready' ? (
+        <View style={styles.checklistItem}>
+          <Text variant="bodyMedium">{FOLDERS_TEXT[folders]}</Text>
+          <Button
+            accessibilityLabel="Add a folder"
+            icon="folder-plus-outline"
+            mode="contained-tonal"
+            onPress={() => navigation.navigate('Settings')}
+            style={styles.checklistButton}>
+            Add a folder
+          </Button>
+        </View>
+      ) : null}
+    </Surface>
+  );
+}
+
+/** FR-010: the shown results were made with server settings that have since changed. */
+function OldSettingsNotice(): React.JSX.Element {
+  return (
+    <Surface
+      accessibilityLabel="Results from previous server settings"
+      elevation={1}
+      style={styles.card}>
+      <Text variant="titleMedium">Results from previous server settings</Text>
+      <Text variant="bodyMedium">
+        These results were made with your previous server settings. Scan again.
+      </Text>
+    </Surface>
+  );
+}
 
 function errorText(error: CloudSyncError): string {
   return error.action ? `${error.message} ${error.action}` : error.message;
@@ -110,6 +197,10 @@ function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
                 {run.error.action}
               </Text>
             ) : null}
+            <GoThereButton
+              code={run.error.code}
+              textColor={theme.colors.onErrorContainer}
+            />
           </>
         ) : null}
         <Text style={themed.onError} variant="bodySmall">
@@ -129,10 +220,11 @@ function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
 }
 
 /**
- * The Scan tab: Scan / Rescan from scratch / Cancel scan, live progress, the
- * last run, why an interrupted run did not complete, and the active
- * snapshot's summary. Every labelled element is a Maestro selector
- * (contracts/maestro-scan.md).
+ * The Scan tab: what is still needed before a first scan (with a way to each
+ * place), Scan / Rescan from scratch / Cancel scan, live progress, the last
+ * run, why an interrupted run did not complete (with "Go there" when the error
+ * has a fix target), and the active snapshot's summary. Every labelled element
+ * is a Maestro selector (contracts/maestro-scan.md, contracts/maestro-mvp.md).
  */
 export function ScanScreen(): React.JSX.Element {
   const {
@@ -147,7 +239,20 @@ export function ScanScreen(): React.JSX.Element {
     cancel,
     dismissError,
   } = useScan();
+  const checklist = useSetupChecklist();
+  const theme = useTheme();
+  const themed = useMemo(
+    () =>
+      StyleSheet.create({
+        snackbarText: {color: theme.colors.inverseOnSurface},
+      }),
+    [theme.colors.inverseOnSurface],
+  );
   const scanLabel = active == null ? 'Scan' : 'Rescan from scratch';
+  // Until the checklist has answered nothing is known to be missing, so Scan stays offered.
+  const setupMissing =
+    !checklist.loading &&
+    (checklist.repository !== 'ready' || checklist.folders !== 'ready');
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -159,10 +264,16 @@ export function ScanScreen(): React.JSX.Element {
           Checks every file in your folders against the backup.
         </Text>
         {loading ? <ActivityIndicator accessibilityLabel="Loading scan" /> : null}
+        {setupMissing ? (
+          <SetupChecklistCard
+            folders={checklist.folders}
+            repository={checklist.repository}
+          />
+        ) : null}
         <View style={styles.actions}>
           <Button
             accessibilityLabel={scanLabel}
-            disabled={isRunning}
+            disabled={isRunning || setupMissing}
             icon="radar"
             mode="contained"
             onPress={() => scan()}>
@@ -180,6 +291,9 @@ export function ScanScreen(): React.JSX.Element {
         {run != null && isRunning ? <ScanProgressCard run={run} /> : null}
         {run != null ? <LastScan run={run} /> : null}
         {interrupted != null ? <Interruption run={interrupted} /> : null}
+        {active != null && checklist.resultsFromOldSettings ? (
+          <OldSettingsNotice />
+        ) : null}
         {active != null ? (
           <ScanSummaryCard active={active} isStale={isStale} />
         ) : null}
@@ -189,7 +303,16 @@ export function ScanScreen(): React.JSX.Element {
           action={{label: 'Dismiss', onPress: dismissError}}
           onDismiss={dismissError}
           visible>
-          {errorText(error)}
+          <View>
+            <Text style={themed.snackbarText} variant="bodyMedium">
+              {errorText(error)}
+            </Text>
+            <GoThereButton
+              code={error.code}
+              onGo={dismissError}
+              textColor={theme.colors.inversePrimary}
+            />
+          </View>
         </Snackbar>
       ) : null}
     </SafeAreaView>
@@ -206,6 +329,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     gap: 4,
     padding: 16,
+  },
+  checklistButton: {
+    alignSelf: 'flex-start',
+  },
+  checklistItem: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
   },
   content: {
     gap: 16,

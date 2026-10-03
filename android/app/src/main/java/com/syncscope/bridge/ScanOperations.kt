@@ -217,6 +217,8 @@ class ScanOperations(
       // Version 1 snapshots have no listing time; their completion is the closest honest anchor.
       putDouble("remoteListedAtMillis", (snapshot.remoteListedAtMillis ?: completed).toDouble())
       putDouble("precisionMillis", precision.toDouble())
+      // Compared in JS with the saved repository's revision: "results from previous server settings" (FR-010).
+      putDouble("configRevision", snapshot.configRevision.toDouble())
       putString("coverage", snapshot.coverage)
       putMap(
         "summary",

@@ -338,7 +338,24 @@ export async function getScanState(): Promise<ScanStateResult> {
     contractVersion: contractVersionOf(result),
     status: 'ok',
     run: result.run != null ? (result.run as ScanRunDto) : null,
-    active: result.active != null ? (result.active as ActiveSnapshotDto) : null,
+    active: activeSnapshotOf(result.active),
+  };
+}
+
+/**
+ * The active snapshot as native sends it. `configRevision` (contract v5) is read
+ * defensively: a missing or malformed value is 0, a revision no saved repository
+ * has (they start at 1), so the Scan tab suggests a rescan rather than trusting it.
+ */
+function activeSnapshotOf(value: unknown): ActiveSnapshotDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const active = value as ActiveSnapshotDto & {configRevision?: unknown};
+  return {
+    ...active,
+    configRevision:
+      typeof active.configRevision === 'number' ? active.configRevision : 0,
   };
 }
 

@@ -42,3 +42,4 @@ executionOrder:
     - mvp/01-setup-sftp
     - mvp/01-setup-webdav
     - mvp/02-setup-errors
+    - mvp/03-first-run

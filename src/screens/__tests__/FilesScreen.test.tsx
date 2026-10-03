@@ -26,6 +26,12 @@ import { useScan, type ScanState } from '../../scan/useScan';
 import { a11ySweep } from '../../test-utils/a11ySweep';
 import { FilesScreen } from '../FilesScreen';
 
+const mockNavigate = jest.fn();
+
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 jest.mock('../../native/CloudSync', () => ({
   queryFiles: jest.fn(),
   queryTreeChildren: jest.fn(),
@@ -207,7 +213,7 @@ describe('FilesScreen', () => {
   it('shows no snackbar on the first snapshot', async () => {
     useScanMock.mockReturnValue(scanState(null));
     const { rerender } = render(ui());
-    expect(screen.getAllByText('No scan results yet', HIDDEN)).toHaveLength(2);
+    expect(screen.getByLabelText('No scan results yet')).toBeOnTheScreen();
 
     useScanMock.mockReturnValue(scanState('snap-1'));
     rerender(ui());
@@ -222,5 +228,36 @@ describe('FilesScreen', () => {
     await screen.findByLabelText('snap-1.png, Synced');
 
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+  describe('before any completed scan (FR-008)', () => {
+    it('explains that results appear after a scan and leads to the Scan tab', () => {
+      useScanMock.mockReturnValue(scanState(null));
+      render(ui());
+
+      const empty = screen.getByLabelText('No scan results yet');
+      expect(empty).toBeOnTheScreen();
+      expect(screen.getByText('Results appear after a scan.')).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Gallery view')).toBeNull();
+
+      fireEvent.press(screen.getByLabelText('Go to Scan'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('Scan');
+    });
+
+    it('shows nothing of it while the scan state is still loading', () => {
+      useScanMock.mockReturnValue({ ...scanState(null), loading: true });
+      render(ui());
+
+      expect(screen.queryByLabelText('Go to Scan')).toBeNull();
+      expect(screen.queryByText('Results appear after a scan.')).toBeNull();
+    });
+
+    it('shows nothing of it once results exist', async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      expect(screen.queryByLabelText('Go to Scan')).toBeNull();
+      expect(screen.queryByText('Results appear after a scan.')).toBeNull();
+    });
   });
 });

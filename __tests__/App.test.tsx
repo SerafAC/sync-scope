@@ -67,8 +67,9 @@ describe('SyncScope application shell', () => {
   it('shows the Files tab with no scan results before any scan', async () => {
     render(<App />);
 
-    expect(await screen.findByText('No scan results yet')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Filter All')).toBeSelected();
+    expect(await screen.findByLabelText('No scan results yet')).toBeOnTheScreen();
+    expect(screen.getByText('Results appear after a scan.')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Go to Scan')).toBeOnTheScreen();
   });
 
   it('does not start a local refresh without an active snapshot', async () => {
@@ -103,6 +104,34 @@ describe('SyncScope application shell', () => {
       screen.queryByText('Repository and folder settings will appear here.'),
     ).toBeNull();
     expect(await screen.findByText('No folders added yet.')).toBeOnTheScreen();
+  });
+
+  it('leads from the empty Files tab to the Scan checklist and on to each place', async () => {
+    const navigation = createNavigationContainerRef<RootStackParamList>();
+    render(
+      <PaperProvider>
+        <ScanProvider>
+          <NavigationContainer ref={navigation}>
+            <AppNavigator />
+          </NavigationContainer>
+        </ScanProvider>
+      </PaperProvider>,
+    );
+
+    fireEvent.press(await screen.findByLabelText('Go to Scan'));
+    expect(
+      await screen.findByLabelText('Before you can scan'),
+    ).toBeOnTheScreen();
+    expect(navigation.getCurrentRoute()?.name).toBe('Scan');
+
+    fireEvent.press(screen.getByLabelText('Set up the server'));
+    expect(await screen.findByLabelText('Save and test')).toBeOnTheScreen();
+    expect(navigation.getCurrentRoute()?.name).toBe('Repository');
+
+    act(() => navigation.goBack());
+    fireEvent.press(await screen.findByLabelText('Add a folder'));
+    expect(await screen.findByTestId('sources.add')).toBeOnTheScreen();
+    expect(navigation.getCurrentRoute()?.name).toBe('Settings');
   });
 
   it('pushes the Repository form above the tabs on the root stack', async () => {

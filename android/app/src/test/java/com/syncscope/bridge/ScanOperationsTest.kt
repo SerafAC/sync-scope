@@ -240,6 +240,22 @@ class ScanOperationsTest {
   }
 
   @Test
+  fun theActiveSnapshotCarriesTheConfigRevisionItWasMadeWith() = runBlocking<Unit> {
+    h.configure(revision = 7L)
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT)
+    ops.start(null)
+    coordinator.awaitIdle()
+    // A later save bumps the repository revision; the snapshot keeps the one it was made with.
+    h.configure(revision = 8L)
+
+    val active = ops.state().getMap("active")!!
+
+    assertEquals(7L, h.store.snapshot(active.getString("snapshotId")!!)!!.configRevision)
+    assertEquals(7.0, active.getDouble("configRevision"), 0.0)
+  }
+
+  @Test
   fun anInterruptedListingIsReportedWithItsCode() = runBlocking<Unit> {
     ready()
     h.remote.dir(REMOTE_ROOT, remoteDir("flaky"))

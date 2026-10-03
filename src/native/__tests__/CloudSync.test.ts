@@ -361,6 +361,7 @@ const activeSnapshot = {
   completedAtMillis: 1_700_000_100_000,
   remoteListedAtMillis: 1_700_000_050_000,
   precisionMillis: 1000,
+  configRevision: 2,
   coverage: 'COMPLETE',
   summary: {
     synced: 4,
@@ -510,6 +511,44 @@ describe('CloudSync scan wrappers', () => {
         run: runningRun,
         active: activeSnapshot,
       });
+    });
+
+    it('parses the active snapshot configRevision (contract v5)', async () => {
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 5,
+          status: 'ok',
+          run: null,
+          active: {...activeSnapshot, configRevision: 7},
+        }),
+      });
+
+      const result = await getScanState();
+
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') {
+        expect(result.active?.configRevision).toBe(7);
+      }
+    });
+
+    it('reads a missing or malformed configRevision as 0, never undefined', async () => {
+      for (const configRevision of [undefined, null, '7']) {
+        mockNative({
+          getScanState: jest.fn().mockResolvedValue({
+            contractVersion: 5,
+            status: 'ok',
+            run: null,
+            active: {...activeSnapshot, configRevision},
+          }),
+        });
+
+        const result = await getScanState();
+
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok') {
+          expect(result.active?.configRevision).toBe(0);
+        }
+      }
     });
 
     it('maps missing run and active to null', async () => {

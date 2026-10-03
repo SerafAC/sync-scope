@@ -231,17 +231,17 @@ guide a new user.
 **Independent Test**: on a fresh install, follow only what the screens say until results appear
 (`MAESTRO/mvp/03-first-run.yaml`).
 
-- [ ] T030 [P] [US2] Create `src/__tests__/noConnectScreenString.test.ts`. It reads every `.ts`/`.tsx` file under `src/` and every `.kt` file under `android/app/src/main/` with `fs`, and fails if any contains `Connect screen` (SC-003). It must pass after T010 and T020.
-- [ ] T031 [P] [US2] Create `src/navigation/fixTargets.ts` and `src/navigation/__tests__/fixTargets.test.ts`. The module exports `fixTargetFor(code): 'Repository' | 'Settings' | null` with exactly the mapping in research R5 (`REPOSITORY_NOT_CONFIGURED`, `CREDENTIAL_UNAVAILABLE`, `AUTH_FAILED`, `TLS_UNTRUSTED`, `SFTP_HOST_KEY_UNVERIFIED`, `SFTP_HOST_KEY_CHANGED` → `Repository`; `NO_SOURCES_SELECTED`, `GRANT_REVOKED` → `Settings`; everything else → `null`), and a `GoThereButton` component labelled `Go there`.
-- [ ] T032 [P] [US2] Add `configRevision` to the active snapshot in `KT/bridge/ScanOperations.kt` (from `SnapshotEntity.configRevision`), with a test in `KTEST/bridge/ScanOperationsTest.kt`. Parse it in `src/native/CloudSync.ts` with a test.
-- [ ] T033 [P] [US2] Create `src/setup/useSetupChecklist.ts` and `src/setup/__tests__/useSetupChecklist.test.tsx`. The hook derives `{repository: 'missing' | 'needsPassword' | 'ready', folders: 'none' | 'noneAvailable' | 'ready', resultsFromOldSettings: boolean}` exactly as in [data-model.md](./data-model.md#setup-checklist-js-derived-never-stored), re-reading on focus. Tests cover each value and that nothing is stored.
-- [ ] T034 [US2] Update `src/screens/ScanScreen.tsx` and `src/screens/__tests__/ScanScreen.test.tsx`:
+- [X] T030 [P] [US2] Create `src/__tests__/noConnectScreenString.test.ts`. It reads every `.ts`/`.tsx` file under `src/` and every `.kt` file under `android/app/src/main/` with `fs`, and fails if any contains `Connect screen` (SC-003). It must pass after T010 and T020.
+- [X] T031 [P] [US2] Create `src/navigation/fixTargets.ts` and `src/navigation/__tests__/fixTargets.test.ts`. The module exports `fixTargetFor(code): 'Repository' | 'Settings' | null` with exactly the mapping in research R5 (`REPOSITORY_NOT_CONFIGURED`, `CREDENTIAL_UNAVAILABLE`, `AUTH_FAILED`, `TLS_UNTRUSTED`, `SFTP_HOST_KEY_UNVERIFIED`, `SFTP_HOST_KEY_CHANGED` → `Repository`; `NO_SOURCES_SELECTED`, `GRANT_REVOKED` → `Settings`; everything else → `null`), and a `GoThereButton` component labelled `Go there`.
+- [X] T032 [P] [US2] Add `configRevision` to the active snapshot in `KT/bridge/ScanOperations.kt` (from `SnapshotEntity.configRevision`), with a test in `KTEST/bridge/ScanOperationsTest.kt`. Parse it in `src/native/CloudSync.ts` with a test.
+- [X] T033 [P] [US2] Create `src/setup/useSetupChecklist.ts` and `src/setup/__tests__/useSetupChecklist.test.tsx`. The hook derives `{repository: 'missing' | 'needsPassword' | 'ready', folders: 'none' | 'noneAvailable' | 'ready', resultsFromOldSettings: boolean}` exactly as in [data-model.md](./data-model.md#setup-checklist-js-derived-never-stored), re-reading on focus. Tests cover each value and that nothing is stored.
+- [X] T034 [US2] Update `src/screens/ScanScreen.tsx` and `src/screens/__tests__/ScanScreen.test.tsx`:
   - a `Before you can scan` card listing `Set up the server` (→ `Repository`) and `Add a folder` (→ `Settings`) for each item not `ready`;
   - `Scan` disabled while either item is not ready (FR-007);
   - the notice `Results from previous server settings` with the text "These results were made with your previous server settings. Scan again." when `resultsFromOldSettings` (FR-010);
   - a `GoThereButton` next to any run or start error whose code has a fix target (FR-006).
-- [ ] T035 [US2] Update `src/screens/FilesScreen.tsx` and `src/screens/__tests__/FilesScreen.test.tsx`: the existing `No scan results yet` empty state gets the text "Results appear after a scan." and a `Go to Scan` button that navigates to the Scan tab (FR-008).
-- [ ] T036 [US2] Create `MAESTRO/mvp/03-first-run.yaml` as mapped (Story 2 rows) and add it to `flowsOrder`. It uses WebDAV through `subflows/setup-repository.yaml` and the existing `subflows/pick-folder.yaml` for `SyncScopeE2E/Gallery`, and ends with results visible in Files.
+- [X] T035 [US2] Update `src/screens/FilesScreen.tsx` and `src/screens/__tests__/FilesScreen.test.tsx`: the existing `No scan results yet` empty state gets the text "Results appear after a scan." and a `Go to Scan` button that navigates to the Scan tab (FR-008).
+- [X] T036 [US2] Create `MAESTRO/mvp/03-first-run.yaml` as mapped (Story 2 rows) and add it to `flowsOrder`. It uses WebDAV through `subflows/setup-repository.yaml` and the existing `subflows/pick-folder.yaml` for `SyncScopeE2E/Gallery`, and ends with results visible in Files.
 
 **Checkpoint**: US1 and US2 together give an adb-free path from install to results.
 
