@@ -43,3 +43,5 @@ executionOrder:
     - mvp/01-setup-webdav
     - mvp/02-setup-errors
     - mvp/03-first-run
+    - mvp/90-release-smoke
+    - mvp/91-release-update

@@ -1516,3 +1516,75 @@ test('release-smoke mode follows the contract steps in order', async () => {
     /if \[ "\$mode" = e2e \]; then\n\s+"\$repo\/scripts\/validation\/metro-service\.sh" start/,
   );
 });
+
+// FR-022, research R17: the app version is derived from package.json, never
+// hard-coded in build.gradle. Runs the real Gradle task (offline, so the
+// cached toolchain is used) and recomputes the expected values here.
+test('android printVersion derives versionName and versionCode from package.json', {timeout: 600000}, async () => {
+  const {version} = JSON.parse(await text('package.json'));
+  const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  assert.ok(parts, `package.json version '${version}' must be MAJOR.MINOR.PATCH`);
+  const [major, minor, patch] = parts.slice(1).map(Number);
+  const expectedCode = major * 10000 + minor * 100 + patch;
+
+  const gradle = await text('android/app/build.gradle');
+  assert.ok(!/versionName "1\.0"/.test(gradle), 'versionName must not be hard-coded');
+  assert.ok(!/versionCode 1\b/.test(gradle), 'versionCode must not be hard-coded');
+
+  const androidDir = new URL('android/', root).pathname;
+  const run = spawnSync(
+    join(androidDir, 'gradlew'),
+    ['-p', androidDir, '-q', ':app:printVersion', '--offline'],
+    {encoding: 'utf8', cwd: androidDir, timeout: 600000},
+  );
+  assert.equal(run.status, 0, `:app:printVersion failed:\n${run.stdout}\n${run.stderr}`);
+  const name = /^versionName=(.+)$/m.exec(run.stdout);
+  const code = /^versionCode=(\d+)$/m.exec(run.stdout);
+  assert.ok(name, `no versionName= line in:\n${run.stdout}`);
+  assert.ok(code, `no versionCode= line in:\n${run.stdout}`);
+  assert.equal(name[1].trim(), version);
+  assert.equal(Number(code[1]), expectedCode);
+});
+
+// Research R8, R4, D021: the release APK is signed only with the personal key
+// from the four SYNCSCOPE_RELEASE_* Gradle properties, never the debug key; it
+// allows the user-chosen cleartext; and a release build without the key fails
+// fast, naming DEVELOPMENT.md.
+test('release signing comes from SYNCSCOPE_RELEASE_* properties with a fail-fast check', async () => {
+  const gradle = await text('android/app/build.gradle');
+  const block = (source, opener) => {
+    const start = source.indexOf(opener);
+    assert.ok(start !== -1, `build.gradle must contain '${opener}'`);
+    let depth = 0;
+    for (let i = source.indexOf('{', start); i < source.length; i += 1) {
+      if (source[i] === '{') depth += 1;
+      if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
+    }
+    assert.fail(`unbalanced block after '${opener}'`);
+  };
+
+  const signing = block(gradle, 'signingConfigs {');
+  const releaseSigning = block(signing, 'release {');
+  for (const suffix of ['STORE_FILE', 'STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']) {
+    assert.ok(
+      releaseSigning.includes(`SYNCSCOPE_RELEASE_${suffix}`) ||
+        gradle.includes(`"SYNCSCOPE_RELEASE_${suffix}"`),
+      `signingConfigs.release must read SYNCSCOPE_RELEASE_${suffix}`,
+    );
+  }
+
+  const buildTypes = block(gradle, 'buildTypes {');
+  const release = block(buildTypes, 'release {');
+  assert.match(release, /signingConfig\s+signingConfigs\.release\b/);
+  assert.ok(
+    !/signingConfigs\.debug/.test(release),
+    'buildTypes.release must never fall back to the debug key',
+  );
+  assert.match(release, /manifestPlaceholders\s*=\s*\[usesCleartextTraffic:\s*"true"\]/);
+
+  const whenReady = block(gradle, 'gradle.taskGraph.whenReady');
+  assert.match(whenReady, /Release/);
+  assert.match(whenReady, /GradleException/);
+  assert.match(whenReady, /Release signing is not configured/);
+  assert.match(whenReady, /DEVELOPMENT\.md/, 'the failure message must name DEVELOPMENT.md');
+});

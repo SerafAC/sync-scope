@@ -1,0 +1,55 @@
+# Story 4 sc. 1-2, FR-012, SC-004: the installed app works on its own. In
+# release-smoke mode (android-flow.sh step 6) this runs on the signed release
+# APK with no Metro: set up SFTP through the form, add a folder, scan, and see
+# the results in Files. No debug seam is used, so the flow is valid on the
+# debug build too and runs last in the workspace.
+# Self-contained: starts from clearState (contracts/maestro-mvp.md).
+appId: com.syncscope
+name: mvp/90-release-smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+
+# The server, through the Repository form (trusts the SFTP key, waits for Connected).
+- runFlow:
+    file: ../subflows/setup-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      HOST: "${SFTP_HOST}"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- assertVisible: "Connected, [0-9]+ entries"
+- back
+- extendedWaitUntil:
+    visible: "Repository SFTP ${SFTP_HOST}"
+    timeout: 15000
+
+# A folder, through the system picker.
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Select"
+
+# A scan that completes.
+- runFlow: ../subflows/open-scan.yaml
+- extendedWaitUntil:
+    notVisible: "Before you can scan"
+    timeout: 15000
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+
+# The results, in Files.
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "sunset.png, Synced"
+- assertVisible: "harbor.png, Unsynced"
+- assertNotVisible: "No scan results yet"

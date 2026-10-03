@@ -209,7 +209,7 @@ release_smoke_build() {
   aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
   badging=$("$aapt2" dump badging "$release_apk" | sed -n '1p')
   case "$badging" in
-    *" versionCode='$version_code' "*" versionName='$version'"*) ;;
+    *" versionCode='$version_code'"*" versionName='$version'"*) ;;
     *)
       printf 'Release APK version does not match package.json %s (code %s): %s\n' \
         "$version" "$version_code" "$badging" >&2

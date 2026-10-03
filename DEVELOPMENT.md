@@ -38,7 +38,7 @@ Every script in `package.json`, grouped by purpose. Run them with `pnpm <script>
 | `android` | Builds the debug app, installs it on a connected device or emulator and launches it. |
 | `build` | Alias for `assemble:debug`. |
 | `assemble:debug` | Builds `android/app/build/outputs/apk/debug/app-debug.apk` with Gradle. |
-| `assemble:release` | Builds the release APK with Gradle. |
+| `assemble:release` | Builds the signed, self-contained `android/app/build/outputs/apk/release/app-release.apk` (needs the [release key](#release-key)). |
 
 ### Project progress
 
@@ -394,8 +394,10 @@ For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webda
 
 - The project uses [Semantic Versioning](https://semver.org/). The `version` field in `package.json` is the
   single source of truth for the version.
-- The Android `versionName` and `versionCode` in `android/app/build.gradle` do not derive from it yet.
-  Deriving them from `package.json` is tracked in `specs/009-full-loop-release`.
+- `android/app/build.gradle` derives the Android version from it: `versionName` is the version and
+  `versionCode` is `major * 10000 + minor * 100 + patch`. The build fails on a version that is not plain
+  `MAJOR.MINOR.PATCH`, or on a minor or patch of 100 or more. `android/gradlew -p android -q
+  :app:printVersion` prints both values.
 
 ### Changelog
 
@@ -411,6 +413,54 @@ behaviour-changing change adds an entry under `## [Unreleased]`, in the same cha
    ISO date, and leave an empty `## [Unreleased]` section above it.
 4. Build the release APK with `pnpm assemble:release`.
 5. Commit the version bump and changelog together, and tag the commit `vX.Y.Z`.
+
+### Release key
+
+The release APK is signed with your personal key, so a later build installs over an earlier one and the
+app keeps its data. There is no fallback to the debug key. The key and its passwords never go into the
+repository.
+
+1. Create the key once. Keep the keystore outside the repository:
+
+   ```sh
+   mkdir -p ~/keys
+   keytool -genkeypair -v -storetype PKCS12 -keystore ~/keys/syncscope-release.p12 -alias syncscope -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. Add four properties to `~/.gradle/gradle.properties`. Gradle does not expand `~`, so give the keystore
+   as an absolute path:
+
+   ```properties
+   SYNCSCOPE_RELEASE_STORE_FILE=/home/<you>/keys/syncscope-release.p12
+   SYNCSCOPE_RELEASE_STORE_PASSWORD=<store password>
+   SYNCSCOPE_RELEASE_KEY_ALIAS=syncscope
+   SYNCSCOPE_RELEASE_KEY_PASSWORD=<key password>
+   ```
+
+   Instead of the file, you can export them as environment variables named
+   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE`, `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD`,
+   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS` and `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD`.
+   `pnpm e2e:android:release-smoke` does this with a throwaway key.
+
+3. Build with `pnpm assemble:release`. The APK is
+   `android/app/build/outputs/apk/release/app-release.apk`. It bundles the JavaScript, so it runs without
+   Metro. Install it with `adb install -r android/app/build/outputs/apk/release/app-release.apk`, or copy it
+   to the phone and open it.
+
+If any of the four properties is missing, every task whose name contains `Release` fails at once with
+"Release signing is not configured. Set SYNCSCOPE_RELEASE_STORE_FILE, …". Debug builds and JVM tests never
+need the key.
+
+**Back up the keystore and its passwords.** Android installs an update only when it is signed with the
+same key. If the key is lost, the next build can only be installed after uninstalling the app, and
+uninstalling deletes the app's data: the server settings, the folder list and the scan results.
+
+**Why `hermes-compiler` is hoisted.** A release build compiles the JavaScript bundle to Hermes bytecode.
+React Native's Gradle plugin looks for the `hermesc` binary at `node_modules/hermes-compiler`, but
+`hermes-compiler` is only a dependency of `react-native`, and pnpm keeps it out of the top-level
+`node_modules`. The `publicHoistPattern: [hermes-compiler]` entry in `pnpm-workspace.yaml` puts it there.
+Without it, `pnpm assemble:release` fails while bundling. Debug builds load the bundle from Metro, so they
+do not notice. After changing that entry, run `pnpm install` again.
 
 ## Technical documentation
 

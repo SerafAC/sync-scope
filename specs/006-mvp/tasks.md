@@ -255,35 +255,35 @@ contains no debug seams.
 **Independent Test**: `pnpm e2e:android:release-smoke` installs the release APK with no Metro and
 completes setup and a scan (`MAESTRO/mvp/90-release-smoke.yaml`).
 
-- [ ] T037 [US4] Add a script-contract test to `scripts/validation/validation-infrastructure.test.mjs` (after T004) that runs `android/gradlew -p android -q :app:printVersion --offline`. It parses `versionName=` and `versionCode=` and compares them with values computed from `package.json`'s `version` as in research R17 (`major * 10000 + minor * 100 + patch`). It also asserts that `android/app/build.gradle` no longer contains `versionName "1.0"` or `versionCode 1`. The test must fail until T038 (FR-022).
-- [ ] T038 [US4] Derive the version in `android/app/build.gradle` (research R17):
+- [X] T037 [US4] Add a script-contract test to `scripts/validation/validation-infrastructure.test.mjs` (after T004) that runs `android/gradlew -p android -q :app:printVersion --offline`. It parses `versionName=` and `versionCode=` and compares them with values computed from `package.json`'s `version` as in research R17 (`major * 10000 + minor * 100 + patch`). It also asserts that `android/app/build.gradle` no longer contains `versionName "1.0"` or `versionCode 1`. The test must fail until T038 (FR-022).
+- [X] T038 [US4] Derive the version in `android/app/build.gradle` (research R17):
   - Read `../../package.json` with `groovy.json.JsonSlurper`.
   - Require `^(\d+)\.(\d+)\.(\d+)$`, with minor and patch < 100, else throw a `GradleException` naming `package.json`.
   - Set `versionName` to the version and `versionCode` to `major * 10000 + minor * 100 + patch`.
   - Register `tasks.register("printVersion")`, which prints `versionName=<v>` and `versionCode=<c>`.
 
   `pnpm test:foundation`, `pnpm assemble:debug` and `pnpm test:android:unit` must pass.
-- [ ] T039 [US4] Add script-contract assertions to `scripts/validation/validation-infrastructure.test.mjs` (after T004) that read `android/app/build.gradle` as text. The test must fail until T040.
+- [X] T039 [US4] Add script-contract assertions to `scripts/validation/validation-infrastructure.test.mjs` (after T004) that read `android/app/build.gradle` as text. The test must fail until T040.
   - `signingConfigs` defines `release` from the four `SYNCSCOPE_RELEASE_*` properties.
   - `buildTypes.release` uses `signingConfigs.release` and never `signingConfigs.debug`.
   - The release `manifestPlaceholders` set `usesCleartextTraffic: "true"`.
   - A `taskGraph.whenReady` check names `DEVELOPMENT.md` in its failure message.
-- [ ] T040 [US4] Edit `android/app/build.gradle` (research R8, R4):
+- [X] T040 [US4] Edit `android/app/build.gradle` (research R8, R4):
   - Add `signingConfigs { release { … } }` reading `findProperty("SYNCSCOPE_RELEASE_STORE_FILE")` and the other three, set only when all four are present.
   - Set `buildTypes.release.signingConfig signingConfigs.release`.
   - Set `usesCleartextTraffic: "true"` in the release placeholders, with the comment "The user chooses the protocol; the form warns about unencrypted connections (D021)".
   - Add `gradle.taskGraph.whenReady { graph -> … }`, which throws a `GradleException` when any scheduled task's name contains `Release` and a property is missing. The message is: "Release signing is not configured. Set SYNCSCOPE_RELEASE_STORE_FILE, …_STORE_PASSWORD, …_KEY_ALIAS and …_KEY_PASSWORD in ~/.gradle/gradle.properties (DEVELOPMENT.md › Release key)."
 
   `pnpm assemble:debug` and `pnpm test:android:unit` must still pass with no properties set. `pnpm test:foundation` must pass.
-- [ ] T041 [US4] Add a "Release key" section to `DEVELOPMENT.md`. It covers:
+- [X] T041 [US4] Add a "Release key" section to `DEVELOPMENT.md`. It covers:
   - the one-time `keytool -genkeypair -v -storetype PKCS12 -keystore ~/keys/syncscope-release.p12 -alias syncscope -keyalg RSA -keysize 4096 -validity 10000` command;
   - the four properties in `~/.gradle/gradle.properties`, or the `ORG_GRADLE_PROJECT_*` equivalents;
   - `pnpm assemble:release` and the APK path;
   - that losing the key forces an uninstall, which deletes the app's data, so back it up;
   - the `hermes-compiler` hoist and why it is needed for release bundling.
-- [ ] T042 [US4] Create `MAESTRO/mvp/90-release-smoke.yaml` (Story 4 row in the mapping) using `subflows/setup-repository.yaml` with SFTP, then add folder `SyncScopeE2E/Select`, scan, and results in Files. Add it to `flowsOrder` last, since it is valid on debug too. Run `pnpm e2e:android:release-smoke` after T043 and record the run in the PR.
+- [X] T042 [US4] Create `MAESTRO/mvp/90-release-smoke.yaml` (Story 4 row in the mapping) using `subflows/setup-repository.yaml` with SFTP, then add folder `SyncScopeE2E/Select`, scan, and results in Files. Add it to `flowsOrder` last, since it is valid on debug too. Run `pnpm e2e:android:release-smoke` after T043 and record the run in the PR.
 
-- [ ] T043 [US4] Create `MAESTRO/mvp/91-release-update.yaml` (Story 4 sc. 5). It uses `launchApp` without `clearState`, then asserts `Repository SFTP 10.0.2.2` in Settings and the results still visible in Files with no new scan. Add it to `flowsOrder` directly after `mvp/90-release-smoke`: in the debug workspace it proves the state survives a relaunch, and release-smoke step 7 runs it after the in-place `adb install -r`.
+- [X] T043 [US4] Create `MAESTRO/mvp/91-release-update.yaml` (Story 4 sc. 5). It uses `launchApp` without `clearState`, then asserts `Repository SFTP 10.0.2.2` in Settings and the results still visible in Files with no new scan. Add it to `flowsOrder` directly after `mvp/90-release-smoke`: in the debug workspace it proves the state survives a relaunch, and release-smoke step 7 runs it after the in-place `adb install -r`.
 
 **Checkpoint**: the owner can install a self-contained APK and update it in place with the same key.
 
