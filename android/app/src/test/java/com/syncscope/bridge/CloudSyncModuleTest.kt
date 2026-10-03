@@ -86,9 +86,6 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
-        {
-          module.listSelectableEntries("snap", JavaOnlyMap.of("filter", "ALL", "view", "GALLERY", "sort", "NAME_ASC"), it)
-        },
         { module.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) },
         { module.executeLocalDeletion("plan", false, it) },
         { module.executeLocalDeletion("plan", true, it) },
@@ -231,6 +228,7 @@ class CloudSyncModuleTest {
           "cancelScan" to { scans.cancelScan("no-such-run", it) },
           "getScanState" to { scans.getScanState(it) },
           "getLocalImageHandle" to { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) },
+          "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
@@ -245,6 +243,12 @@ class CloudSyncModuleTest {
       assertEquals(
         "SNAPSHOT_NOT_FOUND",
         resolve { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) }
+          .getMap("error")!!
+          .getString("code"),
+      )
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) }
           .getMap("error")!!
           .getString("code"),
       )
@@ -295,6 +299,10 @@ class CloudSyncModuleTest {
       val page = resolve { scans.queryFiles(active.getString("snapshotId")!!, JavaOnlyMap(), null, it) }
       assertEquals("ok", page.getString("status"))
       assertEquals(2, page.getMap("page")!!.getArray("entries")!!.size())
+
+      val selectable = resolve { scans.listSelectableEntries(active.getString("snapshotId")!!, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1"), it) }
+      assertEquals("ok", selectable.getString("status"))
+      assertEquals(2, selectable.getMap("selectable")!!.getArray("entryIds")!!.size())
     } finally {
       scans.invalidate()
       h.close()

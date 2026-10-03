@@ -9,6 +9,7 @@ import { FilesScreen } from '../screens/FilesScreen';
 import { RepositoryScreen } from '../screens/RepositoryScreen';
 import { ScanScreen } from '../screens/ScanScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { SelectionProvider } from '../selection/SelectionProvider';
 
 export type RootTabParamList = {
   Files: undefined;
@@ -28,12 +29,14 @@ export type RootStackParamList = {
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-/** The Files tab: its view and filter live as long as the tab is mounted. */
+/** The Files tab: its view, filter and selection live as long as the tab is mounted. */
 function FilesTab(): React.JSX.Element {
   const focused = useIsFocused();
   return (
     <FilesProvider>
-      <FilesScreen focused={focused} />
+      <SelectionProvider>
+        <FilesScreen focused={focused} />
+      </SelectionProvider>
     </FilesProvider>
   );
 }

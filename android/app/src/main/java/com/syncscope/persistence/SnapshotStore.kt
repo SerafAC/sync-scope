@@ -21,6 +21,17 @@ data class FileEntry(
   val matchingFileCount: Long? = null,
 )
 
+/**
+ * Every `FILE` row a query would show, as four parallel arrays in the same order, mirroring
+ * `SelectableEntriesDto` on the JS side. A size of `-1` means the size is unknown.
+ */
+class SelectableEntries(
+  val entryIds: List<String>,
+  val sizes: LongArray,
+  val statuses: List<String>,
+  val images: BooleanArray,
+)
+
 /** A bounded page of entries, mirroring `FilePageDto` on the JS side. */
 data class FilePage(
   val entries: List<FileEntry>,
@@ -313,41 +324,8 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
       }
 
     val limit = query.effectivePageSize()
-    val args = mutableListOf<Any?>(snapshotId)
-    val where = StringBuilder("snapshotId = ?")
-
-    val filterClause =
-      when (query.filter) {
-        FileFilter.ALL -> null
-        FileFilter.SYNCED -> "status = 'SYNCED'"
-        FileFilter.UNSYNCED -> "status = 'UNSYNCED'"
-        FileFilter.ISSUES_UNKNOWN -> "(status = 'UNKNOWN' OR issueCode IS NOT NULL)"
-      }
-    if (filterClause != null) {
-      // Browsing a folder never dead-ends: directories are always listed and the filter narrows
-      // files only (research R3). A flat `queryFiles` read keeps 004's rule.
-      val browsing = topLevelOnly || query.parentId != null
-      where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
-    }
+    val (where, args) = scopeOf(snapshotId, query, topLevelOnly)
     val gallery = query.view == FileView.GALLERY
-    if (gallery) {
-      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
-    }
-    query.sourceId?.let {
-      where.append(" AND sourceId = ?")
-      args += it
-    }
-    if (topLevelOnly) {
-      where.append(" AND parentId IS NULL")
-    }
-    query.parentId?.let {
-      where.append(" AND parentId = ?")
-      args += it
-    }
-    query.search?.takeIf { it.isNotEmpty() }?.let {
-      where.append(" AND name LIKE ? ESCAPE '\\'")
-      args += "%${escapeLike(it)}%"
-    }
 
     val ascending = query.sort == FileSort.NAME_ASC || query.sort == FileSort.TIME_ASC
     val sortColumn =
@@ -413,6 +391,41 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   }
 
   /**
+   * "Select all" (`listSelectableEntries`): every `FILE` row [query] would show, in one read. GALLERY
+   * follows `queryFiles` (the filter applies to every row, images only, `sourceId`/`parentId` narrow
+   * when given). LIST follows `queryTreeChildren` for one folder: the direct children of
+   * `query.parentId` (the source's top level when null) in `query.sourceId`, which is required.
+   * Directories are never returned; `pageSize`, `sort` and `search` are ignored. Throws
+   * [SnapshotNotFoundException] when the snapshot is missing or still staged.
+   */
+  suspend fun selectableEntries(snapshotId: String, query: SnapshotQuery): SelectableEntries {
+    val list = query.view == FileView.LIST
+    require(!list || query.sourceId != null) { "a LIST selection needs a sourceId" }
+    val snapshot = db.snapshotDao().byId(snapshotId)
+    if (snapshot == null || !snapshot.publishable) {
+      throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
+    }
+    val (where, args) = scopeOf(snapshotId, query.copy(search = null), topLevelOnly = list && query.parentId == null)
+    where.append(" AND kind = 'FILE'")
+    val sql =
+      "SELECT entryId, sizeBytes, status, COALESCE(mimeType LIKE 'image/%', 0) AS isImage" +
+        " FROM local_node WHERE $where"
+    val rows = db.localNodeDao().selectable(SimpleSQLiteQuery(sql, args.toTypedArray()))
+    val sizes = LongArray(rows.size)
+    val images = BooleanArray(rows.size)
+    rows.forEachIndexed { index, row ->
+      sizes[index] = row.sizeBytes ?: UNKNOWN_SIZE
+      images[index] = row.isImage
+    }
+    return SelectableEntries(
+      entryIds = rows.map { it.entryId },
+      sizes = sizes,
+      statuses = rows.map { it.status },
+      images = images,
+    )
+  }
+
+  /**
    * The local document of [entryId] in a published snapshot, for `getLocalImageHandle`: its
    * `documentUri` and `mimeType`, or null when the entry is unknown or is a `DIRECTORY`. Throws
    * [SnapshotNotFoundException] when the snapshot is missing or still staged.
@@ -426,10 +439,60 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   }
 
   private companion object {
+    /** `sizes[i]` of a [SelectableEntries] row whose size is unknown. */
+    const val UNKNOWN_SIZE = -1L
     val DISCARD_STATES = setOf("CANCELLED", "FAILED")
     const val KIND_DIRECTORY = "DIRECTORY"
     /** Room's name for `Index(snapshotId, name, sizeBytes)` on `local_node` (schema 3.json). */
     const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
+  }
+
+  /**
+   * The row scope of a browse read, shared by [queryFilePage] and [selectableEntries] so the filter,
+   * view and parent rules are defined once: the snapshot, the filter (directories always pass while
+   * browsing a folder, research R3), GALLERY's image-only rule, the source, the parent (or the top
+   * level) and the search. Returns the `WHERE` clause and its bind arguments.
+   */
+  private fun scopeOf(
+    snapshotId: String,
+    query: SnapshotQuery,
+    topLevelOnly: Boolean,
+  ): Pair<StringBuilder, MutableList<Any?>> {
+    val args = mutableListOf<Any?>(snapshotId)
+    val where = StringBuilder("snapshotId = ?")
+
+    val filterClause =
+      when (query.filter) {
+        FileFilter.ALL -> null
+        FileFilter.SYNCED -> "status = 'SYNCED'"
+        FileFilter.UNSYNCED -> "status = 'UNSYNCED'"
+        FileFilter.ISSUES_UNKNOWN -> "(status = 'UNKNOWN' OR issueCode IS NOT NULL)"
+      }
+    if (filterClause != null) {
+      // Browsing a folder never dead-ends: directories are always listed and the filter narrows
+      // files only (research R3). A flat `queryFiles` read keeps 004's rule.
+      val browsing = topLevelOnly || query.parentId != null
+      where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
+    }
+    if (query.view == FileView.GALLERY) {
+      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
+    }
+    query.sourceId?.let {
+      where.append(" AND sourceId = ?")
+      args += it
+    }
+    if (topLevelOnly) {
+      where.append(" AND parentId IS NULL")
+    }
+    query.parentId?.let {
+      where.append(" AND parentId = ?")
+      args += it
+    }
+    query.search?.takeIf { it.isNotEmpty() }?.let {
+      where.append(" AND name LIKE ? ESCAPE '\\'")
+      args += "%${escapeLike(it)}%"
+    }
+    return where to args
   }
 
   private fun sortValueOf(node: LocalNodeEntity, sort: FileSort): String =

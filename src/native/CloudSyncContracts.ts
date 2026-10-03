@@ -512,6 +512,25 @@ export interface ListSelectableEntriesOk {
 
 export type ListSelectableEntriesResult = ListSelectableEntriesOk | OperationError;
 
+/**
+ * `SelectableEntriesDto` as the `listSelectableEntries` wrapper returns it:
+ * the same parallel arrays, with an unknown size (`-1` on the wire) as null.
+ */
+export interface SelectableEntries {
+  entryIds: string[];
+  sizes: Array<number | null>;
+  statuses: FileStatus[];
+  images: boolean[];
+}
+
+export interface SelectableEntriesOk {
+  contractVersion: number;
+  status: 'ok';
+  selectable: SelectableEntries;
+}
+
+export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
+
 /** What prepareLocalDeletion found after the server re-check (contract v5). */
 export interface DeletionPlanDto {
   planToken: string;

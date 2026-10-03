@@ -3,6 +3,7 @@ package com.syncscope.bridge
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
+import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
@@ -108,6 +109,32 @@ class CloudSyncEnvelope(
         },
       )
     }
+
+  /**
+   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for
+   * `listSelectableEntries`: four parallel arrays in the same order; a size of `-1` is unknown.
+   */
+  fun selectable(entries: SelectableEntries): WritableMap {
+    val ids = newArray()
+    val sizes = newArray()
+    val statuses = newArray()
+    val images = newArray()
+    for (i in entries.entryIds.indices) {
+      ids.pushString(entries.entryIds[i])
+      sizes.pushDouble(entries.sizes[i].toDouble())
+      statuses.pushString(entries.statuses[i])
+      images.pushBoolean(entries.images[i])
+    }
+    return ok(
+      "selectable",
+      newMap().apply {
+        putArray("entryIds", ids)
+        putArray("sizes", sizes)
+        putArray("statuses", statuses)
+        putArray("images", images)
+      },
+    )
+  }
 
   fun notImplemented(method: String): WritableMap =
     error(CloudSyncErrorCode.NOT_IMPLEMENTED, "$method is not available in this build.")

@@ -5,6 +5,8 @@ import {
   folderRowLabel,
   galleryTileLabel,
   originBadgeLabel,
+  selectionDetailsLabel,
+  selectionLabel,
 } from '../a11y';
 
 describe('filterChipLabel', () => {
@@ -42,6 +44,23 @@ describe('galleryTileLabel', () => {
   });
 });
 
+describe('galleryTileLabel selected', () => {
+  it('appends selected when the tile is selected', () => {
+    expect(galleryTileLabel('beach.png', 'SYNCED', null, true)).toBe(
+      'beach.png, Synced, selected',
+    );
+    expect(galleryTileLabel('sunset.png', 'UNSYNCED', 'GalleryTwin', true)).toBe(
+      'sunset.png, Unsynced, from GalleryTwin, selected',
+    );
+  });
+
+  it('adds nothing when the tile is not selected', () => {
+    expect(galleryTileLabel('beach.png', 'SYNCED', null, false)).toBe(
+      'beach.png, Synced',
+    );
+  });
+});
+
 describe('originBadgeLabel', () => {
   it('names the origin alias', () => {
     expect(originBadgeLabel('GalleryTwin')).toBe('Origin GalleryTwin');
@@ -69,6 +88,33 @@ describe('fileRowLabel', () => {
     expect(fileRowLabel('notes.txt', 'SYNCED')).toBe('notes.txt, Synced');
     expect(fileRowLabel('notes.txt', 'UNSYNCED')).toBe('notes.txt, Unsynced');
     expect(fileRowLabel('notes.txt', 'UNKNOWN')).toBe('notes.txt, Unknown');
+  });
+});
+
+describe('fileRowLabel selected', () => {
+  it('appends selected when the row is selected', () => {
+    expect(fileRowLabel('notes.txt', 'SYNCED', true)).toBe(
+      'notes.txt, Synced, selected',
+    );
+    expect(fileRowLabel('notes.txt', 'SYNCED', false)).toBe('notes.txt, Synced');
+  });
+});
+
+describe('selectionLabel', () => {
+  it('names the count and the formatted size', () => {
+    expect(selectionLabel(1, '70 B')).toBe('Selection 1 selected, 70 B');
+    expect(selectionLabel(37, '1.2 GB')).toBe('Selection 37 selected, 1.2 GB');
+  });
+});
+
+describe('selectionDetailsLabel', () => {
+  it('prefixes the details text', () => {
+    expect(selectionDetailsLabel('2 hidden by filter')).toBe(
+      'Selection details 2 hidden by filter',
+    );
+    expect(
+      selectionDetailsLabel('1 of unknown size, 2 hidden by filter'),
+    ).toBe('Selection details 1 of unknown size, 2 hidden by filter');
   });
 });
 

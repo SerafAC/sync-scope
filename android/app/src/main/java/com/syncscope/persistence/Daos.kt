@@ -151,6 +151,12 @@ interface LocalNodeDao {
   /** A browse page: each row plus its `nameInOtherSource` probe (`0` for LIST reads). */
   @RawQuery suspend fun rows(query: SupportSQLiteQuery): List<LocalNodeRow>
 
+  /**
+   * "Select all" rows: `SELECT entryId, sizeBytes, status, mimeType LIKE 'image/%' AS isImage`, scoped by
+   * [SnapshotStore]'s shared where-clause builder (contracts/cloudsync-mvp.md "listSelectableEntries").
+   */
+  @RawQuery suspend fun selectable(query: SupportSQLiteQuery): List<SelectableRow>
+
   @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
   suspend fun anyPrecision(snapshotId: String): Long?
 
@@ -160,6 +166,9 @@ interface LocalNodeDao {
   )
   suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry?
 }
+
+/** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
+data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isImage: Boolean)
 
 /** The local document of one `FILE` row. Never crosses the bridge. */
 data class ImageEntry(val documentUri: String, val mimeType: String?)

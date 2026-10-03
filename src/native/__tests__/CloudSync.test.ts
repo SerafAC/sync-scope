@@ -8,6 +8,7 @@ import {
   getRepositorySummary,
   getScanState,
   launchSourcePicker,
+  listSelectableEntries,
   listSources,
   queryFiles,
   rejectSftpHostKey,
@@ -714,6 +715,136 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
 
     const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
+    }
+  });
+});
+
+describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const gallery = {filter: 'ALL', view: 'GALLERY', sort: 'NAME_ASC'} as const;
+  const wire = {
+    entryIds: ['e-1', 'e-2', 'e-3'],
+    sizes: [70, -1, 0],
+    statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
+    images: [true, true, false],
+  };
+
+  it('passes the snapshot and query through and maps -1 to null', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      selectable: {...wire, stray: 'ignored'},
+    });
+    mockNative({listSelectableEntries: native});
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(native).toHaveBeenCalledWith('snap-1', gallery);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      selectable: {
+        entryIds: ['e-1', 'e-2', 'e-3'],
+        sizes: [70, null, 0],
+        statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
+        images: [true, true, false],
+      },
+    });
+  });
+
+  it('accepts an empty selection', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'ok',
+        selectable: {entryIds: [], sizes: [], statuses: [], images: []},
+      }),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.selectable.entryIds).toEqual([]);
+    }
+  });
+
+  it('normalises a STALE_GENERATION error envelope', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'STALE_GENERATION',
+          message: 'These results were replaced by a newer scan.',
+          action: 'Select the files again.',
+        },
+      }),
+    });
+
+    expect(await listSelectableEntries('snap-1', gallery)).toEqual({
+      contractVersion: v,
+      status: 'error',
+      error: {
+        code: 'STALE_GENERATION',
+        message: 'These results were replaced by a newer scan.',
+        action: 'Select the files again.',
+        conflictingSource: null,
+      },
+    });
+  });
+
+  it.each([
+    ['sizes shorter than entryIds', {...wire, sizes: [70, -1]}],
+    ['statuses longer than entryIds', {...wire, statuses: [...wire.statuses, 'SYNCED']}],
+    ['images shorter than entryIds', {...wire, images: [true]}],
+    ['a missing array', {entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses}],
+    ['an unknown status', {...wire, statuses: ['SYNCED', 'DELETED', 'UNSYNCED']}],
+    ['a non-numeric size', {...wire, sizes: [70, '1', 0]}],
+    ['a non-string entryId', {...wire, entryIds: ['e-1', 2, 'e-3']}],
+    ['a non-boolean image flag', {...wire, images: [true, 1, false]}],
+    ['no selectable payload', undefined],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, selectable) => {
+    mockNative({
+      listSelectableEntries: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', selectable}),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+      expect(result.contractVersion).toBe(v);
+    }
+  });
+
+  it('turns a rejected native call into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const result = await listSelectableEntries('snap-1', gallery);
 
     expect(result.status).toBe('error');
     if (result.status === 'error') {

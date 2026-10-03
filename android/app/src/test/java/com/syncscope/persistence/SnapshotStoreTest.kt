@@ -583,6 +583,124 @@ class SnapshotStoreTest {
     assertNull(store.imageEntry("snap-1", "s2"))
   }
 
+  // --- Feature 006: selectableEntries ("Select all", contracts/cloudsync-mvp.md) ----------------
+
+  @Test
+  fun selectableEntriesInGalleryAreImageFilesUnderEveryFilter() = runBlocking {
+    seedBrowseFixture()
+    val expected =
+      mapOf(
+        FileFilter.ALL to setOf("f3", "f6", "f7", "f8", "g1", "g2"),
+        FileFilter.SYNCED to setOf("f3", "f7", "g1"),
+        FileFilter.UNSYNCED to setOf("f8"),
+        FileFilter.ISSUES_UNKNOWN to setOf("f6", "g2"),
+      )
+    for ((filter, ids) in expected) {
+      val selectable = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, filter = filter))
+      assertEquals("gallery $filter", ids, selectable.entryIds.toSet())
+      assertEquals("gallery $filter", selectable.entryIds.size, ids.size)
+      assertTrue("gallery $filter images only", selectable.images.all { it })
+    }
+    // sourceId narrows the gallery as it narrows queryFiles.
+    val src2 = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, sourceId = "src-2"))
+    assertEquals(setOf("g1", "g2"), src2.entryIds.toSet())
+  }
+
+  @Test
+  fun selectableEntriesInListAreTheDirectFileChildrenOfTheFolderInItsSource() = runBlocking {
+    seedBrowseFixture()
+
+    val inD1 = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1", parentId = "d1"))
+    // d2 is a directory and is never returned; f4 and f5 live below d2, not directly in d1.
+    assertEquals(setOf("f3", "f6"), inD1.entryIds.toSet())
+    assertEquals(mapOf("f3" to "SYNCED", "f6" to "UNKNOWN"), inD1.entryIds.zip(inD1.statuses).toMap())
+
+    val syncedInD1 =
+      store.selectableEntries("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, sourceId = "src-1", parentId = "d1"))
+    assertEquals(listOf("f3"), syncedInD1.entryIds)
+
+    // No parentId: the top level of that one source only; dLegacy and d1 are directories.
+    val top = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"))
+    assertEquals(setOf("f1", "f7", "f8"), top.entryIds.toSet())
+    assertEquals(
+      mapOf("f1" to false, "f7" to true, "f8" to true),
+      top.entryIds.zip(top.images.toList()).toMap(),
+    )
+    val unsyncedTop =
+      store.selectableEntries("snap-1", SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"))
+    assertEquals(setOf("f1", "f8"), unsyncedTop.entryIds.toSet())
+
+    val otherSource = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-2"))
+    assertEquals(setOf("g1", "g2", "g3"), otherSource.entryIds.toSet())
+  }
+
+  @Test
+  fun selectableEntriesInListRequireASource() = runBlocking {
+    seedBrowseFixture()
+    assertThrows(IllegalArgumentException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(parentId = "d1")) }
+    }
+    Unit
+  }
+
+  @Test
+  fun selectableEntriesIgnorePageSizeSortAndSearch() = runBlocking {
+    seedBrowseFixture()
+    val cases =
+      listOf(
+        SnapshotQuery(view = FileView.GALLERY),
+        SnapshotQuery(sourceId = "src-1", parentId = "d1"),
+        SnapshotQuery(sourceId = "src-1"),
+      )
+    for (query in cases) {
+      val plain = store.selectableEntries("snap-1", query)
+      val narrowed =
+        store.selectableEntries("snap-1", query.copy(pageSize = 1, sort = FileSort.TIME_DESC, search = "zzz"))
+      assertTrue("$query is not empty", plain.entryIds.isNotEmpty())
+      assertEquals("$query", plain.entryIds.toSet(), narrowed.entryIds.toSet())
+    }
+  }
+
+  @Test
+  fun selectableEntriesReportAnUnknownSizeAsMinusOne() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        localNode("snap-1", "src-1", "known", "known.png", mimeType = "image/png", sizeBytes = 70L),
+        localNode("snap-1", "src-1", "unknown", "unknown.png", mimeType = "image/png", sizeBytes = null),
+        localNode("snap-1", "src-1", "untyped", "untyped", mimeType = null, sizeBytes = 5L),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val list = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"))
+    assertEquals(3, list.sizes.size)
+    assertEquals(3, list.statuses.size)
+    assertEquals(3, list.images.size)
+    assertEquals(
+      mapOf("known" to 70L, "unknown" to -1L, "untyped" to 5L),
+      list.entryIds.zip(list.sizes.toList()).toMap(),
+    )
+    // A file without a MIME type is not an image.
+    assertEquals(
+      mapOf("known" to true, "unknown" to true, "untyped" to false),
+      list.entryIds.zip(list.images.toList()).toMap(),
+    )
+  }
+
+  @Test
+  fun selectableEntriesOfAStagedOrMissingSnapshotAreNotReadable() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(listOf(localNode("snap-1", "src-1", "s1", "staged.png", mimeType = "image/png")))
+    assertThrows(SnapshotNotFoundException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY)) }
+    }
+    assertThrows(SnapshotNotFoundException::class.java) {
+      runBlocking { store.selectableEntries("missing", SnapshotQuery(view = FileView.GALLERY)) }
+    }
+    Unit
+  }
+
   /**
    * Two sources, nested directories and mixed statuses. Directory counts match their descendants;
    * `dLegacy` has pre-v3 `NULL` counts.

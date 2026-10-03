@@ -9,6 +9,7 @@ import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.syncscope.image.LocalImageStore
 import com.syncscope.image.ThumbnailSource
+import com.syncscope.persistence.stagingSnapshot
 import com.syncscope.scan.REMOTE_HOST
 import com.syncscope.scan.REMOTE_ROOT
 import com.syncscope.scan.ScanCoordinator
@@ -371,6 +372,58 @@ class ScanOperationsTest {
     assertEquals(listOf("a.png" to true, "a.png" to true, "solo.png" to false), twins)
   }
 
+  // --- listSelectableEntries ---
+
+  @Test
+  fun selectableEntriesFollowTheContract() = runBlocking<Unit> {
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Photos"),
+      image("d2", "a.png", parent = "d1").copy(sizeBytes = 70L),
+      localFile("d3", "notes.txt", parent = "d1", size = null),
+      image("d4", "solo.png"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    val idOf = (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
+
+    val gallery = ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("filter", "ALL", "view", "GALLERY", "sort", "NAME_ASC"))
+    assertEquals("ok", gallery.getString("status"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, gallery.getInt("contractVersion"))
+    val all = selectable(gallery)
+    assertEquals(setOf(idOf.getValue("a.png"), idOf.getValue("solo.png")), all.keys)
+    assertTrue(all.values.all { it.third })
+    assertEquals(70.0, all.getValue(idOf.getValue("a.png")).first, 0.0)
+    assertNoPathOrHost(gallery)
+
+    val folder =
+      ops.listSelectableEntries(
+        snapshotId,
+        JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC", "sourceId", "src-1", "parentId", idOf.getValue("Photos")),
+      )
+    val inPhotos = selectable(folder)
+    // Directories are never selectable; a file of unknown size is -1.
+    assertEquals(setOf(idOf.getValue("a.png"), idOf.getValue("notes.txt")), inPhotos.keys)
+    assertEquals(Triple(-1.0, "UNKNOWN", false), inPhotos.getValue(idOf.getValue("notes.txt")))
+    val top = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1")))
+    assertEquals(setOf(idOf.getValue("solo.png")), top.keys)
+
+    // The query is validated as queryFiles does, and a LIST selection names its source.
+    assertEquals("filter", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("filter", "SIDEWAYS")), "INVALID_QUERY").getString("field"))
+    assertEquals("sourceId", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST")), "INVALID_QUERY").getString("field"))
+    val gone = ops.listSelectableEntries("no-such-snapshot", JavaOnlyMap.of("view", "GALLERY"))
+    assertError(gone, "SNAPSHOT_NOT_FOUND")
+    assertFalse(gone.hasKey("selectable"))
+
+    // A published snapshot that is no longer the active one is stale.
+    val old = h.store.beginRun("run-old", "FULL", 1L, "CONNECTING", 0L)
+    h.store.stageSnapshot(stagingSnapshot("snap-old", old.runId).copy(publishable = true))
+    assertError(ops.listSelectableEntries("snap-old", JavaOnlyMap.of("view", "GALLERY")), "STALE_GENERATION")
+  }
+
   // --- getLocalImageHandle ---
 
   @Test
@@ -443,6 +496,21 @@ class ScanOperationsTest {
 
   private fun spec(pageSize: Double? = null): ReadableMap =
     JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC").apply { pageSize?.let { putDouble("pageSize", it) } }
+
+  /** The `selectable` arrays of an ok result as entryId → (size, status, image), checking they are parallel. */
+  private fun selectable(result: ReadableMap): Map<String, Triple<Double, String, Boolean>> {
+    assertEquals("ok", result.getString("status"))
+    val dto = result.getMap("selectable")!!
+    assertEquals(setOf("entryIds", "sizes", "statuses", "images"), dto.toHashMap().keys)
+    val ids = dto.getArray("entryIds")!!
+    val sizes = dto.getArray("sizes")!!
+    val statuses = dto.getArray("statuses")!!
+    val images = dto.getArray("images")!!
+    for (array in listOf(sizes, statuses, images)) assertEquals(ids.size(), array.size())
+    return (0 until ids.size()).associate {
+      ids.getString(it)!! to Triple(sizes.getDouble(it), statuses.getString(it)!!, images.getBoolean(it))
+    }
+  }
 
   private fun names(entries: ReadableArray): List<String> = (0 until entries.size()).map { entries.getMap(it)!!.getString("name")!! }
 

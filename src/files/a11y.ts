@@ -14,14 +14,19 @@ export function filterChipLabel(
   return count == null ? label : `${label}, ${count}`;
 }
 
-/** `sunset.png, Unsynced`, plus `, from GalleryTwin` when the tile has an origin badge. */
+/**
+ * `sunset.png, Unsynced`, plus `, from GalleryTwin` when the tile has an origin
+ * badge, then `, selected` while the tile is selected (FR-017).
+ */
 export function galleryTileLabel(
   name: string,
   status: FileStatus,
   originAlias?: string | null,
+  selected = false,
 ): string {
   const label = fileRowLabel(name, status);
-  return originAlias ? `${label}, from ${originAlias}` : label;
+  const withOrigin = originAlias ? `${label}, from ${originAlias}` : label;
+  return withSelected(withOrigin, selected);
 }
 
 /** `Origin GalleryTwin`. */
@@ -42,9 +47,27 @@ export function folderRowLabel(name: string, matching: number | null): string {
   return matching === 0 ? `${counted}, no matches` : counted;
 }
 
-/** `sunset.png, Synced`. */
-export function fileRowLabel(name: string, status: FileStatus): string {
-  return `${name}, ${STATUS_LABEL[status]}`;
+/** `sunset.png, Synced`, plus `, selected` while the row is selected (FR-017). */
+export function fileRowLabel(
+  name: string,
+  status: FileStatus,
+  selected = false,
+): string {
+  return withSelected(`${name}, ${STATUS_LABEL[status]}`, selected);
+}
+
+function withSelected(label: string, selected: boolean): string {
+  return selected ? `${label}, selected` : label;
+}
+
+/** `Selection 2 selected, 140 B`; [size] is already formatted (`formatBytes`). */
+export function selectionLabel(count: number, size: string): string {
+  return `Selection ${count} selected, ${size}`;
+}
+
+/** `Selection details 2 hidden by filter`: the selection bar's second line. */
+export function selectionDetailsLabel(text: string): string {
+  return `Selection details ${text}`;
 }
 
 /** `Breadcrumb All folders`. */

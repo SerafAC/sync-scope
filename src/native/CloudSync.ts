@@ -8,6 +8,7 @@ import {
   clampImageEdge,
   clampPageSize,
   type CloudSyncError,
+  type FileStatus,
   type HostKeyChallengeDto,
   type LaunchSourcePickerResult,
   type ListSourcesResult,
@@ -26,6 +27,8 @@ import {
   type ScanMode,
   type ScanRunDto,
   type ScanStateResult,
+  type SelectableEntries,
+  type SelectableEntriesResult,
   type SourceDto,
   type SourcePickerOutcome,
   type StartScanResult,
@@ -131,6 +134,7 @@ type NativeEnvelope = {
   run?: unknown;
   active?: unknown;
   handle?: unknown;
+  selectable?: unknown;
   repository?: unknown;
   connection?: unknown;
 };
@@ -399,6 +403,82 @@ export async function getLocalImageHandle(
   };
 }
 
+/**
+ * Every FILE row [querySpec] would show in the active snapshot [snapshotId], for
+ * "Select all" (contract v5). Native ignores `pageSize`, `sort` and `search`; a
+ * LIST query needs its `sourceId` and `parentId` (null: the source's top level).
+ * The four arrays must be parallel: a length mismatch or a malformed value is
+ * INTERNAL_ERROR, never a partial selection. An unknown size (`-1`) becomes null.
+ */
+export async function listSelectableEntries(
+  snapshotId: string,
+  querySpec: QuerySpec,
+): Promise<SelectableEntriesResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.listSelectableEntries(
+      snapshotId,
+      querySpec,
+    )) as NativeEnvelope | null | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({status: 'error', error: null});
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const selectable = selectableEntriesOf(result.selectable);
+  if (selectable == null) {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok', selectable};
+}
+
+const FILE_STATUSES: readonly unknown[] = [
+  'SYNCED',
+  'UNSYNCED',
+  'UNKNOWN',
+] satisfies FileStatus[];
+
+function selectableEntriesOf(value: unknown): SelectableEntries | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const {entryIds, sizes, statuses, images} = value as Record<string, unknown>;
+  if (
+    !Array.isArray(entryIds) ||
+    !Array.isArray(sizes) ||
+    !Array.isArray(statuses) ||
+    !Array.isArray(images)
+  ) {
+    return null;
+  }
+  const count = entryIds.length;
+  if (
+    sizes.length !== count ||
+    statuses.length !== count ||
+    images.length !== count ||
+    !entryIds.every(id => typeof id === 'string') ||
+    !sizes.every(size => typeof size === 'number' && Number.isFinite(size)) ||
+    !statuses.every(status => FILE_STATUSES.includes(status)) ||
+    !images.every(image => typeof image === 'boolean')
+  ) {
+    return null;
+  }
+  return {
+    entryIds: entryIds as string[],
+    sizes: (sizes as number[]).map(size => (size < 0 ? null : size)),
+    statuses: statuses as FileStatus[],
+    images: images as boolean[],
+  };
+}
+
 /** The saved repository, or REPOSITORY_NOT_CONFIGURED. Never carries the password. */
 export async function getRepositorySummary(): Promise<RepositorySummaryResult> {
   const module = scanModule();
@@ -545,6 +625,7 @@ export const CloudSync = {
   cancelScan,
   getScanState,
   getLocalImageHandle,
+  listSelectableEntries,
   getRepositorySummary,
   saveRepository,
   testRepository,

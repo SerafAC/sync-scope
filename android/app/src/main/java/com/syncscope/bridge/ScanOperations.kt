@@ -27,7 +27,8 @@ import com.syncscope.scan.ScanRefused
 import com.syncscope.scan.ScanRunView
 
 /**
- * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle,
+ * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle /
+ * listSelectableEntries,
  * resolved as envelopes (contracts/cloudsync-scan.md and cloudsync-browse.md "Behaviour"). No
  * `documentId`, `documentUri`, path or host ever goes into a result: rows are mapped field by field,
  * image handles are cache files named by a hash, and run errors were redacted when they were stored.
@@ -95,6 +96,52 @@ class ScanOperations(
     }
 
   /**
+   * `ListSelectableEntriesResult` (contracts/cloudsync-mvp.md "listSelectableEntries"): every `FILE` row
+   * [querySpec] would show, for "Select all". Only the active snapshot can be selected from: a missing
+   * or staged one is `SNAPSHOT_NOT_FOUND`, a published one that was replaced is `STALE_GENERATION`.
+   * The query is validated as `queryFiles` does; a LIST selection also needs its `sourceId`.
+   */
+  suspend fun listSelectableEntries(snapshotId: String, querySpec: ReadableMap): WritableMap {
+    val query =
+      when (val parsed = parseQuery(querySpec)) {
+        is ParsedQuery.Invalid -> return invalidQuery(parsed.field)
+        is ParsedQuery.Valid -> parsed.query
+      }
+    if (query.view == FileView.LIST && query.sourceId == null) return invalidQuery("sourceId")
+    val snapshot = store().snapshot(snapshotId)
+    if (snapshot == null || !snapshot.publishable) return snapshotNotFound()
+    if (store().activeSnapshot()?.snapshotId != snapshotId) {
+      return envelope.error(
+        CloudSyncErrorCode.STALE_GENERATION,
+        "These results were replaced by a newer scan.",
+        "Select the files again.",
+      )
+    }
+    val entries =
+      try {
+        store().selectableEntries(snapshotId, query)
+      } catch (_: SnapshotNotFoundException) {
+        return snapshotNotFound()
+      }
+    return envelope.selectable(entries)
+  }
+
+  private fun invalidQuery(field: String): WritableMap =
+    envelope.error(
+      CloudSyncErrorCode.INVALID_QUERY,
+      "The query $field is invalid.",
+      "Reset the filters and try again.",
+      field = field,
+    )
+
+  private fun snapshotNotFound(): WritableMap =
+    envelope.error(
+      CloudSyncErrorCode.SNAPSHOT_NOT_FOUND,
+      "That scan result is no longer available.",
+      "Refresh the scan screen.",
+    )
+
+  /**
    * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle"): a `file://` URI of
    * a cached JPEG thumbnail of an `image/` `FILE` entry of a published snapshot. Reads local storage
    * only and never opens a remote connection.
@@ -104,11 +151,7 @@ class ScanOperations(
       try {
         store().imageEntry(snapshotId, entryId)
       } catch (_: SnapshotNotFoundException) {
-        return envelope.error(
-          CloudSyncErrorCode.SNAPSHOT_NOT_FOUND,
-          "That scan result is no longer available.",
-          "Refresh the scan screen.",
-        )
+        return snapshotNotFound()
       }
     if (entry == null || entry.mimeType?.startsWith(IMAGE_MIME_PREFIX) != true) {
       return envelope.error(

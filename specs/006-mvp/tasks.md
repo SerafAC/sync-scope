@@ -298,7 +298,7 @@ corner, and a selection bar that replaces the tabs.
 
 ### Native
 
-- [ ] T044 [US5] Add tests to `KTEST/persistence/SnapshotStoreTest.kt` for `selectableEntries(snapshotId, spec)`, with the same scope rules as `queryFiles` and `queryTreeChildren`:
+- [X] T044 [US5] Add tests to `KTEST/persistence/SnapshotStoreTest.kt` for `selectableEntries(snapshotId, spec)`, with the same scope rules as `queryFiles` and `queryTreeChildren`:
   - gallery: images only, every filter;
   - list: direct `FILE` children of `parentId` in `sourceId` only;
   - directories never returned;
@@ -306,15 +306,15 @@ corner, and a selection bar that replaces the tabs.
   - sizes `-1` for `NULL`.
 
   Add a budget case to `KTEST/persistence/SnapshotQueryPerformanceTest.kt`: 50 000 rows return in under 1 s on the JVM runner.
-- [ ] T045 [US5] Implement T044. In `KT/persistence/Daos.kt`, add a `@RawQuery` selecting `entryId, sizeBytes, status, mimeType LIKE 'image/%'`, built by the same where-clause builder `SnapshotStore` uses for pages (extract it if needed, so the filter and view rules stay defined once). In `KT/persistence/SnapshotStore.kt`, add `selectableEntries`, returning four parallel arrays.
-- [ ] T046 [US5] Implement `listSelectableEntries` in `KT/bridge/ScanOperations.kt`: `SNAPSHOT_NOT_FOUND` / `STALE_GENERATION` unless the snapshot is the active one; validate the query as `queryFiles` does; build the `selectable` envelope with `WritableArray`s. Wire it in `KT/bridge/CloudSyncModule.kt`, replacing the T014 stub, and add tests to `KTEST/bridge/ScanOperationsTest.kt` and `CloudSyncModuleTest.kt`.
+- [X] T045 [US5] Implement T044. In `KT/persistence/Daos.kt`, add a `@RawQuery` selecting `entryId, sizeBytes, status, mimeType LIKE 'image/%'`, built by the same where-clause builder `SnapshotStore` uses for pages (extract it if needed, so the filter and view rules stay defined once). In `KT/persistence/SnapshotStore.kt`, add `selectableEntries`, returning four parallel arrays.
+- [X] T046 [US5] Implement `listSelectableEntries` in `KT/bridge/ScanOperations.kt`: `SNAPSHOT_NOT_FOUND` / `STALE_GENERATION` unless the snapshot is the active one; validate the query as `queryFiles` does; build the `selectable` envelope with `WritableArray`s. Wire it in `KT/bridge/CloudSyncModule.kt`, replacing the T014 stub, and add tests to `KTEST/bridge/ScanOperationsTest.kt` and `CloudSyncModuleTest.kt`.
 
 ### JS
 
-- [ ] T047 [P] [US5] Add the `listSelectableEntries(snapshotId, query)` wrapper to `src/native/CloudSync.ts`, validating that the four arrays have equal length (else `INTERNAL_ERROR`) and mapping `-1` to `null`. Add tests.
-- [ ] T048 [P] [US5] Create `src/selection/formatBytes.ts` and `src/selection/__tests__/formatBytes.test.ts`: decimal units `B, kB, MB, GB, TB` (1 kB = 1000 B), at most one decimal place, trailing `.0` dropped, locale separator via `Intl.NumberFormat`, `0` → `0 B`. Tests cover 0, 999, 1000, 1 234 567 and 1.2e9, plus a `de-DE` comma case.
-- [ ] T049 [P] [US5] Create `src/selection/summary.ts` and `src/selection/__tests__/summary.test.ts`: `selectionSummary(items, view, filter) → {count, knownBytes, unknownSizeCount, hiddenByFilterCount}`, with the rules in [data-model.md](./data-model.md#selection-js-selectionprovider). "Hidden" means the status is not in the filter, or the item is not an image while in gallery view. Files in other list folders are not hidden.
-- [ ] T050 [US5] Create `src/selection/SelectionProvider.tsx` (`useSelection()`) and `src/selection/__tests__/SelectionProvider.test.tsx`, with every transition in the data-model table:
+- [X] T047 [P] [US5] Add the `listSelectableEntries(snapshotId, query)` wrapper to `src/native/CloudSync.ts`, validating that the four arrays have equal length (else `INTERNAL_ERROR`) and mapping `-1` to `null`. Add tests.
+- [X] T048 [P] [US5] Create `src/selection/formatBytes.ts` and `src/selection/__tests__/formatBytes.test.ts`: decimal units `B, kB, MB, GB, TB` (1 kB = 1000 B), at most one decimal place, trailing `.0` dropped, locale separator via `Intl.NumberFormat`, `0` → `0 B`. Tests cover 0, 999, 1000, 1 234 567 and 1.2e9, plus a `de-DE` comma case.
+- [X] T049 [P] [US5] Create `src/selection/summary.ts` and `src/selection/__tests__/summary.test.ts`: `selectionSummary(items, view, filter) → {count, knownBytes, unknownSizeCount, hiddenByFilterCount}`, with the rules in [data-model.md](./data-model.md#selection-js-selectionprovider). "Hidden" means the status is not in the filter, or the item is not an image while in gallery view. Files in other list folders are not hidden.
+- [X] T050 [US5] Create `src/selection/SelectionProvider.tsx` (`useSelection()`) and `src/selection/__tests__/SelectionProvider.test.tsx`, with every transition in the data-model table:
   - long-press enters selection mode, tap toggles;
   - `selectAll(query)` merges the `listSelectableEntries` result;
   - clear, and leaving selection mode when the last item is removed;
@@ -323,7 +323,7 @@ corner, and a selection bar that replaces the tabs.
   - `removeIds(ids)` for after a deletion.
 
   Mount it inside `FilesProvider` in `src/navigation/AppNavigator.tsx` (`FilesTab`).
-- [ ] T051 [US5] Extend `src/files/a11y.ts` and `src/files/__tests__/a11y.test.ts`: tile and row labels take `selected: boolean` and append `, selected`; add builders for `Selection <n> selected, <size>` and `Selection details <text>`.
+- [X] T051 [US5] Extend `src/files/a11y.ts` and `src/files/__tests__/a11y.test.ts`: tile and row labels take `selected: boolean` and append `, selected`; add builders for `Selection <n> selected, <size>` and `Selection details <text>`.
 - [ ] T052 [US5] Update `src/files/GalleryTile.tsx` and `src/screens/GalleryScreen.tsx` with their tests:
   - `onLongPress` starts selection;
   - `onPress` toggles while selecting, and keeps its existing behaviour otherwise;
