@@ -18,11 +18,13 @@ import { useSourceAliases } from '../files/useSourceAliases';
 import { PAGED_QUERY_PAGE_SIZE } from '../files/usePagedQuery';
 import type {
   CloudSyncError,
+  DeletionResultDto,
   QuerySpec,
   StatusCountDto,
 } from '../native/CloudSyncContracts';
 import type { RootTabParamList } from '../navigation/AppNavigator';
 import { useScan } from '../scan/useScan';
+import { DeleteFlow } from '../selection/DeleteFlow';
 import { SelectionBar } from '../selection/SelectionBar';
 import { useSelection } from '../selection/SelectionProvider';
 import { spacing } from '../theme/spacing';
@@ -52,6 +54,12 @@ const VIEW_BUTTONS = [
 ];
 
 type CountsByView = Record<FilesView, StatusCountDto[] | null>;
+
+/** What the open delete dialog works on, fixed when `Delete selected` is tapped. */
+interface DeletionTarget {
+  snapshotId: string;
+  entryIds: readonly string[];
+}
 
 /** The top bar's ✕ while selecting (FR-015). */
 function ClearSelectionButton({
@@ -204,7 +212,9 @@ function NoScanResults(): React.JSX.Element {
  * mounted, hidden, so nothing is lost when the first results arrive.
  * While files are selected, the selection bar replaces the bottom tabs
  * (`useSelectionMode`), and a snackbar says when a new scan result cleared
- * the selection.
+ * the selection. `Delete selected` opens the delete dialog for the selection;
+ * after a deletion the removed files leave the selection and both views
+ * reload page 1 in place, keeping their folder and filter (research R14).
  */
 export function FilesScreen({
   focused = true,
@@ -239,6 +249,26 @@ export function FilesScreen({
   );
   useSelectionMode(selectQuery, focused);
 
+  const [deletion, setDeletion] = useState<DeletionTarget | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { snapshotId: selectionSnapshotId, items, removeIds } = selection;
+  const openDelete = useCallback(() => {
+    if (selectionSnapshotId != null && items.size > 0) {
+      setDeletion({
+        snapshotId: selectionSnapshotId,
+        entryIds: [...items.keys()],
+      });
+    }
+  }, [selectionSnapshotId, items]);
+  const closeDelete = useCallback(() => setDeletion(null), []);
+  const onDeleted = useCallback(
+    (result: DeletionResultDto) => {
+      removeIds(result.removedEntryIds);
+      setReloadKey(key => key + 1);
+    },
+    [removeIds],
+  );
+
   const onSnapshotChange = useCallback(() => setUpdated(true), []);
   const dismiss = useCallback(() => setUpdated(false), []);
   const onViewChange = useCallback(
@@ -252,6 +282,7 @@ export function FilesScreen({
     aliases,
     onSnapshotChange,
     onSnapshotLost: scan.refresh,
+    reloadKey,
   };
 
   // Only once the scan state has answered is "no results" known.
@@ -316,7 +347,17 @@ export function FilesScreen({
       >
         {selection.error == null ? '' : selectAllErrorText(selection.error)}
       </Snackbar>
-      <SelectionBar />
+      {/* While the dialog is open its own Delete is the only one on screen. */}
+      <SelectionBar onDelete={deletion == null ? openDelete : undefined} />
+      {deletion != null ? (
+        <DeleteFlow
+          entryIds={deletion.entryIds}
+          onDeleted={onDeleted}
+          onDismiss={closeDelete}
+          snapshotId={deletion.snapshotId}
+          visible
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

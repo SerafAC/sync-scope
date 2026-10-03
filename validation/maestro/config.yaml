@@ -44,5 +44,6 @@ executionOrder:
     - mvp/02-setup-errors
     - mvp/03-first-run
     - mvp/04-select-size
+    - mvp/05-delete-synced
     - mvp/90-release-smoke
     - mvp/91-release-update

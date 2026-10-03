@@ -706,6 +706,44 @@ class SnapshotStoreTest {
     Unit
   }
 
+  // --- deletionRows (data-model "Deletion plan") ---
+
+  @Test
+  fun deletionRowsLoadsOnlyFileRowsInRequestOrder() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+
+    val rows = store.deletionRows("snap-1", listOf("f4", "d1", "ghost", "f3", "f4", "g1"))
+
+    assertEquals(listOf("f4", "f3", "g1"), rows.map { it.entryId })
+    val f4 = nodes.getValue("f4")
+    assertEquals(
+      com.syncscope.deletion.DeletionRow(
+        entryId = "f4",
+        sourceId = f4.sourceId,
+        parentId = f4.parentId,
+        documentUri = f4.documentUri,
+        name = f4.name,
+        sizeBytes = f4.sizeBytes,
+        modifiedUtcMillis = f4.modifiedUtcMillis,
+        status = f4.status,
+      ),
+      rows.first(),
+    )
+    assertEquals("snap-1", store.activeSnapshotId())
+  }
+
+  @Test
+  fun deletionRowsReadsMoreIdsThanOneQueryBinds() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    val count = SnapshotStore.MAX_IDS_PER_QUERY * 2 + 3
+    store.stageLocalNodes((1..count).map { localNode("snap-1", "src-1", "e$it", "f$it.png") })
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val ids = (count downTo 1).map { "e$it" }
+    assertEquals(ids, store.deletionRows("snap-1", ids).map { it.entryId })
+  }
+
   // --- recordDeletions (data-model "Deletion write rule", research R14) ---
 
   @Test

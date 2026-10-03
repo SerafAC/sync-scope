@@ -3,6 +3,7 @@ package com.syncscope.scan
 import android.util.Log
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.bridge.CloudSyncErrorCode
+import com.syncscope.deletion.ExclusiveRunner
 import com.syncscope.persistence.ScanRunEntity
 import com.syncscope.persistence.SnapshotStore
 import java.util.concurrent.atomic.AtomicReference
@@ -58,7 +59,7 @@ class ScanCoordinator(
   private val scope: CoroutineScope,
   private val clock: () -> Long = System::currentTimeMillis,
   private val onProgressPublished: (ScanProgress.Counters) -> Unit = {},
-) {
+) : ExclusiveRunner {
   private class ActiveRun(val run: ScanRunEntity, val progress: ScanProgress, val job: CompletableJob) {
     val control = RunControl()
     @Volatile var cancelReason: String? = null
@@ -175,7 +176,7 @@ class ScanCoordinator(
    * [ScanInProgress] while a run is active and [DeletionInProgress] while another exclusive block runs;
    * in both cases [block] never runs. The coordinator is released when [block] returns or throws.
    */
-  suspend fun <T> runExclusive(block: suspend () -> T): T {
+  override suspend fun <T> runExclusive(block: suspend () -> T): T {
     mutex.withLock {
       if (active.get() != null) throw ScanInProgress()
       if (exclusive) throw DeletionInProgress()

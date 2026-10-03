@@ -49,6 +49,10 @@ export function formatTimestamp(millis: number): string {
   return new Date(millis).toLocaleString();
 }
 
+/** The rescan hint for a remote listing older than STALE_REMOTE_LISTING_MILLIS (FR-003). */
+export const RESCAN_SUGGESTED_TEXT =
+  'The remote listing is more than 7 days old. A rescan from scratch is suggested before you delete anything.';
+
 export function unreadableFoldersText(count: number): string {
   return `${count} remote ${count === 1 ? 'folder' : 'folders'} could not be read`;
 }
@@ -119,10 +123,7 @@ export function ScanSummaryCard({
       </View>
       {isStale ? (
         <View accessibilityLabel="Rescan suggested">
-          <Text variant="bodyMedium">
-            The remote listing is more than 7 days old. A rescan from scratch
-            is suggested before you delete anything.
-          </Text>
+          <Text variant="bodyMedium">{RESCAN_SUGGESTED_TEXT}</Text>
         </View>
       ) : null}
     </Surface>

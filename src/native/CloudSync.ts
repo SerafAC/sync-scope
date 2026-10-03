@@ -8,6 +8,11 @@ import {
   clampImageEdge,
   clampPageSize,
   type CloudSyncError,
+  type DeletionFailureDto,
+  type DeletionFailureReason,
+  type DeletionPlanDto,
+  type DeletionResultDto,
+  type ExecuteLocalDeletionResult,
   type FileStatus,
   type HostKeyChallengeDto,
   type LaunchSourcePickerResult,
@@ -16,6 +21,7 @@ import {
   type LocalImageSpec,
   type OperationError,
   type OperationResult,
+  type PrepareLocalDeletionResult,
   type QueryFilesResult,
   type QuerySpec,
   type RepositoryConfigInput,
@@ -137,6 +143,8 @@ type NativeEnvelope = {
   selectable?: unknown;
   repository?: unknown;
   connection?: unknown;
+  plan?: unknown;
+  result?: unknown;
 };
 
 type NativeErrorShape = {
@@ -479,6 +487,184 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   };
 }
 
+/**
+ * Calls one scan-module method and returns its envelope, or null when the call
+ * rejected or resolved something that is not an object. Null module: null too,
+ * so callers check [scanModule] first to report NATIVE_MODULE_UNAVAILABLE.
+ */
+async function callEnvelope(
+  call: (module: Spec) => Promise<unknown>,
+  module: Spec,
+): Promise<NativeEnvelope | null> {
+  let result: unknown;
+  try {
+    result = await call(module);
+  } catch {
+    return null;
+  }
+  return result != null && typeof result === 'object'
+    ? (result as NativeEnvelope)
+    : null;
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isTotals(value: unknown): value is {count: number; bytes: number} {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const {count, bytes} = value as Record<string, unknown>;
+  return isCount(count) && isCount(bytes);
+}
+
+function deletionPlanOf(value: unknown): DeletionPlanDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const v = value as Record<string, unknown>;
+  const refused = v.refused as Record<string, unknown> | null | undefined;
+  if (
+    typeof v.planToken !== 'string' ||
+    v.planToken.length === 0 ||
+    !isTotals(v.toDelete) ||
+    !isTotals(v.unsynced) ||
+    refused == null ||
+    typeof refused !== 'object' ||
+    !isCount(refused.count) ||
+    !isCount(refused.scanTooOld) ||
+    !isCount(v.movedByRecheck) ||
+    !isCount(v.missing) ||
+    !isCount(v.unknownSizeCount) ||
+    !isCount(v.remoteListedAtMillis)
+  ) {
+    return null;
+  }
+  return {
+    planToken: v.planToken,
+    toDelete: {count: v.toDelete.count, bytes: v.toDelete.bytes},
+    unsynced: {count: v.unsynced.count, bytes: v.unsynced.bytes},
+    refused: {count: refused.count, scanTooOld: refused.scanTooOld},
+    movedByRecheck: v.movedByRecheck,
+    missing: v.missing,
+    unknownSizeCount: v.unknownSizeCount,
+    remoteListedAtMillis: v.remoteListedAtMillis,
+  };
+}
+
+const DELETION_FAILURE_REASONS: readonly unknown[] = [
+  'ALREADY_GONE',
+  'CHANGED',
+  'ACCESS_LOST',
+  'FAILED',
+] satisfies DeletionFailureReason[];
+
+function deletionFailureOf(value: unknown): DeletionFailureDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const {entryId, name, reason} = value as Record<string, unknown>;
+  if (
+    typeof entryId !== 'string' ||
+    typeof name !== 'string' ||
+    !DELETION_FAILURE_REASONS.includes(reason)
+  ) {
+    return null;
+  }
+  return {entryId, name, reason: reason as DeletionFailureReason};
+}
+
+function deletionResultOf(value: unknown): DeletionResultDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const v = value as Record<string, unknown>;
+  if (
+    !isCount(v.deleted) ||
+    !isCount(v.freedBytes) ||
+    !Array.isArray(v.failures) ||
+    !Array.isArray(v.removedEntryIds) ||
+    !v.removedEntryIds.every(id => typeof id === 'string')
+  ) {
+    return null;
+  }
+  const failures = v.failures.map(deletionFailureOf);
+  if (failures.some(failure => failure == null)) {
+    return null;
+  }
+  return {
+    deleted: v.deleted,
+    freedBytes: v.freedBytes,
+    failures: failures as DeletionFailureDto[],
+    removedEntryIds: v.removedEntryIds as string[],
+  };
+}
+
+/**
+ * Re-checks the selected [entryIds] of the active snapshot on the server and
+ * returns a single-use plan (contract v5). Nothing is deleted. A malformed plan
+ * is INTERNAL_ERROR, never a partial one.
+ */
+export async function prepareLocalDeletion(
+  snapshotId: string,
+  entryIds: readonly string[],
+): Promise<PrepareLocalDeletionResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    m => m.prepareLocalDeletion(snapshotId, [...entryIds]),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({status: 'error', error: null});
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const plan = deletionPlanOf(result.plan);
+  if (plan == null) {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {contractVersion: contractVersionOf(result), status: 'ok', plan};
+}
+
+/**
+ * Runs the plan [planToken] (contract v5). Not-backed-up files are deleted only
+ * when [includeUnsynced] is true; unknown-state files never are. An error means
+ * nothing was deleted.
+ */
+export async function executeLocalDeletion(
+  planToken: string,
+  includeUnsynced: boolean,
+): Promise<ExecuteLocalDeletionResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    m => m.executeLocalDeletion(planToken, includeUnsynced),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({status: 'error', error: null});
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const deletion = deletionResultOf(result.result);
+  if (deletion == null) {
+    return normalizeOperationError({...result, status: 'error', error: null});
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    result: deletion,
+  };
+}
+
 /** The saved repository, or REPOSITORY_NOT_CONFIGURED. Never carries the password. */
 export async function getRepositorySummary(): Promise<RepositorySummaryResult> {
   const module = scanModule();
@@ -626,6 +812,8 @@ export const CloudSync = {
   getScanState,
   getLocalImageHandle,
   listSelectableEntries,
+  prepareLocalDeletion,
+  executeLocalDeletion,
   getRepositorySummary,
   saveRepository,
   testRepository,

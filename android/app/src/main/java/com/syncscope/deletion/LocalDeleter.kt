@@ -58,9 +58,9 @@ data class DeletionOutcome(val row: DeletionRow, val state: DeletionState, val a
  *
  * Nothing is logged: a document URI or file name must never reach the log (D011).
  */
-class LocalDeleter(private val saf: SafAccess, private val clock: () -> Long = System::currentTimeMillis) {
+class LocalDeleter(private val saf: SafAccess, private val clock: () -> Long = System::currentTimeMillis) : DeviceDeleter {
 
-  fun deleteOne(row: DeletionRow, sourceCanWrite: Boolean): DeletionOutcome = DeletionOutcome(row, decide(row, sourceCanWrite), clock())
+  override fun deleteOne(row: DeletionRow, sourceCanWrite: Boolean): DeletionOutcome = DeletionOutcome(row, decide(row, sourceCanWrite), clock())
 
   private fun decide(row: DeletionRow, sourceCanWrite: Boolean): DeletionState {
     if (!sourceCanWrite) return DeletionState.ACCESS_LOST

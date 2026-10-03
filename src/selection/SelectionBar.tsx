@@ -10,7 +10,10 @@ import { useSelection } from './SelectionProvider';
 import type { SelectionSummary } from './summary';
 
 export interface SelectionBarProps {
-  /** Shows `Delete selected` on the right; omitted until deletion is wired (US6). */
+  /**
+   * Shows `Delete selected` on the right; the Files tab opens the delete
+   * dialog with it (US6). Disabled while "Select all" is still merging.
+   */
   onDelete?: () => void;
 }
 
@@ -50,7 +53,7 @@ export function SelectionBar({
   const theme = useTheme();
   const { bottom } = useSafeAreaInsets();
   const themed = useMemo(() => themedStyles(theme, bottom), [theme, bottom]);
-  const { isSelecting, summary } = useSelection();
+  const { isSelecting, selectingAll, summary } = useSelection();
 
   if (!isSelecting) {
     return null;
@@ -81,6 +84,7 @@ export function SelectionBar({
       {onDelete != null ? (
         <Button
           accessibilityLabel="Delete selected"
+          disabled={selectingAll}
           icon="delete-outline"
           mode="contained"
           onPress={onDelete}

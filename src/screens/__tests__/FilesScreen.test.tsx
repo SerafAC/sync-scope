@@ -13,8 +13,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { FilesProvider } from '../../files/FilesProvider';
 import { useSourceAliases } from '../../files/useSourceAliases';
 import {
+  executeLocalDeletion,
   getLocalImageHandle,
   listSelectableEntries,
+  prepareLocalDeletion,
   queryFiles,
   queryTreeChildren,
 } from '../../native/CloudSync';
@@ -52,6 +54,8 @@ jest.mock('../../native/CloudSync', () => ({
   queryTreeChildren: jest.fn(),
   getLocalImageHandle: jest.fn(),
   listSelectableEntries: jest.fn(),
+  prepareLocalDeletion: jest.fn(),
+  executeLocalDeletion: jest.fn(),
 }));
 jest.mock('../../scan/useScan', () => ({ useScan: jest.fn() }));
 jest.mock('../../files/useSourceAliases', () => ({
@@ -67,6 +71,12 @@ const getLocalImageHandleMock = getLocalImageHandle as jest.MockedFunction<
 >;
 const listSelectableEntriesMock = listSelectableEntries as jest.MockedFunction<
   typeof listSelectableEntries
+>;
+const prepareLocalDeletionMock = prepareLocalDeletion as jest.MockedFunction<
+  typeof prepareLocalDeletion
+>;
+const executeLocalDeletionMock = executeLocalDeletion as jest.MockedFunction<
+  typeof executeLocalDeletion
 >;
 const useScanMock = useScan as jest.MockedFunction<typeof useScan>;
 const useSourceAliasesMock = useSourceAliases as jest.MockedFunction<
@@ -345,7 +355,7 @@ describe('FilesScreen', () => {
       expect(
         screen.getByLabelText('Selection 1 selected, 10 B'),
       ).toBeOnTheScreen();
-      expect(screen.queryByLabelText('Delete selected')).toBeNull();
+      expect(screen.getByLabelText('Delete selected')).toBeOnTheScreen();
     });
 
     it('clears with ✕ and restores the tabs and the header', async () => {
@@ -494,6 +504,74 @@ describe('FilesScreen', () => {
       ).toBeOnTheScreen();
       expect(screen.queryByTestId('selection-bar')).toBeNull();
       expect(await screen.findByText('Tab bar')).toBeOnTheScreen();
+    });
+
+    it('deletes the selection through the delete dialog and reloads page 1 in place', async () => {
+      prepareLocalDeletionMock.mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        plan: {
+          planToken: 'tok-1',
+          toDelete: { count: 1, bytes: 10 },
+          unsynced: { count: 0, bytes: 0 },
+          refused: { count: 0, scanTooOld: 0 },
+          movedByRecheck: 0,
+          missing: 0,
+          unknownSizeCount: 0,
+          remoteListedAtMillis: Date.now(),
+        },
+      });
+      executeLocalDeletionMock.mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        result: {
+          deleted: 1,
+          freedBytes: 10,
+          failures: [],
+          removedEntryIds: ['snap-1-e1'],
+        },
+      });
+      await startSelecting();
+      fireEvent.press(screen.getByLabelText('Filter Synced, 3'));
+      await screen.findByLabelText('snap-1.png, Synced, selected');
+      const readsBefore = queryFilesMock.mock.calls.length;
+      queryFilesMock.mockImplementation(async () => ok([], GALLERY_COUNTS));
+
+      fireEvent.press(screen.getByLabelText('Delete selected'));
+
+      expect(prepareLocalDeletionMock).toHaveBeenCalledWith('snap-1', [
+        'snap-1-e1',
+      ]);
+      await screen.findByLabelText('Delete 1 backed-up files, 10 B');
+      expect(screen.queryByLabelText('Delete selected')).toBeNull();
+      fireEvent.press(screen.getByLabelText('Delete'));
+
+      expect(
+        await screen.findByLabelText('Deleted 1 files, freed 10 B'),
+      ).toBeOnTheScreen();
+      expect(executeLocalDeletionMock).toHaveBeenCalledWith('tok-1', false);
+      // The deleted file left the selection, which ended selection mode.
+      await waitFor(() =>
+        expect(screen.queryByTestId('selection-bar')).toBeNull(),
+      );
+      expect(await screen.findByText('Tab bar')).toBeOnTheScreen();
+      // Page 1 was read again for the same snapshot and filter, and no
+      // "Results updated" notice was raised for it.
+      await waitFor(() =>
+        expect(queryFilesMock.mock.calls.length).toBeGreaterThan(readsBefore),
+      );
+      const [snapshotId, query, pageToken] =
+        queryFilesMock.mock.lastCall ?? [];
+      expect(snapshotId).toBe('snap-1');
+      expect(query).toEqual(expect.objectContaining({ filter: 'SYNCED' }));
+      expect(pageToken).toBeNull();
+      expect(screen.queryByLabelText('snap-1.png, Synced')).toBeNull();
+      expect(screen.queryByLabelText('Results updated')).toBeNull();
+
+      fireEvent.press(screen.getByLabelText('Done'));
+      await waitFor(() =>
+        expect(screen.queryByLabelText('Deleted 1 files, freed 10 B')).toBeNull(),
+      );
     });
 
     it('passes the a11y sweep while selecting', async () => {

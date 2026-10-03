@@ -236,6 +236,18 @@ describe('useScan auto-refresh', () => {
     expect(result.current.run?.terminalState).toBe('COMPLETED');
   });
 
+  it('skips the refresh this time when a deletion is running', async () => {
+    getScanStateMock.mockResolvedValue(state(completed(), active()));
+    startScanMock.mockResolvedValue(scanError('DELETION_IN_PROGRESS'));
+
+    const {result} = renderScan();
+    await waitFor(() => expect(startScanMock).toHaveBeenCalledTimes(1));
+    await flush();
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.run?.terminalState).toBe('COMPLETED');
+  });
+
   it('refreshes again on every return to the foreground', async () => {
     getScanStateMock.mockResolvedValue(state(completed(), active()));
     startScanMock.mockResolvedValue(scanError('REFRESH_UNAVAILABLE'));

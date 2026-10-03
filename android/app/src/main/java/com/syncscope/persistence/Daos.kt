@@ -164,6 +164,10 @@ interface LocalNodeDao {
   @Query("SELECT * FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId")
   suspend fun byEntry(snapshotId: String, entryId: String): LocalNodeEntity?
 
+  /** The `FILE` rows of [snapshotId] among [entryIds] (at most a few hundred per call). */
+  @Query("SELECT * FROM local_node WHERE snapshotId = :snapshotId AND kind = 'FILE' AND entryId IN (:entryIds)")
+  suspend fun filesByEntry(snapshotId: String, entryIds: List<String>): List<LocalNodeEntity>
+
   /** The parent entry ID of a row; null for a direct child of its source root or an unknown entry. */
   @Query("SELECT parentId FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId")
   suspend fun parentOf(snapshotId: String, entryId: String): String?

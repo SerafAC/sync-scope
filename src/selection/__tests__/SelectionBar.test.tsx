@@ -141,6 +141,33 @@ describe('SelectionBar', () => {
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
+  it('disables Delete while Select all is still merging', () => {
+    const onDelete = jest.fn();
+    render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 360, height: 640 },
+          insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        }}
+      >
+        <PaperProvider>
+          <SelectionContext.Provider
+            value={{
+              ...selectionState({ count: 2, knownBytes: 70 }),
+              selectingAll: true,
+            }}
+          >
+            <SelectionBar onDelete={onDelete} />
+          </SelectionContext.Provider>
+        </PaperProvider>
+      </SafeAreaProvider>,
+    );
+
+    expect(screen.getByLabelText('Delete selected')).toBeDisabled();
+    fireEvent.press(screen.getByLabelText('Delete selected'));
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
   it('renders nothing while nothing is selected', () => {
     renderBar({ count: 0 });
 

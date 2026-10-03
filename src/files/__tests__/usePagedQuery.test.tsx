@@ -329,6 +329,30 @@ describe('usePagedQuery', () => {
     expect(result.current.snapshotChanged).toBe(false);
   });
 
+  it('reloads page 1 of the same read when reloadKey changes, without reporting a snapshot change', async () => {
+    let rows = ['a', 'b', 'c'];
+    const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+      async () => ok(rows.map(id => entry(id)), null, COUNTS),
+    );
+    const { result, rerender } = setup({ read, reloadKey: 0 });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(read).toHaveBeenCalledTimes(1);
+
+    rows = ['c'];
+    rerender({ reloadKey: 1 });
+
+    await waitFor(() =>
+      expect(result.current.entries.map(e => e.entryId)).toEqual(['c']),
+    );
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenLastCalledWith(
+      'snap-1',
+      expect.objectContaining({ filter: 'ALL' }),
+      null,
+    );
+    expect(result.current.snapshotChanged).toBe(false);
+  });
+
   it('reloads when the parent folder changes', async () => {
     const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
       async (_snapshotId, query) =>

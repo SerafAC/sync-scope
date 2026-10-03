@@ -409,21 +409,21 @@ files, and only the ones that are safe to delete.
   - `movedByRecheck` counts both moves;
   - SC-005: with the stored password `s3cret-Log-Probe`, no `ShadowLog` entry contains it after a re-check, including a failing one.
 - [X] T064 [US6] Implement T063 in `KT/deletion/DeletionRecheck.kt` (research R12, step 4). Use `MatchIndex.nfc`, `MatchIndex.bucketOf`, the snapshot's precision (`SnapshotStore.precisionOf`) and `listWithRetry` from T058. Open one session through `RemoteClientFactory` with the repository's `RemoteConfig` and the credential loaded as `RepositoryOperations.test` does, extracting a shared `connectRepository()` if that avoids duplication. Close the session and wipe the password in `finally`. Log only codes and counts, never the password, host, user or a remote path (D011, SC-005).
-- [ ] T065 [US6] Create `KTEST/deletion/DeletionOperationsTest.kt` (fake store, recheck, deleter and clock). It covers:
+- [X] T065 [US6] Create `KTEST/deletion/DeletionOperationsTest.kt` (fake store, recheck, deleter and clock). It covers:
   - **prepare refusals**: not the active snapshot → `STALE_GENERATION`; `configRevision` ≠ `revision` → `REPOSITORY_CHANGED`; busy → `SCAN_IN_PROGRESS`; empty IDs → `INVALID_QUERY`;
   - **grouping**: UNKNOWN rows → `refused`; UNSYNCED rows → `unsynced`; directories and unknown IDs → `missing`;
   - **totals**: `bytes` sum known sizes only;
   - **plan lifecycle**: a new prepare replaces the plan; a token older than `MAX_DELETION_PLAN_AGE_MILLIS` → `PLAN_NOT_FOUND`; a reused token → `PLAN_NOT_FOUND`; the active snapshot moved → `PLAN_STALE`;
   - **execute**: `includeUnsynced=false` never attempts `unsynced` rows; `refused` rows are never attempted; outcomes are committed in chunks of 100 through `recordDeletions`; `freedBytes` counts `DELETED` known sizes only; `failures` lists every attempted non-deleted row; `removedEntryIds` lists `DELETED` + `ALREADY_GONE`;
   - **exclusivity**: prepare and execute run inside `runExclusive`.
-- [ ] T066 [US6] Implement T065 in `KT/deletion/DeletionOperations.kt`: an in-memory single plan with a random UUID token and the fields of the data-model "Deletion plan" table. Build the `plan` and `result` envelopes in `KT/bridge/CloudSyncEnvelope.kt` exactly as in [contracts/cloudsync-mvp.md](./contracts/cloudsync-mvp.md). No document URI or remote path goes into any envelope.
-- [ ] T067 [US6] Wire `prepareLocalDeletion` and `executeLocalDeletion` in `KT/bridge/CloudSyncModule.kt` (replacing the T014 stubs) over one `DeletionOperations` built lazily on the background dispatcher like `coordinatorHolder`. Update the class doc comment, since no method is `NOT_IMPLEMENTED` now except `getSettings` and `setIncludeHidden`. Add module tests to `KTEST/bridge/CloudSyncModuleTest.kt`.
-- [ ] T068 [P] [US6] In `src/scan/ScanProvider.tsx`, treat a `DELETION_IN_PROGRESS` reply to the app-open `LOCAL_REFRESH` as "skip this time" (no error shown), with a test in `src/scan/__tests__/useScan.test.tsx`.
+- [X] T066 [US6] Implement T065 in `KT/deletion/DeletionOperations.kt`: an in-memory single plan with a random UUID token and the fields of the data-model "Deletion plan" table. Build the `plan` and `result` envelopes in `KT/bridge/CloudSyncEnvelope.kt` exactly as in [contracts/cloudsync-mvp.md](./contracts/cloudsync-mvp.md). No document URI or remote path goes into any envelope.
+- [X] T067 [US6] Wire `prepareLocalDeletion` and `executeLocalDeletion` in `KT/bridge/CloudSyncModule.kt` (replacing the T014 stubs) over one `DeletionOperations` built lazily on the background dispatcher like `coordinatorHolder`. Update the class doc comment, since no method is `NOT_IMPLEMENTED` now except `getSettings` and `setIncludeHidden`. Add module tests to `KTEST/bridge/CloudSyncModuleTest.kt`.
+- [X] T068 [P] [US6] In `src/scan/ScanProvider.tsx`, treat a `DELETION_IN_PROGRESS` reply to the app-open `LOCAL_REFRESH` as "skip this time" (no error shown), with a test in `src/scan/__tests__/useScan.test.tsx`.
 
 ### JS
 
-- [ ] T069 [P] [US6] Add the `prepareLocalDeletion(snapshotId, entryIds)` and `executeLocalDeletion(planToken, includeUnsynced)` wrappers to `src/native/CloudSync.ts`, validating every DTO field. Add tests.
-- [ ] T070 [US6] Create `src/selection/DeleteFlow.tsx` and `src/selection/__tests__/DeleteFlow.test.tsx`. It is a Paper dialog sequence:
+- [X] T069 [P] [US6] Add the `prepareLocalDeletion(snapshotId, entryIds)` and `executeLocalDeletion(planToken, includeUnsynced)` wrappers to `src/native/CloudSync.ts`, validating every DTO field. Add tests.
+- [X] T070 [US6] Create `src/selection/DeleteFlow.tsx` and `src/selection/__tests__/DeleteFlow.test.tsx`. It is a Paper dialog sequence:
   1. **Checking**: `Checking files on the server` with an indeterminate indicator while prepare runs.
   2. **Prepare error**: the message, the action, `Retry` and a `GoThereButton` when the code has a target. No confirmation is shown.
   3. **Confirmation**:
@@ -438,11 +438,11 @@ files, and only the ones that are safe to delete.
   5. **Result**: `Deleted <n> files, freed <size>` and one `Could not delete <name>: <reason>` line per failure, with reason texts from one map.
 
   `PLAN_STALE` / `PLAN_NOT_FOUND` return to the checking step after "Review again". Tests cover every branch, including that `Delete` passes `includeUnsynced` only after both confirmations.
-- [ ] T071 [US6] Wire deletion into `src/screens/FilesScreen.tsx` and `src/selection/SelectionBar.tsx`: pass `onDelete` to open `DeleteFlow` with the selection's IDs and `snapshotId`. On a result, call `removeIds(result.removedEntryIds)` and reload the current view from page 1, keeping the folder and filter (reuse the `usePagedQuery` reset used for snapshot changes). Update both tests.
+- [X] T071 [US6] Wire deletion into `src/screens/FilesScreen.tsx` and `src/selection/SelectionBar.tsx`: pass `onDelete` to open `DeleteFlow` with the selection's IDs and `snapshotId`. On a result, call `removeIds(result.removedEntryIds)` and reload the current view from page 1, keeping the folder and filter (reuse the `usePagedQuery` reset used for snapshot changes). Update both tests.
 
 ### End-to-end
 
-- [ ] T072 [US6] Create `MAESTRO/mvp/05-delete-synced.yaml` exactly as mapped (both halves; the second half edits the root to `gallery` through `Edit repository`, then `Rescan from scratch`) and add it to `flowsOrder`.
+- [X] T072 [US6] Create `MAESTRO/mvp/05-delete-synced.yaml` exactly as mapped (both halves; the second half edits the root to `gallery` through `Edit repository`, then `Rescan from scratch`) and add it to `flowsOrder`.
 - [ ] T073 [US6] Create `MAESTRO/staged/06-recheck-removed-a.yaml` (clearState, seam setup with SFTP, root `recheck`, source `SyncScopeE2E/Recheck`, scan) and `MAESTRO/staged/06-recheck-removed-b.yaml` (assertions as mapped). Add the line `staged/06-recheck-removed-a.yaml|remove-recheck-file.sh|staged/06-recheck-removed-b.yaml` to `MAESTRO/staged/pairs.txt`.
 - [ ] T074 [US6] Create `MAESTRO/staged/07-delete-offline-a.yaml` (clearState, seam setup with SFTP, root `gallery`, source `SyncScopeE2E/Offline`, scan), `-b.yaml` (select `beach.png` → `Delete selected` → the CONNECTION_* error with `Retry`, and no confirmation) and `-c.yaml` (`Rescan from scratch` → `beach.png, Synced` still listed, so zero files were deleted). Add the line `staged/07-delete-offline-a.yaml|pause-service.sh sftp|staged/07-delete-offline-b.yaml|resume-service.sh sftp|staged/07-delete-offline-c.yaml` to `MAESTRO/staged/pairs.txt`.
 

@@ -61,9 +61,9 @@ class DeletionRecheck(
   private val credentials: CredentialStore,
   private val clients: RemoteClientFactory,
   private val delay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
-) {
+) : ServerRecheck {
 
-  suspend fun recheck(snapshotId: String, repository: RepositoryConfigEntity, synced: List<DeletionRow>): RecheckResult {
+  override suspend fun recheck(snapshotId: String, repository: RepositoryConfigEntity, synced: List<DeletionRow>): RecheckResult {
     val precision = store.precisionOf(snapshotId)
     val refused = ArrayList<RecheckedRow>()
     val pending = ArrayList<Pending>()

@@ -27,12 +27,14 @@ const UNAVAILABLE_ERROR: CloudSyncError = {
 
 /**
  * Errors of the automatic local refresh that the user has nothing to do
- * about: no current remote listing to reuse (research R2), or a run that
- * started in between.
+ * about: no current remote listing to reuse (research R2), a run that
+ * started in between, or a deletion that is running (research R13: skip the
+ * refresh this time; the next return to the foreground tries again).
  */
 const SILENT_REFRESH_ERRORS: ReadonlySet<string> = new Set([
   CloudSyncErrorCode.REFRESH_UNAVAILABLE,
   CloudSyncErrorCode.SCAN_IN_PROGRESS,
+  CloudSyncErrorCode.DELETION_IN_PROGRESS,
 ]);
 
 /**

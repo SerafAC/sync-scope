@@ -101,8 +101,11 @@ function useSourceCounts(
   snapshotId: string | null,
   sourceIds: readonly string[],
   filter: FileFilter,
+  reloadKey: number,
 ): ReadonlyMap<string, StatusCountDto[] | null> | null {
-  const key = `${snapshotId}\u0000${filter}\u0000${sourceIds.join('\u0000')}`;
+  const key = `${snapshotId}\u0000${filter}\u0000${reloadKey}\u0000${sourceIds.join(
+    '\u0000',
+  )}`;
   const [loaded, setLoaded] = useState<SourceCounts | null>(null);
 
   useEffect(() => {
@@ -135,7 +138,7 @@ function useSourceCounts(
     return () => {
       live = false;
     };
-    // `key` covers snapshotId, filter and sourceIds.
+    // `key` covers snapshotId, filter, reloadKey and sourceIds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -242,8 +245,14 @@ const FileRow = memo(function FileRowBody({
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
  */
 export function ListScreen(props: ListScreenProps): React.JSX.Element {
-  const { snapshotId, scanLoading, aliases, onSnapshotLost, onFolderChange } =
-    props;
+  const {
+    snapshotId,
+    scanLoading,
+    aliases,
+    onSnapshotLost,
+    onFolderChange,
+    reloadKey = 0,
+  } = props;
   const { filter } = useFiles();
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const nav = useListNavigation({
@@ -262,7 +271,12 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
   }, [onFolderChange, folderSourceId, parentId]);
 
   const sourceIds = useMemo(() => [...aliases.keys()], [aliases]);
-  const sourceCounts = useSourceCounts(snapshotId, sourceIds, filter);
+  const sourceCounts = useSourceCounts(
+    snapshotId,
+    sourceIds,
+    filter,
+    reloadKey,
+  );
 
   const query = useMemo<QuerySpec>(
     () => ({
@@ -280,6 +294,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     query,
     read: readTreeChildren,
     onSnapshotLost,
+    reloadKey,
   });
 
   const totals = useMemo(

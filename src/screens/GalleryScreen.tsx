@@ -29,7 +29,8 @@ import { density, gridColumns, spacing } from '../theme/spacing';
  * selection; while selecting, a tap toggles a tile (FR-015).
  */
 export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
-  const { snapshotId, scanLoading, aliases, onSnapshotLost } = props;
+  const { snapshotId, scanLoading, aliases, onSnapshotLost, reloadKey } =
+    props;
   const { filter } = useFiles();
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const { width } = useWindowDimensions();
@@ -49,6 +50,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     query,
     read: queryFiles,
     onSnapshotLost,
+    reloadKey,
   });
   useReportToFilesScreen(
     paged.counts,

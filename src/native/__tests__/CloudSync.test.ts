@@ -4,12 +4,14 @@ import {
   CloudSync,
   approveSftpHostKey,
   cancelScan,
+  executeLocalDeletion,
   getLocalImageHandle,
   getRepositorySummary,
   getScanState,
   launchSourcePicker,
   listSelectableEntries,
   listSources,
+  prepareLocalDeletion,
   queryFiles,
   rejectSftpHostKey,
   removeSource,
@@ -1089,5 +1091,196 @@ describe('CloudSync repository wrappers (contract v5)', () => {
         'NATIVE_MODULE_UNAVAILABLE',
       );
     }
+  });
+});
+
+describe('CloudSync deletion wrappers (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const plan = {
+    planToken: 'tok-1',
+    toDelete: {count: 2, bytes: 300},
+    unsynced: {count: 1, bytes: 0},
+    refused: {count: 3, scanTooOld: 1},
+    movedByRecheck: 1,
+    missing: 0,
+    unknownSizeCount: 1,
+    remoteListedAtMillis: 1_704_067_200_000,
+  };
+  const deletion = {
+    deleted: 1,
+    freedBytes: 120,
+    failures: [{entryId: 'e-2', name: 'beach.png', reason: 'ALREADY_GONE'}],
+    removedEntryIds: ['e-1', 'e-2'],
+  };
+
+  it('prepare passes the snapshot and IDs through and returns the plan', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      plan: {...plan, stray: 1},
+    });
+    mockNative({prepareLocalDeletion: native});
+
+    const result = await prepareLocalDeletion('snap-1', ['e-1', 'e-2']);
+
+    expect(native).toHaveBeenCalledWith('snap-1', ['e-1', 'e-2']);
+    expect(result).toEqual({contractVersion: v, status: 'ok', plan});
+  });
+
+  it('prepare normalises a typed error and keeps a host-key action', async () => {
+    mockNative({
+      prepareLocalDeletion: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'SFTP_HOST_KEY_CHANGED',
+          message: 'The SFTP server presented a different host key.',
+          action: 'Check the server in Settings › Repository.',
+        },
+      }),
+    });
+
+    expect(await prepareLocalDeletion('snap-1', ['e-1'])).toEqual({
+      contractVersion: v,
+      status: 'error',
+      error: {
+        code: 'SFTP_HOST_KEY_CHANGED',
+        message: 'The SFTP server presented a different host key.',
+        action: 'Check the server in Settings › Repository.',
+        conflictingSource: null,
+      },
+    });
+  });
+
+  it.each([
+    ['an empty token', {...plan, planToken: ''}],
+    ['a missing token', {...plan, planToken: undefined}],
+    ['toDelete without bytes', {...plan, toDelete: {count: 2}}],
+    ['negative unsynced bytes', {...plan, unsynced: {count: 1, bytes: -1}}],
+    ['refused without scanTooOld', {...plan, refused: {count: 3}}],
+    ['a fractional movedByRecheck', {...plan, movedByRecheck: 1.5}],
+    ['a string missing', {...plan, missing: '0'}],
+    ['no unknownSizeCount', {...plan, unknownSizeCount: undefined}],
+    ['a NaN listing time', {...plan, remoteListedAtMillis: Number.NaN}],
+    ['no plan payload', undefined],
+  ])('prepare turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
+    mockNative({
+      prepareLocalDeletion: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', plan: bad}),
+    });
+
+    const result = await prepareLocalDeletion('snap-1', ['e-1']);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('execute passes the token and the acknowledgement through', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      result: deletion,
+    });
+    mockNative({executeLocalDeletion: native});
+
+    const result = await executeLocalDeletion('tok-1', true);
+
+    expect(native).toHaveBeenCalledWith('tok-1', true);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      result: deletion,
+    });
+  });
+
+  it('execute normalises PLAN_STALE', async () => {
+    mockNative({
+      executeLocalDeletion: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'PLAN_STALE',
+          message: 'The results changed since you reviewed this deletion.',
+          action: 'Review the selection and tap Delete again.',
+        },
+      }),
+    });
+
+    const result = await executeLocalDeletion('tok-1', false);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('PLAN_STALE');
+    }
+  });
+
+  it.each([
+    ['a missing deleted count', {...deletion, deleted: undefined}],
+    ['negative freedBytes', {...deletion, freedBytes: -5}],
+    ['failures that are not an array', {...deletion, failures: {}}],
+    [
+      'an unknown failure reason',
+      {
+        ...deletion,
+        failures: [{entryId: 'e', name: 'n', reason: 'SKIPPED_UNSYNCED'}],
+      },
+    ],
+    [
+      'a failure without a name',
+      {...deletion, failures: [{entryId: 'e', reason: 'FAILED'}]},
+    ],
+    ['a non-string removed ID', {...deletion, removedEntryIds: ['e-1', 2]}],
+    ['no result payload', undefined],
+  ])('execute turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
+    mockNative({
+      executeLocalDeletion: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', result: bad}),
+    });
+
+    const result = await executeLocalDeletion('tok-1', false);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('turns rejected native calls into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      prepareLocalDeletion: jest.fn().mockRejectedValue(new Error('boom')),
+      executeLocalDeletion: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const prepared = await prepareLocalDeletion('snap-1', ['e-1']);
+    const executed = await executeLocalDeletion('tok-1', false);
+
+    expect(prepared.status === 'error' && prepared.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+    expect(executed.status === 'error' && executed.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const prepared = await prepareLocalDeletion('snap-1', ['e-1']);
+    const executed = await executeLocalDeletion('tok-1', false);
+
+    expect(prepared.status === 'error' && prepared.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
+    expect(executed.status === 'error' && executed.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
   });
 });

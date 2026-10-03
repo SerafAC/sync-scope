@@ -8,6 +8,11 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.codegen.NativeCloudSyncSpec
 import com.syncscope.credential.CredentialStore
+import com.syncscope.deletion.DeletionOperations
+import com.syncscope.deletion.DeletionRecheck
+import com.syncscope.deletion.ExecuteOutcome
+import com.syncscope.deletion.LocalDeleter
+import com.syncscope.deletion.PrepareOutcome
 import com.syncscope.image.ContentResolverThumbnailSource
 import com.syncscope.image.LocalImageStore
 import com.syncscope.persistence.RepositoryConfigDao
@@ -49,8 +54,10 @@ import kotlinx.coroutines.launch
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
  * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
  * dispatcher caps concurrent decodes at four. `listSelectableEntries` delegates to [ScanOperations].
- * Methods not yet built (`getSettings`, `setIncludeHidden`, `prepareLocalDeletion`,
- * `executeLocalDeletion`) resolve a typed NOT_IMPLEMENTED envelope.
+ * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
+ * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
+ * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
+ * `setIncludeHidden`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -80,6 +87,7 @@ class CloudSyncModule(
   private val credentials = memoize(credentialStore)
   private val sourceRootDao = memoize(sourceRoots)
   private val store = memoize(snapshotStore)
+  private val saf = memoize(safAccess)
 
   private val repositories =
     RepositoryOperations(
@@ -94,7 +102,7 @@ class CloudSyncModule(
 
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
-  private val sources = SourceOperations(saf = memoize(safAccess), sources = sourceRootDao, envelope = envelope)
+  private val sources = SourceOperations(saf = saf, sources = sourceRootDao, envelope = envelope)
 
   private val picker = SourcePicker(sources, envelope) { reactContext.currentActivity }
 
@@ -111,6 +119,22 @@ class CloudSyncModule(
         perFilePause = ScanPacing.pause(reactContext),
       )
     ScanCoordinator(engine, store(), scope)
+  }
+
+  /** Built on first deletion call (on the background dispatcher), over the scan coordinator's gate. */
+  private val deletionsHolder = lazy {
+    val clients = remoteClients ?: defaultClients
+    DeletionOperations(
+      snapshots = store(),
+      repository = { repositoryDao().get() },
+      recheck = DeletionRecheck(store(), credentials(), clients),
+      deleter = LocalDeleter(saf()),
+      exclusive = coordinatorHolder.value,
+      writableSources = {
+        val writable = saf().persistedGrants().filter { it.canWrite }.mapTo(HashSet()) { it.uri }
+        sourceRootDao().all().filter { it.treeUri in writable }.mapTo(HashSet()) { it.sourceId }
+      },
+    )
   }
 
   private val scans =
@@ -222,11 +246,29 @@ class CloudSyncModule(
   override fun listSelectableEntries(snapshotId: String, querySpec: ReadableMap, promise: Promise) =
     runOperation("listSelectableEntries", promise) { scans.listSelectableEntries(snapshotId, querySpec) }
 
-  override fun prepareLocalDeletion(snapshotId: String, entryIds: ReadableArray, promise: Promise) =
-    notImplemented("prepareLocalDeletion", promise)
+  override fun prepareLocalDeletion(snapshotId: String, entryIds: ReadableArray, promise: Promise) {
+    // Copied on the calling thread: the bridge array is not read from the background dispatcher.
+    val ids = (0 until entryIds.size()).mapNotNull { entryIds.getString(it) }
+    runOperation("prepareLocalDeletion", promise) {
+      when (val outcome = deletionsHolder.value.prepare(snapshotId, ids)) {
+        is PrepareOutcome.Ready -> envelope.deletionPlan(outcome.plan)
+        is PrepareOutcome.Refused -> envelope.deletionRefused(outcome.code)
+        is PrepareOutcome.RemoteFailed -> {
+          Log.w(TAG, "prepareLocalDeletion failed: ${outcome.error.code} reply=${outcome.error.replyCode}")
+          val repository = outcome.repository
+          envelope.deletionRemoteFailure(outcome.error, listOf(repository.host, repository.username, repository.remoteRoot))
+        }
+      }
+    }
+  }
 
   override fun executeLocalDeletion(planToken: String, includeUnsynced: Boolean, promise: Promise) =
-    notImplemented("executeLocalDeletion", promise)
+    runOperation("executeLocalDeletion", promise) {
+      when (val outcome = deletionsHolder.value.execute(planToken, includeUnsynced)) {
+        is ExecuteOutcome.Done -> envelope.deletionResult(outcome.result)
+        is ExecuteOutcome.Refused -> envelope.deletionRefused(outcome.code)
+      }
+    }
 
   private fun notImplemented(method: String, promise: Promise) =
     runOperation(method, promise) { envelope.notImplemented(method) }

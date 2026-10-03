@@ -3,6 +3,8 @@ package com.syncscope.persistence
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.syncscope.deletion.DeletionOutcome
+import com.syncscope.deletion.DeletionRow
+import com.syncscope.deletion.DeletionSnapshots
 
 /** One row of a browse page, mirroring `FileEntryDto` on the JS side. */
 data class FileEntry(
@@ -50,7 +52,7 @@ data class FilePage(
  * terminal state, cannot publish and cannot disturb the last known good
  * pointer.
  */
-open class SnapshotStore(private val db: SyncScopeDatabase) {
+open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots {
 
   /**
    * Creates a run with generation `maxGeneration() + 1`, read and inserted in one transaction so two
@@ -87,7 +89,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
 
   suspend fun run(runId: String): ScanRunEntity? = db.scanRunDao().byId(runId)
 
-  suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
+  override suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
 
   /** `INCOMPLETE` once any remote-scope or `SOURCE` gap was recorded (data-model "Snapshot"). */
   suspend fun setCoverage(snapshotId: String, coverage: String) {
@@ -160,7 +162,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
    * stored row's source, parent and status are used, so a row already removed is never counted twice.
    * Other outcomes change nothing. At most [MAX_DELETIONS_PER_BATCH] outcomes; the caller chunks.
    */
-  open suspend fun recordDeletions(snapshotId: String, outcomes: List<DeletionOutcome>) {
+  override suspend fun recordDeletions(snapshotId: String, outcomes: List<DeletionOutcome>) {
     require(outcomes.size <= MAX_DELETIONS_PER_BATCH) { "at most $MAX_DELETIONS_PER_BATCH outcomes per batch" }
     val removals = outcomes.filter { it.state.removesRow }
     if (removals.isEmpty()) return
@@ -322,6 +324,32 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   }
 
   suspend fun activeSnapshot(): ActiveSnapshotEntity? = db.activeSnapshotDao().get()
+
+  override suspend fun activeSnapshotId(): String? = activeSnapshot()?.snapshotId
+
+  /**
+   * The `FILE` rows of [snapshotId] among [entryIds], with what a deletion plan keeps of each (data-model
+   * "Deletion plan"); directories and unknown IDs are left out. Read in chunks of
+   * [MAX_IDS_PER_QUERY] IDs to stay under SQLite's bound-variable limit, in the order of [entryIds].
+   */
+  override suspend fun deletionRows(snapshotId: String, entryIds: Collection<String>): List<DeletionRow> {
+    val ids = entryIds.distinct()
+    val order = ids.withIndex().associate { it.value to it.index }
+    return ids.chunked(MAX_IDS_PER_QUERY).flatMap { chunk ->
+      db.localNodeDao().filesByEntry(snapshotId, chunk).map {
+        DeletionRow(
+          entryId = it.entryId,
+          sourceId = it.sourceId,
+          parentId = it.parentId,
+          documentUri = it.documentUri,
+          name = it.name,
+          sizeBytes = it.sizeBytes,
+          modifiedUtcMillis = it.modifiedUtcMillis,
+          status = it.status,
+        )
+      }
+    }.sortedBy { order.getValue(it.entryId) }
+  }
 
   /**
    * Reclaims runs left non-terminal by process death: marks them ABORTED and
@@ -492,6 +520,9 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   companion object {
     /** [recordDeletions] takes at most this many outcomes per transaction (research R14). */
     const val MAX_DELETIONS_PER_BATCH = 100
+
+    /** IDs bound in one `IN (…)` read; well under SQLite's 999-variable limit on old builds. */
+    const val MAX_IDS_PER_QUERY = 500
 
     /** `sizes[i]` of a [SelectableEntries] row whose size is unknown. */
     private const val UNKNOWN_SIZE = -1L

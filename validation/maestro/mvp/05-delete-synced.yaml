@@ -1,0 +1,236 @@
+# Story 6 sc. 1-5 and 10, FR-018-FR-020a, SC-007, SC-008 (SFTP): real files
+# are deleted from real device storage after a scan against the live
+# container (D012), and only the ones that are safe to delete.
+#
+# First half: against the remote gallery-partial/ tree (its restricted/
+# folder cannot be listed), the Delete source holds sunset.png, beach.png and
+# album/forest.png (Synced) and harbor.png, album/notes.txt and
+# drafts/draft.png (Unknown). "Select all" in the source root, in album and in
+# drafts selects all six; the server check confirms the three backed-up files
+# and the three unknown ones are never deleted (D006). After Delete, the three
+# files leave the list without a scan, the album folder stays (FR-020a), and a
+# rescan from scratch proves they are gone from the device.
+#
+# Second half (sc. 3): the root is edited to gallery/ through Edit repository
+# and rescanned, so the remaining files are Unsynced. harbor.png alone has
+# nothing backed up to delete until the user ticks "Also delete files that are
+# not backed up" and confirms the warning; notes.txt and draft.png stay.
+#
+# Byte totals come from android-flow.sh (SIZE_*), never literals.
+# Self-contained: starts from clearState (contracts/maestro-mvp.md).
+appId: com.syncscope
+name: mvp/05-delete-synced
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery-partial'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Delete"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+
+# List view, the Delete source's root.
+- tapOn: "List view"
+- tapOn: "Folder Delete.*"
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "harbor.png, Unknown"
+
+# Select every file: the root, then album, then drafts (6 files).
+- longPressOn: "beach.png, Synced"
+- extendedWaitUntil:
+    visible: "beach.png, Synced, selected"
+    timeout: 15000
+- tapOn: "Select all"
+- extendedWaitUntil:
+    visible: "Selection 3 selected, .+"
+    timeout: 15000
+- tapOn: "Folder album.*"
+- extendedWaitUntil:
+    visible: "Breadcrumb album"
+    timeout: 15000
+- tapOn: "Select all"
+- extendedWaitUntil:
+    visible: "Selection 5 selected, .+"
+    timeout: 15000
+- tapOn: "Breadcrumb Delete"
+- tapOn: "Folder drafts.*"
+- extendedWaitUntil:
+    visible: "Breadcrumb drafts"
+    timeout: 15000
+- tapOn: "Select all"
+- extendedWaitUntil:
+    visible: "Selection 6 selected, .+"
+    timeout: 15000
+
+# Delete: the server check runs, then the breakdown (scenarios 1 and 4).
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "(Checking files on the server|Delete [0-9]+ backed-up files, .+)"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Delete 3 backed-up files, ${SIZE_SYNCED_3} B"
+    timeout: 60000
+- assertVisible: "Never deleted 3"
+- assertVisible: "Scan age .+"
+- assertVisible: "Deleted files cannot be recovered."
+- assertNotVisible: "Not backed up .+"
+- tapOn: "Delete"
+
+# The outcome (scenarios 2 and 5).
+- extendedWaitUntil:
+    visible: "Deleted 3 files, freed ${SIZE_SYNCED_3} B"
+    timeout: 60000
+- assertNotVisible: "Could not delete .+"
+- tapOn: "Done"
+
+# The deleted files left the results and the selection without a scan; the
+# three refused files stay selected until the selection is cleared.
+- extendedWaitUntil:
+    visible: "Selection 3 selected, .+"
+    timeout: 15000
+- assertVisible: "draft.png, Unknown, selected"
+- tapOn: "Clear selection"
+- extendedWaitUntil:
+    notVisible: "Selection .+"
+    timeout: 15000
+
+# The album folder stays (FR-020a).
+- tapOn: "Breadcrumb Delete"
+- extendedWaitUntil:
+    visible: "harbor.png, Unknown"
+    timeout: 15000
+- assertNotVisible: "beach.png, .+"
+- assertNotVisible: "sunset.png, .+"
+- assertVisible: "Folder album.*"
+- tapOn: "Folder album.*"
+- extendedWaitUntil:
+    visible: "notes.txt, Unknown"
+    timeout: 15000
+- assertNotVisible: "forest.png, .+"
+
+# A rescan from scratch re-reads the device: the three files are really gone
+# (D012) and the unknown-state files are untouched (D006).
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- runFlow: ../subflows/open-files.yaml
+- tapOn: "List view"
+- runFlow:
+    when:
+      visible: "Folder Delete.*"
+    commands:
+      - tapOn: "Folder Delete.*"
+- runFlow:
+    when:
+      visible: "Breadcrumb Delete"
+    commands:
+      - tapOn: "Breadcrumb Delete"
+- extendedWaitUntil:
+    visible: "harbor.png, Unknown"
+    timeout: 15000
+- assertNotVisible: "beach.png, .+"
+- assertNotVisible: "sunset.png, .+"
+- tapOn: "Folder album.*"
+- extendedWaitUntil:
+    visible: "notes.txt, Unknown"
+    timeout: 15000
+- assertNotVisible: "forest.png, .+"
+- tapOn: "Breadcrumb Delete"
+- tapOn: "Folder drafts.*"
+- extendedWaitUntil:
+    visible: "draft.png, Unknown"
+    timeout: 15000
+
+# Second half: the same server with the root edited to gallery/, through the
+# form, then a rescan from scratch. Nothing that is left is backed up there.
+- runFlow:
+    file: ../subflows/setup-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      HOST: "${SFTP_HOST}"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- back
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- runFlow: ../subflows/open-files.yaml
+- tapOn: "List view"
+- runFlow:
+    when:
+      visible: "Folder Delete.*"
+    commands:
+      - tapOn: "Folder Delete.*"
+- runFlow:
+    when:
+      visible: "Breadcrumb Delete"
+    commands:
+      - tapOn: "Breadcrumb Delete"
+- extendedWaitUntil:
+    visible: "harbor.png, Unsynced"
+    timeout: 15000
+
+# A not-backed-up file is kept unless the user ticks the box and confirms the
+# stronger warning (scenario 3).
+- longPressOn: "harbor.png, Unsynced"
+- extendedWaitUntil:
+    visible: "harbor.png, Unsynced, selected"
+    timeout: 15000
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "Delete 0 backed-up files, 0 B"
+    timeout: 60000
+- assertVisible: "Not backed up 1"
+- assertVisible:
+    text: "Delete"
+    enabled: false
+- tapOn: "Also delete files that are not backed up"
+- assertVisible: "These files exist only on this phone. Deleting them cannot be undone."
+- assertVisible:
+    text: "Delete"
+    enabled: false
+- tapOn: "Confirm not backed up"
+- assertVisible:
+    text: "Delete"
+    enabled: true
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Deleted 1 files, freed .+"
+    timeout: 60000
+- tapOn: "Done"
+- extendedWaitUntil:
+    notVisible: "harbor.png, .+"
+    timeout: 15000
+
+# notes.txt and draft.png were never selected and remain.
+- tapOn: "Folder album.*"
+- extendedWaitUntil:
+    visible: "notes.txt, Unsynced"
+    timeout: 15000
+- tapOn: "Breadcrumb Delete"
+- tapOn: "Folder drafts.*"
+- extendedWaitUntil:
+    visible: "draft.png, Unsynced"
+    timeout: 15000
