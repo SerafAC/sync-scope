@@ -324,24 +324,24 @@ corner, and a selection bar that replaces the tabs.
 
   Mount it inside `FilesProvider` in `src/navigation/AppNavigator.tsx` (`FilesTab`).
 - [X] T051 [US5] Extend `src/files/a11y.ts` and `src/files/__tests__/a11y.test.ts`: tile and row labels take `selected: boolean` and append `, selected`; add builders for `Selection <n> selected, <size>` and `Selection details <text>`.
-- [ ] T052 [US5] Update `src/files/GalleryTile.tsx` and `src/screens/GalleryScreen.tsx` with their tests:
+- [X] T052 [US5] Update `src/files/GalleryTile.tsx` and `src/screens/GalleryScreen.tsx` with their tests:
   - `onLongPress` starts selection;
   - `onPress` toggles while selecting, and keeps its existing behaviour otherwise;
   - a check-circle overlay and `accessibilityState={{selected}}` on selected tiles (FR-017);
   - tile layout unchanged (`getItemLayout` stays valid).
-- [ ] T053 [US5] Update `src/screens/ListScreen.tsx` and its test. File rows get the same long-press, toggle and selected state as tiles. Directory and source rows are never selectable, and tapping them navigates while the selection is kept (Story 5 scenario 7).
-- [ ] T054 [US5] Create `src/selection/SelectionBar.tsx` and `src/selection/__tests__/SelectionBar.test.tsx`.
+- [X] T053 [US5] Update `src/screens/ListScreen.tsx` and its test. File rows get the same long-press, toggle and selected state as tiles. Directory and source rows are never selectable, and tapping them navigates while the selection is kept (Story 5 scenario 7).
+- [X] T054 [US5] Create `src/selection/SelectionBar.tsx` and `src/selection/__tests__/SelectionBar.test.tsx`.
   - Bottom-left: `<n> selected · <formatBytes(knownBytes)>`, labelled `Selection <n> selected, <size>`.
   - A second line when non-zero: "<k> of unknown size", "<h> hidden by filter", labelled `Selection details …`.
   - Right: `Delete selected`, rendered only when an `onDelete` prop is given (wired in US6).
   - Bottom safe-area inset applied; themed styles only.
-- [ ] T055 [US5] Update `src/screens/FilesScreen.tsx` and its test for selection mode:
+- [X] T055 [US5] Update `src/screens/FilesScreen.tsx` and its test for selection mode:
   - `navigation.setOptions({tabBarStyle: {display: 'none'}, headerLeft: Clear selection ✕, headerRight: Select all})` while selecting, restored on exit;
   - `Select all` calls `selectAll` with the current view's query (gallery: the filter; list: the open folder's `sourceId` and `parentId`), disabled at the list's sources level;
   - `BackHandler` clears the selection while selecting;
   - render `SelectionBar`;
   - show the provider's snapshot-change notice as a snackbar: "Results were updated, so the selection was cleared."
-- [ ] T056 [US5] Create `MAESTRO/mvp/04-select-size.yaml` as mapped (seam setup with SFTP, root `gallery`, source `SyncScopeE2E/Select`; assertions with `${SIZE_BEACH} B`, `${SIZE_SYNC_2} B` and `${SIZE_IMAGES_5} B`) and add it to `flowsOrder`.
+- [X] T056 [US5] Create `MAESTRO/mvp/04-select-size.yaml` as mapped (seam setup with SFTP, root `gallery`, source `SyncScopeE2E/Select`; assertions with `${SIZE_BEACH} B`, `${SIZE_SYNC_2} B` and `${SIZE_IMAGES_5} B`) and add it to `flowsOrder`.
 
 **Checkpoint**: selection works in both views with exact count and size; Delete is not yet shown.
 

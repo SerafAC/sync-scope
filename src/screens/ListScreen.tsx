@@ -1,5 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, View } from 'react-native';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { List, useTheme, type MD3Theme } from 'react-native-paper';
 
 import { Breadcrumb } from '../files/Breadcrumb';
@@ -28,10 +34,23 @@ import type {
   StatusCountDto,
 } from '../native/CloudSyncContracts';
 import { formatTimestamp } from '../scan/ScanSummaryCard';
+import { useSelection } from '../selection/SelectionProvider';
 import { density, spacing } from '../theme/spacing';
 import { chipCount } from '../theme/statusLabels';
 
 export const NO_SOURCES_TEXT = 'No folders added yet.';
+
+/** The folder the list view shows; what "Select all" covers there (FR-015). */
+export interface ListFolder {
+  sourceId: string;
+  /** null at the source root. */
+  parentId: string | null;
+}
+
+export interface ListScreenProps extends FilesViewProps {
+  /** The open folder, or null at the sources level, reported on every change. */
+  onFolderChange?: (folder: ListFolder | null) => void;
+}
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
@@ -137,6 +156,15 @@ function FileIcon({ color }: { color: string }): React.JSX.Element {
   return <List.Icon color={color} icon="file-outline" />;
 }
 
+/** A selected file row's icon: a check mark, so the state is not colour alone (FR-017). */
+function SelectedIcon({ color }: { color: string }): React.JSX.Element {
+  return (
+    <View testID="list-row-selected">
+      <List.Icon color={color} icon="check-circle" />
+    </View>
+  );
+}
+
 /** A source or directory row: `N matching`, dimmed at 0 and still pressable (clarification 3). */
 function FolderRow({
   name,
@@ -164,8 +192,23 @@ function FolderRow({
   );
 }
 
-/** A file row: name, size, modified time and status; never an origin badge (FR-002). */
-function FileRow({ entry }: { entry: FileEntryDto }): React.JSX.Element {
+/**
+ * A file row: name, size, modified time and status; never an origin badge
+ * (FR-002). A long-press starts the selection; [onPress] (given only while
+ * selecting) toggles it. A selected row shows a check mark and announces
+ * `, selected` (FR-015, FR-017).
+ */
+const FileRow = memo(function FileRowBody({
+  entry,
+  selected,
+  onPress,
+  onLongPress,
+}: {
+  entry: FileEntryDto;
+  selected: boolean;
+  onPress?: (entry: FileEntryDto) => void;
+  onLongPress: (entry: FileEntryDto) => void;
+}): React.JSX.Element {
   const details = [
     entry.sizeBytes == null ? null : formatSize(entry.sizeBytes),
     entry.modifiedUtcMillis == null
@@ -173,30 +216,36 @@ function FileRow({ entry }: { entry: FileEntryDto }): React.JSX.Element {
       : formatTimestamp(entry.modifiedUtcMillis),
   ].filter(part => part != null);
   return (
-    <View
-      accessible
-      accessibilityLabel={fileRowLabel(entry.name, entry.status)}
+    <Pressable
+      accessibilityLabel={fileRowLabel(entry.name, entry.status, selected)}
+      accessibilityState={{ selected }}
+      onLongPress={() => onLongPress(entry)}
+      onPress={onPress ? () => onPress(entry) : undefined}
       style={styles.fileRow}
     >
       <List.Item
         description={details.join(' · ')}
-        left={FileIcon}
+        left={selected ? SelectedIcon : FileIcon}
         style={styles.fileItem}
         title={entry.name}
       />
       <StatusChip status={entry.status} />
-    </View>
+    </Pressable>
   );
-}
+});
 
 /**
  * The list view (FR-002): the sources at the top level, then each source's
  * folders by name through `queryTreeChildren`, with a breadcrumb back up.
  * Under a filter, every folder stays visible with its matching-file count.
+ * File rows are selectable (FR-015); source and directory rows never are,
+ * and tapping one navigates while the selection is kept (Story 5 sc. 7).
  */
-export function ListScreen(props: FilesViewProps): React.JSX.Element {
-  const { snapshotId, scanLoading, aliases, onSnapshotLost } = props;
+export function ListScreen(props: ListScreenProps): React.JSX.Element {
+  const { snapshotId, scanLoading, aliases, onSnapshotLost, onFolderChange } =
+    props;
   const { filter } = useFiles();
+  const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const nav = useListNavigation({
     snapshotId,
     sources: aliases.size > 0 ? aliases : null,
@@ -204,6 +253,13 @@ export function ListScreen(props: FilesViewProps): React.JSX.Element {
   const { location } = nav;
   const folder = location.kind === 'folder' ? location : null;
   const parentId = folder?.path[folder.path.length - 1]?.entryId ?? null;
+  const folderSourceId = folder?.sourceId ?? null;
+
+  useEffect(() => {
+    onFolderChange?.(
+      folderSourceId == null ? null : { sourceId: folderSourceId, parentId },
+    );
+  }, [onFolderChange, folderSourceId, parentId]);
 
   const sourceIds = useMemo(() => [...aliases.keys()], [aliases]);
   const sourceCounts = useSourceCounts(snapshotId, sourceIds, filter);
@@ -213,11 +269,11 @@ export function ListScreen(props: FilesViewProps): React.JSX.Element {
       filter,
       view: 'LIST',
       sort: 'NAME_ASC',
-      sourceId: folder?.sourceId ?? null,
+      sourceId: folderSourceId,
       parentId,
       pageSize: PAGED_QUERY_PAGE_SIZE,
     }),
-    [filter, folder?.sourceId, parentId],
+    [filter, folderSourceId, parentId],
   );
   const paged = usePagedQuery({
     snapshotId: folder != null ? nav.snapshotId : null,
@@ -257,9 +313,14 @@ export function ListScreen(props: FilesViewProps): React.JSX.Element {
           onPress={() => openFolder(item.entryId, item.name)}
         />
       ) : (
-        <FileRow entry={item} />
+        <FileRow
+          entry={item}
+          onLongPress={longPress}
+          onPress={isSelecting ? toggle : undefined}
+          selected={isSelected(item.entryId)}
+        />
       ),
-    [openFolder],
+    [openFolder, isSelected, isSelecting, longPress, toggle],
   );
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
@@ -323,6 +384,7 @@ export function ListScreen(props: FilesViewProps): React.JSX.Element {
           ) : undefined
         }
         data={paged.entries}
+        extraData={items}
         getItemLayout={getItemLayout}
         keyExtractor={item => item.entryId}
         onEndReached={paged.loadMore}

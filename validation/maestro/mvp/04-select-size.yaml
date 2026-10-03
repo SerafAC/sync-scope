@@ -1,0 +1,87 @@
+# Story 5 sc. 1-4 and 6, FR-015-FR-017, SC-006 (SFTP): against the remote
+# gallery/ tree, the Select source holds sunset.png, beach.png and
+# album/forest.png (Synced), harbor.png and drafts/draft.png (Unsynced), and
+# album/notes.txt (not an image). A long-press starts the selection and hides
+# the tabs; the bottom-left corner shows the exact count and byte total after
+# every tap and after "Select all" (the five images, including any not yet on
+# screen). The selection survives a filter change (the hidden files are
+# counted and named) and a switch to list view, where opening a folder keeps
+# it; back ends it and the tabs return. Byte totals come from android-flow.sh
+# (SIZE_*), never literals. Self-contained: starts from clearState
+# (contracts/maestro-mvp.md).
+appId: com.syncscope
+name: mvp/04-select-size
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Select"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+
+# Long-press starts selection mode with that file (scenario 1).
+- longPressOn: "beach.png, Synced"
+- extendedWaitUntil:
+    visible: "beach.png, Synced, selected"
+    timeout: 15000
+- assertNotVisible: "Settings"
+- assertVisible: "Clear selection"
+- assertVisible: "Select all"
+- assertVisible: "Selection 1 selected, ${SIZE_BEACH} B"
+
+# A tap adds a file; the total updates at once (scenario 2).
+- tapOn: "sunset.png, Synced"
+- extendedWaitUntil:
+    visible: "sunset.png, Synced, selected"
+    timeout: 15000
+- assertVisible: "Selection 2 selected, ${SIZE_SYNC_2} B"
+
+# Select all: every image the gallery shows under All (scenario 3).
+- tapOn: "Select all"
+- extendedWaitUntil:
+    visible: "Selection 5 selected, ${SIZE_IMAGES_5} B"
+    timeout: 15000
+- assertVisible: "harbor.png, Unsynced, selected"
+
+# A filter change keeps the selection and names what it hides (scenario 4).
+- tapOn: "Filter Synced, 3"
+- extendedWaitUntil:
+    visible: "Selection details 2 hidden by filter"
+    timeout: 15000
+- assertVisible: "Selection 5 selected, ${SIZE_IMAGES_5} B"
+
+# List view keeps it too; folders cannot be selected and still open
+# (scenarios 4 and 7).
+- tapOn: "List view"
+- tapOn: "Folder Select, 3 matching"
+- tapOn: "Folder drafts, 0 matching, no matches"
+- extendedWaitUntil:
+    visible: "Breadcrumb drafts"
+    timeout: 15000
+- assertVisible: "Selection 5 selected, ${SIZE_IMAGES_5} B"
+- assertNotVisible: "Settings"
+
+# Back ends selection mode and the tabs return (scenario 6).
+- back
+- extendedWaitUntil:
+    notVisible: "Selection .+"
+    timeout: 15000
+- assertVisible: "Settings"
+- assertNotVisible: "Clear selection"
+- assertNotVisible: "Select all"

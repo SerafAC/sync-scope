@@ -19,16 +19,19 @@ import { useFiles } from '../files/useFiles';
 import { PAGED_QUERY_PAGE_SIZE, usePagedQuery } from '../files/usePagedQuery';
 import { queryFiles } from '../native/CloudSync';
 import type { FileEntryDto, QuerySpec } from '../native/CloudSyncContracts';
+import { useSelection } from '../selection/SelectionProvider';
 import { density, gridColumns, spacing } from '../theme/spacing';
 
 /**
  * The gallery (FR-001): a virtualized three-column grid of the active
  * snapshot's images, newest first (clarification 5), read page by page
- * through `queryFiles` under the shared filter.
+ * through `queryFiles` under the shared filter. A long-press starts the
+ * selection; while selecting, a tap toggles a tile (FR-015).
  */
 export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
   const { snapshotId, scanLoading, aliases, onSnapshotLost } = props;
   const { filter } = useFiles();
+  const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const { width } = useWindowDimensions();
   const tileSize = galleryTileSize(width);
 
@@ -60,10 +63,13 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
         <GalleryTile
           alias={aliases.get(item.sourceId)}
           entry={item}
+          onLongPress={longPress}
+          onPress={isSelecting ? toggle : undefined}
+          selected={isSelected(item.entryId)}
           snapshotId={snapshotId}
         />
       ),
-    [aliases, snapshotId],
+    [aliases, snapshotId, isSelected, isSelecting, longPress, toggle],
   );
 
   const getItemLayout = useCallback(
@@ -107,6 +113,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
       }
       columnWrapperStyle={styles.row}
       data={paged.entries}
+      extraData={items}
       getItemLayout={getItemLayout}
       keyExtractor={item => item.entryId}
       maxToRenderPerBatch={30}

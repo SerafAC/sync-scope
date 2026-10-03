@@ -1,21 +1,39 @@
-import React, { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { Button, SegmentedButtons, Snackbar, Text } from 'react-native-paper';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { BackHandler, StyleSheet, View } from 'react-native';
+import {
+  Button,
+  IconButton,
+  SegmentedButtons,
+  Snackbar,
+  Text,
+} from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 
 import { NO_SCAN_TEXT } from '../files/FilesViewParts';
 import { FilterChips } from '../files/FilterChips';
 import { useFiles, type FilesView } from '../files/useFiles';
 import { useSourceAliases } from '../files/useSourceAliases';
-import type { StatusCountDto } from '../native/CloudSyncContracts';
+import { PAGED_QUERY_PAGE_SIZE } from '../files/usePagedQuery';
+import type {
+  CloudSyncError,
+  QuerySpec,
+  StatusCountDto,
+} from '../native/CloudSyncContracts';
 import type { RootTabParamList } from '../navigation/AppNavigator';
 import { useScan } from '../scan/useScan';
+import { SelectionBar } from '../selection/SelectionBar';
+import { useSelection } from '../selection/SelectionProvider';
 import { spacing } from '../theme/spacing';
 import { GalleryScreen } from './GalleryScreen';
-import { ListScreen } from './ListScreen';
+import { ListScreen, type ListFolder } from './ListScreen';
 
 export const RESULTS_UPDATED = 'Results updated';
+
+function selectAllErrorText(error: CloudSyncError): string {
+  return error.action ? `${error.message} ${error.action}` : error.message;
+}
 const SNACKBAR_MILLIS = 4000;
 
 const VIEW_BUTTONS = [
@@ -34,6 +52,127 @@ const VIEW_BUTTONS = [
 ];
 
 type CountsByView = Record<FilesView, StatusCountDto[] | null>;
+
+/** The top bar's ✕ while selecting (FR-015). */
+function ClearSelectionButton({
+  onClear,
+}: {
+  onClear: () => void;
+}): React.JSX.Element {
+  return (
+    <IconButton
+      accessibilityLabel="Clear selection"
+      icon="close"
+      onPress={onClear}
+    />
+  );
+}
+
+/** The top bar's "Select all" while selecting (FR-015). */
+function SelectAllButton({
+  disabled,
+  onSelectAll,
+}: {
+  disabled: boolean;
+  onSelectAll: () => void;
+}): React.JSX.Element {
+  return (
+    <Button
+      accessibilityLabel="Select all"
+      disabled={disabled}
+      onPress={onSelectAll}
+      style={styles.selectAll}
+    >
+      Select all
+    </Button>
+  );
+}
+
+/**
+ * What "Select all" covers (FR-015): in the gallery, every image under the
+ * filter; in the list, the open folder's direct files under the filter.
+ * Null at the list's sources level, where there is nothing to select.
+ */
+export function selectAllQuery(
+  view: FilesView,
+  filter: QuerySpec['filter'],
+  listFolder: ListFolder | null,
+): QuerySpec | null {
+  if (view === 'GALLERY') {
+    return {
+      filter,
+      view: 'GALLERY',
+      sort: 'TIME_DESC',
+      pageSize: PAGED_QUERY_PAGE_SIZE,
+    };
+  }
+  if (listFolder == null) {
+    return null;
+  }
+  return {
+    filter,
+    view: 'LIST',
+    sort: 'NAME_ASC',
+    sourceId: listFolder.sourceId,
+    parentId: listFolder.parentId,
+    pageSize: PAGED_QUERY_PAGE_SIZE,
+  };
+}
+
+/**
+ * Selection mode (FR-015, FR-016): while files are selected, the bottom tabs
+ * are hidden (the selection bar takes their place), the top bar holds
+ * "Clear selection" ✕ and "Select all", and back clears the selection.
+ * Everything is restored when the selection ends.
+ */
+function useSelectionMode(
+  selectQuery: QuerySpec | null,
+  focused: boolean,
+): void {
+  const navigation =
+    useNavigation<BottomTabNavigationProp<RootTabParamList, 'Files'>>();
+  const { isSelecting, selectingAll, selectAll, clear } = useSelection();
+
+  useEffect(() => {
+    if (!isSelecting) {
+      navigation.setOptions({
+        tabBarStyle: undefined,
+        headerLeft: undefined,
+        headerRight: undefined,
+      });
+      return;
+    }
+    const onSelectAll = () => {
+      if (selectQuery != null) {
+        selectAll(selectQuery);
+      }
+    };
+    navigation.setOptions({
+      tabBarStyle: { display: 'none' },
+      headerLeft: () => <ClearSelectionButton onClear={clear} />,
+      headerRight: () => (
+        <SelectAllButton
+          disabled={selectQuery == null || selectingAll}
+          onSelectAll={onSelectAll}
+        />
+      ),
+    });
+  }, [navigation, isSelecting, selectingAll, selectQuery, selectAll, clear]);
+
+  useEffect(() => {
+    if (!isSelecting || !focused) {
+      return;
+    }
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        clear();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [isSelecting, focused, clear]);
+}
 
 /** FR-008: before any completed scan, say where results come from and lead to the Scan tab. */
 function NoScanResults(): React.JSX.Element {
@@ -63,13 +202,17 @@ function NoScanResults(): React.JSX.Element {
  * the next time the tab is [focused]. Before any completed scan it shows
  * only an explanation and a way to the Scan tab (FR-008); the views stay
  * mounted, hidden, so nothing is lost when the first results arrive.
+ * While files are selected, the selection bar replaces the bottom tabs
+ * (`useSelectionMode`), and a snackbar says when a new scan result cleared
+ * the selection.
  */
 export function FilesScreen({
   focused = true,
 }: {
   focused?: boolean;
 }): React.JSX.Element {
-  const { view, setView } = useFiles();
+  const { view, setView, filter } = useFiles();
+  const selection = useSelection();
   const scan = useScan();
   const snapshotId = scan.active?.snapshotId ?? null;
   const aliases = useSourceAliases();
@@ -89,6 +232,13 @@ export function FilesScreen({
       setCounts(current => ({ ...current, LIST: next })),
     [],
   );
+  const [listFolder, setListFolder] = useState<ListFolder | null>(null);
+  const selectQuery = useMemo(
+    () => selectAllQuery(view, filter, listFolder),
+    [view, filter, listFolder],
+  );
+  useSelectionMode(selectQuery, focused);
+
   const onSnapshotChange = useCallback(() => setUpdated(true), []);
   const dismiss = useCallback(() => setUpdated(false), []);
   const onViewChange = useCallback(
@@ -132,16 +282,41 @@ export function FilesScreen({
         style={view === 'LIST' && !noResults ? styles.view : styles.hidden}
         testID="files-list"
       >
-        <ListScreen {...shared} onCountsChange={onListCounts} />
+        <ListScreen
+          {...shared}
+          onCountsChange={onListCounts}
+          onFolderChange={setListFolder}
+        />
       </View>
       <Snackbar
         accessibilityLabel={RESULTS_UPDATED}
         duration={SNACKBAR_MILLIS}
         onDismiss={dismiss}
-        visible={updated && focused}
+        visible={updated && focused && selection.notice == null}
       >
         {RESULTS_UPDATED}
       </Snackbar>
+      <Snackbar
+        accessibilityLabel={selection.notice ?? undefined}
+        duration={SNACKBAR_MILLIS}
+        onDismiss={selection.dismissNotice}
+        visible={selection.notice != null && focused}
+      >
+        {selection.notice ?? ''}
+      </Snackbar>
+      <Snackbar
+        accessibilityLabel={
+          selection.error == null
+            ? undefined
+            : selectAllErrorText(selection.error)
+        }
+        duration={SNACKBAR_MILLIS}
+        onDismiss={selection.dismissError}
+        visible={selection.error != null && focused}
+      >
+        {selection.error == null ? '' : selectAllErrorText(selection.error)}
+      </Snackbar>
+      <SelectionBar />
     </SafeAreaView>
   );
 }
@@ -159,6 +334,9 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
+  },
+  selectAll: {
+    marginRight: spacing.sm,
   },
   switch: {
     marginHorizontal: spacing.lg,
