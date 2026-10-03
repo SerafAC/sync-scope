@@ -118,7 +118,7 @@ class MatcherTest {
     assertEquals(UNSYNCED, Matcher.verdict(local("img.jpg", 10, MTIME), PRECISION, index, ListingState.Complete))
   }
 
-  private fun index(vararg entries: RemoteEntry) = MatchIndex(PRECISION).apply { entries.forEach(::add) }
+  private fun index(vararg entries: RemoteEntry) = MatchIndex(PRECISION).apply { entries.forEach { add(it, "/") } }
 
   private fun remote(name: String, size: Long, mtime: Long?) = RemoteEntry(name, size, mtime, RemoteEntryType.REGULAR_FILE)
 

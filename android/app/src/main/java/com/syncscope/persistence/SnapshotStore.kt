@@ -2,6 +2,7 @@ package com.syncscope.persistence
 
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.syncscope.deletion.DeletionOutcome
 
 /** One row of a browse page, mirroring `FileEntryDto` on the JS side. */
 data class FileEntry(
@@ -101,7 +102,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
    * The precision a snapshot was matched with: every match key and `local_node` row of one snapshot
    * carries the run's single precision, so any row answers. Null when the snapshot has no rows.
    */
-  suspend fun precisionOf(snapshotId: String): Long? =
+  open suspend fun precisionOf(snapshotId: String): Long? =
     db.remoteMatchKeyDao().anyPrecision(snapshotId) ?: db.localNodeDao().anyPrecision(snapshotId)
 
   suspend fun stageSnapshot(snapshot: SnapshotEntity) {
@@ -136,11 +137,61 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   suspend fun matchKeys(snapshotId: String): List<RemoteMatchKeyEntity> =
     db.remoteMatchKeyDao().forSnapshot(snapshotId)
 
+  /**
+   * The match key of [snapshotId] for an NFC name, size and bucket at [precisionMillis], or null; its
+   * `directories` drive the pre-delete re-check (research R11, R12).
+   */
+  open suspend fun matchKey(snapshotId: String, nfcName: String, sizeBytes: Long, precisionMillis: Long, bucket: Long): RemoteMatchKeyEntity? =
+    db.remoteMatchKeyDao().exact(snapshotId, nfcName, sizeBytes, precisionMillis, bucket)
+
   suspend fun ambiguities(snapshotId: String): List<RemoteAmbiguityEntity> =
     db.remoteAmbiguityDao().forSnapshot(snapshotId)
 
   suspend fun counts(snapshotId: String): List<SnapshotCountsEntity> =
     db.snapshotCountsDao().forSnapshot(snapshotId)
+
+  /**
+   * Reflects one batch of deletion outcomes in the published [snapshotId] without a rescan (research R14,
+   * data-model "Deletion write rule"), in one transaction: a failure anywhere rolls the whole batch back.
+   *
+   * For each outcome whose state removes the row (`DELETED`, `ALREADY_GONE`) and whose `FILE` row still
+   * exists: delete the row, decrement `snapshot_counts` for its source and for all sources, decrement the
+   * matching descendant count on every ancestor directory, and insert a `local_deletion_overlay` row. The
+   * stored row's source, parent and status are used, so a row already removed is never counted twice.
+   * Other outcomes change nothing. At most [MAX_DELETIONS_PER_BATCH] outcomes; the caller chunks.
+   */
+  open suspend fun recordDeletions(snapshotId: String, outcomes: List<DeletionOutcome>) {
+    require(outcomes.size <= MAX_DELETIONS_PER_BATCH) { "at most $MAX_DELETIONS_PER_BATCH outcomes per batch" }
+    val removals = outcomes.filter { it.state.removesRow }
+    if (removals.isEmpty()) return
+    db.withTransaction {
+      val nodes = db.localNodeDao()
+      val parents = HashMap<String, String?>()
+      val overlays = ArrayList<LocalDeletionOverlayEntity>(removals.size)
+      for (outcome in removals) {
+        val row = nodes.byEntry(snapshotId, outcome.row.entryId) ?: continue
+        if (row.kind != KIND_FILE || nodes.deleteFile(snapshotId, row.entryId) == 0) continue
+        db.snapshotCountsDao().decrement(snapshotId, row.sourceId, row.status)
+        val ancestors = ArrayList<String>()
+        var parent = row.parentId
+        while (parent != null) {
+          val directory: String = parent
+          ancestors += directory
+          parent = parents.getOrPut(directory) { nodes.parentOf(snapshotId, directory) }
+        }
+        if (ancestors.isNotEmpty()) nodes.decrementDescendantCounts(snapshotId, ancestors, row.status)
+        overlays +=
+          LocalDeletionOverlayEntity(
+            id = 0,
+            snapshotId = snapshotId,
+            localEntryId = row.entryId,
+            state = outcome.state.name,
+            atMillis = outcome.atMillis,
+          )
+      }
+      if (overlays.isNotEmpty()) db.localDeletionOverlayDao().insertAll(overlays)
+    }
+  }
 
   /**
    * LOCAL_REFRESH (research R2, R7): gives the staged [toSnapshotId] the remote side of
@@ -438,13 +489,17 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
     return db.localNodeDao().imageEntry(snapshotId, entryId)
   }
 
-  private companion object {
+  companion object {
+    /** [recordDeletions] takes at most this many outcomes per transaction (research R14). */
+    const val MAX_DELETIONS_PER_BATCH = 100
+
     /** `sizes[i]` of a [SelectableEntries] row whose size is unknown. */
-    const val UNKNOWN_SIZE = -1L
-    val DISCARD_STATES = setOf("CANCELLED", "FAILED")
-    const val KIND_DIRECTORY = "DIRECTORY"
+    private const val UNKNOWN_SIZE = -1L
+    private val DISCARD_STATES = setOf("CANCELLED", "FAILED")
+    private const val KIND_DIRECTORY = "DIRECTORY"
+    private const val KIND_FILE = "FILE"
     /** Room's name for `Index(snapshotId, name, sizeBytes)` on `local_node` (schema 3.json). */
-    const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
+    private const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
   }
 
   /**

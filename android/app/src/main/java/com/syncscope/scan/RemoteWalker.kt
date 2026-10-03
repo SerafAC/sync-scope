@@ -54,8 +54,9 @@ data class WalkResult(val index: MatchIndex, val listing: ListingState, val ambi
 class RootListingFailed(val code: CloudSyncErrorCode, cause: RemoteClientException) : Exception(cause.message, cause)
 
 /**
- * Breadth-first remote walk (research R5). Only regular files are indexed, directories are queued and
- * `OTHER` entries are never followed; hidden entries are included (R8).
+ * Breadth-first remote walk (research R5). Only regular files are indexed, each with the directory it
+ * was listed in (R11); directories are queued and `OTHER` entries are never followed; hidden entries are
+ * included (R8). Every listing goes through [listWithRetry].
  *
  * - The root failing after the retry policy raises [RootListingFailed].
  * - A non-root [CloudSyncErrorCode.DIRECTORY_UNREADABLE] / [CloudSyncErrorCode.SERVER_ERROR] /
@@ -82,7 +83,7 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
       val directory = pending.removeFirst()
       val entries =
         try {
-          listWithRetry(session, directory)
+          listWithRetry(session, directory, delay)
         } catch (failure: RemoteClientException) {
           if (directory == root) throw RootListingFailed(failure.code, failure)
           if (failure.code in DIRECTORY_CODES) {
@@ -95,7 +96,7 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
       for (entry in entries) {
         when (entry.type) {
           RemoteEntryType.REGULAR_FILE -> {
-            index.add(entry)
+            index.add(entry, directory)
             filesListed++
           }
           RemoteEntryType.DIRECTORY -> pending.addLast(join(directory, entry.name))
@@ -108,22 +109,6 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
 
     val listing = ambiguities.firstOrNull()?.let { ListingState.Incomplete(it.reason) } ?: ListingState.Complete
     return WalkResult(index, listing, ambiguities.toList())
-  }
-
-  private suspend fun listWithRetry(session: RemoteSession, directory: String): List<RemoteEntry> {
-    var attempt = 1
-    var needsReconnect = false
-    while (true) {
-      try {
-        if (needsReconnect) session.reconnect()
-        return session.client.list(directory)
-      } catch (failure: RemoteClientException) {
-        if (failure.code !in TRANSIENT_CODES || attempt >= MAX_ATTEMPTS) throw failure
-        delay(BACKOFF_MILLIS shl (attempt - 1))
-        attempt++
-        needsReconnect = true
-      }
-    }
   }
 
   companion object {
@@ -140,5 +125,31 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
       )
 
     fun join(directory: String, name: String): String = if (directory.endsWith("/")) "$directory$name" else "$directory/$name"
+  }
+}
+
+/**
+ * Lists [directory] with the retry policy shared by the walk and the pre-delete re-check (research R5,
+ * R12; Principle III): a transient code ([RemoteWalker.TRANSIENT_CODES]) reconnects [session] and retries,
+ * [RemoteWalker.MAX_ATTEMPTS] attempts in total with 1 s / 2 s backoff through [delay]. Any other
+ * failure, or the last attempt failing, propagates as [RemoteClientException].
+ */
+internal suspend fun listWithRetry(
+  session: RemoteSession,
+  directory: String,
+  delay: suspend (Long) -> Unit,
+): List<RemoteEntry> {
+  var attempt = 1
+  var needsReconnect = false
+  while (true) {
+    try {
+      if (needsReconnect) session.reconnect()
+      return session.client.list(directory)
+    } catch (failure: RemoteClientException) {
+      if (failure.code !in RemoteWalker.TRANSIENT_CODES || attempt >= RemoteWalker.MAX_ATTEMPTS) throw failure
+      delay(RemoteWalker.BACKOFF_MILLIS shl (attempt - 1))
+      attempt++
+      needsReconnect = true
+    }
   }
 }

@@ -9,10 +9,12 @@ import com.syncscope.persistence.RepositoryConfigDao
 import com.syncscope.persistence.RepositoryConfigEntity
 import com.syncscope.remote.ConnectOutcome
 import com.syncscope.remote.HostKeyTrustStore
+import com.syncscope.remote.RemoteClient
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.SftpHostKeyException
 import com.syncscope.scan.BusyState
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -173,12 +175,6 @@ class RepositoryOperations(
       row.port == config.port &&
       row.username == config.username
 
-  private fun RepositoryConfigEntity.protocol(): RemoteProtocol? =
-    RemoteProtocol.entries.firstOrNull { it.name == protocol }
-
-  private fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
-    protocol()?.let { RemoteConfig(it, host, port, username, remoteRoot, webdavHttps) }
-
   internal sealed interface Parsed {
     data class Valid(val config: RemoteConfig) : Parsed
 
@@ -269,5 +265,52 @@ class RepositoryOperations(
 
     private fun ReadableMap.string(key: String): String? =
       if (hasKey(key) && getType(key) == ReadableType.String) getString(key) else null
+  }
+}
+
+internal fun RepositoryConfigEntity.protocol(): RemoteProtocol? = RemoteProtocol.entries.firstOrNull { it.name == protocol }
+
+/** The non-secret connection parameters of the saved repository; null for an unknown protocol. */
+internal fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
+  protocol()?.let { RemoteConfig(it, host, port, username, remoteRoot, webdavHttps) }
+
+/**
+ * A fresh, authenticated client for the saved repository, shared by the scan and the pre-delete re-check
+ * (Principle III). [onCreated] sees the client before it connects, so an owner can cancel it.
+ *
+ * The password is loaded from [credentials] for [credentialVersion] and wiped straight after `connect`.
+ * Throws [RemoteClientException]: `CREDENTIAL_UNAVAILABLE` when the password cannot be loaded, the
+ * client's code when `connect` fails, and an [SftpHostKeyException] (`SFTP_HOST_KEY_UNVERIFIED`) when an
+ * SFTP key awaits approval. The client is closed on every failure.
+ */
+internal suspend fun connectRepository(
+  clients: RemoteClientFactory,
+  credentials: CredentialStore,
+  config: RemoteConfig,
+  credentialVersion: Long,
+  onCreated: (RemoteClient) -> Unit = {},
+): RemoteClient {
+  val client = clients.create(config.protocol)
+  onCreated(client)
+  val password = credentials.load(credentialVersion)
+  if (password == null) {
+    client.close()
+    throw RemoteClientException(
+      CloudSyncErrorCode.CREDENTIAL_UNAVAILABLE,
+      RepositoryOperations.CREDENTIAL_UNAVAILABLE_MESSAGE,
+      RepositoryOperations.CREDENTIAL_UNAVAILABLE_ACTION,
+    )
+  }
+  try {
+    when (val outcome = client.connect(config, password)) {
+      ConnectOutcome.Connected -> return client
+      is ConnectOutcome.HostKeyApprovalRequired ->
+        throw SftpHostKeyException(CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED, outcome.challenge)
+    }
+  } catch (t: Throwable) {
+    client.close()
+    throw t
+  } finally {
+    password.fill('\u0000')
   }
 }

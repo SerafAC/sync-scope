@@ -357,7 +357,7 @@ files, and only the ones that are safe to delete.
 
 ### Native: where matched files live on the server
 
-- [ ] T057 [P] [US6] Extend `KTEST/scan/MatchIndexTest.kt`:
+- [X] T057 [P] [US6] Extend `KTEST/scan/MatchIndexTest.kt`:
   - `add(entry, directory)` collects distinct directories per key;
   - more than 16 are capped at the first 16 in walk order;
   - `toRows` joins them with `\n`, and `fromRows` restores them;
@@ -365,16 +365,16 @@ files, and only the ones that are safe to delete.
   - `directoriesOf(nfcName, size, bucket)` returns `null` for a key from rows without `directories`.
 
   Then implement it in `KT/scan/MatchIndex.kt`, keeping `nfc` and `bucketOf` as the only definitions of the rules.
-- [ ] T058 [US6] In `KT/scan/RemoteWalker.kt`, extract the retry policy into `internal suspend fun listWithRetry(session, directory, delay)` (same attempts and backoff) and pass the listed `directory` to `index.add(entry, directory)`. Update `KTEST/scan/RemoteWalkerTest.kt` to show that behaviour is unchanged and directories are recorded, and `KTEST/scan/ScanEngineTest.kt` to show staged match keys carry `directories`.
+- [X] T058 [US6] In `KT/scan/RemoteWalker.kt`, extract the retry policy into `internal suspend fun listWithRetry(session, directory, delay)` (same attempts and backoff) and pass the listed `directory` to `index.add(entry, directory)`. Update `KTEST/scan/RemoteWalkerTest.kt` to show that behaviour is unchanged and directories are recorded, and `KTEST/scan/ScanEngineTest.kt` to show staged match keys carry `directories`.
 
 ### Native: device-side delete
 
-- [ ] T059 [P] [US6] Add to `KT/source/SafAccess.kt`:
+- [X] T059 [P] [US6] Add to `KT/source/SafAccess.kt`:
   - `fun stat(documentUri: String): DocumentStat?` (size and modified time; `null` when absent);
   - `fun delete(documentUri: String): DeleteResult` (`DELETED`, `NOT_FOUND`, `DENIED`, `FAILED`) over `DocumentsContract.deleteDocument`.
 
   Implement both in `ContentResolverSafAccess` and `KTEST/source/FakeSafAccess.kt`, and test them in `KTEST/source/ContentResolverSafAccessTest.kt`.
-- [ ] T060 [P] [US6] Create `KT/deletion/LocalDeleter.kt` and `KTEST/deletion/LocalDeleterTest.kt` (with `FakeSafAccess`). `deleteOne(row, sourceCanWrite) → DeletionOutcome` follows research R13 step by step:
+- [X] T060 [P] [US6] Create `KT/deletion/LocalDeleter.kt` and `KTEST/deletion/LocalDeleterTest.kt` (with `FakeSafAccess`). `deleteOne(row, sourceCanWrite) → DeletionOutcome` follows research R13 step by step:
   - no write grant → `ACCESS_LOST`;
   - `stat` null → `ALREADY_GONE`;
   - size or mtime differs → `CHANGED`, not deleted;
@@ -387,17 +387,17 @@ files, and only the ones that are safe to delete.
 
 ### Native: reflecting deletions in the snapshot
 
-- [ ] T061 [US6] Add tests to `KTEST/persistence/SnapshotStoreTest.kt` for `recordDeletions(snapshotId, outcomes)` ([data-model.md](./data-model.md#deletion-write-rule-snapshotstorerecorddeletionssnapshotid-outcomes)):
+- [X] T061 [US6] Add tests to `KTEST/persistence/SnapshotStoreTest.kt` for `recordDeletions(snapshotId, outcomes)` ([data-model.md](./data-model.md#deletion-write-rule-snapshotstorerecorddeletionssnapshotid-outcomes)):
   - only `DELETED` and `ALREADY_GONE` remove rows;
   - `snapshot_counts` and every ancestor's `descSynced`/`descUnsynced`/`descUnknown` are decremented by status, and pre-v3 `NULL` counts stay `NULL`;
   - one `local_deletion_overlay` row per removal with that state;
   - after random batches, the invariant holds (directory counts equal the remaining rows beneath by status, and `snapshot_counts` equals a `GROUP BY`);
   - a failure mid-batch rolls the whole batch back.
-- [ ] T062 [US6] Implement T061: decrement queries in `KT/persistence/Daos.kt` and `@Transaction suspend fun recordDeletions` in `KT/persistence/SnapshotStore.kt`. Batches are at most 100 outcomes; the caller chunks.
+- [X] T062 [US6] Implement T061: decrement queries in `KT/persistence/Daos.kt` and `@Transaction suspend fun recordDeletions` in `KT/persistence/SnapshotStore.kt`. Batches are at most 100 outcomes; the caller chunks.
 
 ### Native: re-check, plans and execution
 
-- [ ] T063 [US6] Create `KTEST/deletion/DeletionRecheckTest.kt`, with a fake `RemoteClient` whose `list` returns scripted entries or throws, and a scripted `connect`. It covers:
+- [X] T063 [US6] Create `KTEST/deletion/DeletionRecheckTest.kt`, with a fake `RemoteClient` whose `list` returns scripted entries or throws, and a scripted `connect`. It covers:
   - a confirmed key stays `toDelete`;
   - a key whose stored directory now lacks the file goes to `unsynced`, `GONE_FROM_SERVER`;
   - a different size or bucket in the listing counts as gone;
@@ -408,7 +408,7 @@ files, and only the ones that are safe to delete.
   - a connect failure (`AUTH_FAILED`, `CONNECTION_*`, `TLS_UNTRUSTED`, a host-key challenge) aborts with that code and no result;
   - `movedByRecheck` counts both moves;
   - SC-005: with the stored password `s3cret-Log-Probe`, no `ShadowLog` entry contains it after a re-check, including a failing one.
-- [ ] T064 [US6] Implement T063 in `KT/deletion/DeletionRecheck.kt` (research R12, step 4). Use `MatchIndex.nfc`, `MatchIndex.bucketOf`, the snapshot's precision (`SnapshotStore.precisionOf`) and `listWithRetry` from T058. Open one session through `RemoteClientFactory` with the repository's `RemoteConfig` and the credential loaded as `RepositoryOperations.test` does, extracting a shared `connectRepository()` if that avoids duplication. Close the session and wipe the password in `finally`. Log only codes and counts, never the password, host, user or a remote path (D011, SC-005).
+- [X] T064 [US6] Implement T063 in `KT/deletion/DeletionRecheck.kt` (research R12, step 4). Use `MatchIndex.nfc`, `MatchIndex.bucketOf`, the snapshot's precision (`SnapshotStore.precisionOf`) and `listWithRetry` from T058. Open one session through `RemoteClientFactory` with the repository's `RemoteConfig` and the credential loaded as `RepositoryOperations.test` does, extracting a shared `connectRepository()` if that avoids duplication. Close the session and wipe the password in `finally`. Log only codes and counts, never the password, host, user or a remote path (D011, SC-005).
 - [ ] T065 [US6] Create `KTEST/deletion/DeletionOperationsTest.kt` (fake store, recheck, deleter and clock). It covers:
   - **prepare refusals**: not the active snapshot → `STALE_GENERATION`; `configRevision` ≠ `revision` → `REPOSITORY_CHANGED`; busy → `SCAN_IN_PROGRESS`; empty IDs → `INVALID_QUERY`;
   - **grouping**: UNKNOWN rows → `refused`; UNSYNCED rows → `unsynced`; directories and unknown IDs → `missing`;

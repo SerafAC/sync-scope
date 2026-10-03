@@ -5,7 +5,7 @@ import android.provider.DocumentsContract
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.bridge.FileIssueCode
-import com.syncscope.bridge.RepositoryOperations
+import com.syncscope.bridge.connectRepository
 import com.syncscope.credential.CredentialStore
 import com.syncscope.persistence.LocalNodeEntity
 import com.syncscope.persistence.RemoteAmbiguityEntity
@@ -17,13 +17,11 @@ import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.persistence.SnapshotStore
 import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.SourceRootEntity
-import com.syncscope.remote.ConnectOutcome
 import com.syncscope.remote.RemoteClient
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
-import com.syncscope.remote.SftpHostKeyException
 import com.syncscope.source.LocalFile
 import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SourceListing
@@ -231,31 +229,8 @@ class ScanEngine(
   }
 
   /** A fresh, authenticated client; the password is loaded per attempt and wiped straight after. */
-  private suspend fun connect(ticket: ScanTicket, control: RunControl): RemoteClient {
-    val client = clients.create(ticket.remote.protocol)
-    control.attach(client)
-    val password = credentials.load(ticket.config.credentialVersion)
-    if (password == null) {
-      client.close()
-      throw RemoteClientException(
-        CloudSyncErrorCode.CREDENTIAL_UNAVAILABLE,
-        RepositoryOperations.CREDENTIAL_UNAVAILABLE_MESSAGE,
-        RepositoryOperations.CREDENTIAL_UNAVAILABLE_ACTION,
-      )
-    }
-    try {
-      when (val outcome = client.connect(ticket.remote, password)) {
-        ConnectOutcome.Connected -> return client
-        is ConnectOutcome.HostKeyApprovalRequired ->
-          throw SftpHostKeyException(CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED, outcome.challenge)
-      }
-    } catch (t: Throwable) {
-      client.close()
-      throw t
-    } finally {
-      password.fill('\u0000')
-    }
-  }
+  private suspend fun connect(ticket: ScanTicket, control: RunControl): RemoteClient =
+    connectRepository(clients, credentials, ticket.remote, ticket.config.credentialVersion, onCreated = control::attach)
 
   // --- LOCAL_REFRESH: COPYING_REMOTE ---
 

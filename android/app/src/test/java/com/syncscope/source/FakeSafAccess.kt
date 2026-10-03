@@ -18,6 +18,20 @@ class FakeSafAccess : SafAccess {
   val taken = mutableListOf<String>()
   val released = mutableListOf<String>()
 
+  /** Documents that exist, by URI; [stat] returns `null` for any other URI. */
+  val documents = linkedMapOf<String, DocumentStat>()
+
+  /** Scripted [delete] results by URI; an unscripted delete of an existing document succeeds. */
+  val deleteResults = mutableMapOf<String, DeleteResult>()
+
+  /** URIs whose [stat] throws [SecurityException], as a revoked grant does. */
+  val statDenied = mutableSetOf<String>()
+  val statted = mutableListOf<String>()
+  val deleted = mutableListOf<String>()
+
+  /** Runs on every [delete] before the result is returned, e.g. to make a document vanish. */
+  var onDelete: (String) -> Unit = {}
+
   /** Adds a persisted grant as if the source had been picked earlier. */
   fun hold(uri: String, canRead: Boolean = true, canWrite: Boolean = true) {
     grants[uri] = PersistedGrant(uri, canRead, canWrite)
@@ -45,4 +59,23 @@ class FakeSafAccess : SafAccess {
 
   override fun volumeLabel(volumeId: String): String =
     labels[volumeId] ?: ContentResolverSafAccess.UNMOUNTED_VOLUME_LABEL
+
+  override fun stat(documentUri: String): DocumentStat? {
+    statted += documentUri
+    if (documentUri in statDenied) throw SecurityException("Permission Denial")
+    return documents[documentUri]
+  }
+
+  /**
+   * Returns the scripted result, or [DeleteResult.DELETED] / [DeleteResult.NOT_FOUND] by existence. A
+   * [DeleteResult.DELETED] removes the document; other results leave [documents] as they are.
+   */
+  override fun delete(documentUri: String): DeleteResult {
+    deleted += documentUri
+    onDelete(documentUri)
+    val result =
+      deleteResults[documentUri] ?: if (documentUri in documents) DeleteResult.DELETED else DeleteResult.NOT_FOUND
+    if (result == DeleteResult.DELETED) documents.remove(documentUri)
+    return result
+  }
 }
