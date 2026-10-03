@@ -1,0 +1,30 @@
+# Story 1 sc. 2, SC-002 (WebDAV): set up WebDAV through the form with Use
+# HTTPS turned off (the container serves plain HTTP). The form warns that
+# the connection is unencrypted, and the test connects.
+# Self-contained: starts from clearState (contracts/maestro-mvp.md).
+appId: com.syncscope
+name: mvp/01-setup-webdav
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+- runFlow:
+    file: ../subflows/setup-repository.yaml
+    env:
+      PROTOCOL: "WEBDAV"
+      HOST: "${WEBDAV_HOST}"
+      PORT: "${WEBDAV_PORT}"
+      USER: "${WEBDAV_USER}"
+      PASSWORD: "${WEBDAV_PASSWORD}"
+      ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+      HTTPS: "false"
+- assertVisible: "Connected, [0-9]+ entries"
+- scrollUntilVisible:
+    element: "Unencrypted connection warning"
+    direction: UP
+- back
+- extendedWaitUntil:
+    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    timeout: 15000

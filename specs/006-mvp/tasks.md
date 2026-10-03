@@ -207,7 +207,7 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
   Prefill from `getRepositorySummary` except the password, whose helper text is "A password is stored. Leave empty to keep it." when `credentialPresent`. Register `navigation.addListener('beforeRemove', …)` to show a `Discard changes` / `Keep editing` dialog when the draft differs from the summary or a password was typed.
 
   Tests cover prefill, the warning visibility rules, the HTTPS default and port placeholder, a field error, the disabled save during a scan, the progress indicator and the timeout message, the discard prompt, the host-key dialog, and that typed values (except the password, which is cleared) survive an `AppState` change to `background` and back (spec edge case "App sent to background during setup"). Use themed `StyleSheet` styles only (005 lint rule).
-- [ ] T027 [US1] Create `src/repository/RepositorySection.tsx` and its test `src/repository/__tests__/RepositorySection.test.tsx`, and render it above `SourcesSection` in `src/screens/SettingsScreen.tsx`, updating that file's doc comment.
+- [X] T027 [US1] Create `src/repository/RepositorySection.tsx` and its test `src/repository/__tests__/RepositorySection.test.tsx`, and render it above `SourcesSection` in `src/screens/SettingsScreen.tsx`, updating that file's doc comment.
   - With no repository it shows `Repository not set up` and a `Set up repository` button.
   - Otherwise it shows the summary `Repository <PROTOCOL> <host>` with user, folder, "Password stored" or "Password needed", and `Edit repository`.
   - Both buttons `navigate('Repository')`, and the section re-reads the summary on screen focus.
@@ -216,8 +216,8 @@ containers and see "Connected" (`MAESTRO/mvp/01-setup-*.yaml`, `02-setup-errors.
 
 ### End-to-end
 
-- [ ] T028 [US1] Create `MAESTRO/mvp/01-setup-ftp.yaml`, `01-setup-sftp.yaml` and `01-setup-webdav.yaml` exactly as mapped in [contracts/maestro-mvp.md](./contracts/maestro-mvp.md#acceptance-scenario-mapping). Each uses `clearState`, `${<P>_HOST}`, `${<P>_PORT}`, `${<P>_USER}` and `${<P>_PASSWORD}`, root `gallery` (prefixed by `${<P>_ROOT}` as the seam does). Add a reusable `MAESTRO/subflows/setup-repository.yaml` with params `PROTOCOL`, `PORT`, `USER`, `PASSWORD`, `ROOT` and `HTTPS`, so T029, T036 and T042 reuse it. Add the three flows to `flowsOrder` after `browse/05-results-updated`.
-- [ ] T029 [US1] Create `MAESTRO/mvp/02-setup-errors.yaml` (wrong password → `Connection failed:`; fields kept and password empty; fix → `Connected`; edit host then back → `Discard changes`) and add it to `flowsOrder`.
+- [X] T028 [US1] Create `MAESTRO/mvp/01-setup-ftp.yaml`, `01-setup-sftp.yaml` and `01-setup-webdav.yaml` exactly as mapped in [contracts/maestro-mvp.md](./contracts/maestro-mvp.md#acceptance-scenario-mapping). Each uses `clearState`, `${<P>_HOST}`, `${<P>_PORT}`, `${<P>_USER}` and `${<P>_PASSWORD}`, root `gallery` (prefixed by `${<P>_ROOT}` as the seam does). Add a reusable `MAESTRO/subflows/setup-repository.yaml` with params `PROTOCOL`, `PORT`, `USER`, `PASSWORD`, `ROOT` and `HTTPS`, so T029, T036 and T042 reuse it. Add the three flows to `flowsOrder` after `browse/05-results-updated`.
+- [X] T029 [US1] Create `MAESTRO/mvp/02-setup-errors.yaml` (wrong password → `Connection failed:`; fields kept and password empty; fix → `Connected`; edit host then back → `Discard changes`) and add it to `flowsOrder`.
 
 **Checkpoint**: US1 works on its own: a user can set up any of the three protocols without adb.
 

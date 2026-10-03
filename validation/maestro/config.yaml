@@ -38,3 +38,7 @@ executionOrder:
     - browse/03-gallery-issues-unknown
     - browse/04-list-browse
     - browse/05-results-updated
+    - mvp/01-setup-ftp
+    - mvp/01-setup-sftp
+    - mvp/01-setup-webdav
+    - mvp/02-setup-errors

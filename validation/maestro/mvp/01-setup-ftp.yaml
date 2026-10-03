@@ -1,0 +1,62 @@
+# Story 1 sc. 1-2 and 6, FR-001-003, SC-002 (FTP): on a fresh install
+# Settings says the repository is not set up; the form sets up FTP through
+# the UI only (no debug seam), warns that FTP is unencrypted and connects.
+# Back in Settings the summary names the server, and Edit repository shows
+# every field prefilled with the password left empty.
+# Self-contained: starts from clearState (contracts/maestro-mvp.md).
+appId: com.syncscope
+name: mvp/01-setup-ftp
+---
+- evalScript: "${output.ftpRoot = (FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT) + '/gallery'}"
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Repository not set up"
+    timeout: 30000
+- assertVisible: "Set up repository"
+- runFlow:
+    file: ../subflows/setup-repository.yaml
+    env:
+      PROTOCOL: "FTP"
+      HOST: "${FTP_HOST}"
+      PORT: "${FTP_PORT}"
+      USER: "${FTP_USER}"
+      PASSWORD: "${FTP_PASSWORD}"
+      ROOT: "${output.ftpRoot}"
+- assertVisible: "Connected, [0-9]+ entries"
+- scrollUntilVisible:
+    element: "Unencrypted connection warning"
+    direction: UP
+
+# Saved, so leaving asks nothing.
+- back
+- extendedWaitUntil:
+    visible: "Repository FTP ${FTP_HOST}"
+    timeout: 15000
+- assertNotVisible: "Discard changes"
+- assertVisible: "Password stored"
+
+# Every field comes back prefilled; the password does not.
+- tapOn: "Edit repository"
+- extendedWaitUntil:
+    visible: "Save and test"
+    timeout: 15000
+- assertVisible:
+    text: "${FTP_HOST}"
+- assertVisible:
+    text: "${FTP_PORT}"
+- assertVisible:
+    text: "${FTP_USER}"
+- assertVisible:
+    text: "${output.ftpRoot}"
+- assertVisible: "A password is stored. Leave empty to keep it."
+# A typed secure password is dumped as bullets; none means the field is empty.
+- assertNotVisible: "•+"
+- back
+- extendedWaitUntil:
+    visible: "Repository FTP ${FTP_HOST}"
+    timeout: 15000
