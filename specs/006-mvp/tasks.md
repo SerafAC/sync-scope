@@ -458,11 +458,11 @@ files, and only the ones that are safe to delete.
 
 **Independent Test**: the hint and the DCIM start, asserted in `MAESTRO/mvp/03-first-run.yaml`.
 
-- [ ] T076 [P] [US3] In `KT/source/SourcePicker.kt`, when `regrantSourceId == null`, put `EXTRA_INITIAL_URI = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:DCIM")`. Re-grants keep the source's own URI. Add both cases to `KTEST/source/SourcePickerTest.kt`.
-- [ ] T077 [P] [US3] In `src/sources/SourcesSection.tsx`, show the hint `Folder picker hint` with the text "Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures." above the add button. Add a test in `src/sources/__tests__/`.
-- [ ] T078 [US3] Extend `MAESTRO/mvp/03-first-run.yaml` (after T036): assert `Folder picker hint` before tapping add, and assert the DocumentsUI header shows `DCIM` with a regex when the picker opens.
+- [X] T076 [P] [US3] In `KT/source/SourcePicker.kt`, when `regrantSourceId == null`, put `EXTRA_INITIAL_URI = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:DCIM")`. Re-grants keep the source's own URI. Add both cases to `KTEST/source/SourcePickerTest.kt`.
+- [X] T077 [P] [US3] In `src/sources/SourcesSection.tsx`, show the hint `Folder picker hint` with the text "Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures." above the add button. Add a test in `src/sources/__tests__/`.
+- [X] T078 [US3] Extend `MAESTRO/mvp/03-first-run.yaml` (after T036): assert `Folder picker hint` before tapping add, and assert the DocumentsUI header shows `DCIM` with a regex when the picker opens.
 
-- [ ] T079 [US3] Extend `MAESTRO/sources/06-regrant.yaml` (feature 003): when the re-grant picker opens, assert that the DocumentsUI header shows the source's folder name and not `DCIM` (Story 3 sc. 3), so the DCIM start never applies to re-grants.
+- [X] T079 [US3] Extend `MAESTRO/sources/06-regrant.yaml` (feature 003): when the re-grant picker opens, assert that the DocumentsUI header shows the source's folder name and not `DCIM` (Story 3 sc. 3), so the DCIM start never applies to re-grants.
 
 **Checkpoint**: all six stories are done.
 

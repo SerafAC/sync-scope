@@ -3,7 +3,8 @@
 # still needed (server, folders) with Scan disabled; the Files tab explains
 # that results appear after a scan and leads to the Scan tab. "Set up the
 # server" opens the Repository form, "Add a folder" opens Settings, and once
-# both are done Scan is offered and its results show in Files. No debug seam
+# both are done Scan is offered and its results show in Files. Story 3 sc.
+# 1-2: the folder hint is shown and the picker starts in DCIM. No debug seam
 # is used. Self-contained: starts from clearState (contracts/maestro-mvp.md).
 appId: com.syncscope
 name: mvp/03-first-run
@@ -75,8 +76,17 @@ name: mvp/03-first-run
       id: "sources.add"
     direction: DOWN
     timeout: 30000
+# Story 3 sc. 1 (FR-009): before adding, a hint names the folders Android
+# refuses and suggests ones that work.
+- assertVisible: "Folder picker hint"
 - tapOn:
     id: "sources.add"
+# Story 3 sc. 2: a new folder starts in DCIM. Asserted on the DocumentsUI
+# header ("Files in DCIM" on API 31 and API 36), not on the folder list, where
+# a "DCIM" entry would also match at the storage root.
+- extendedWaitUntil:
+    visible: "(?i)files in DCIM"
+    timeout: 15000
 - runFlow:
     file: ../subflows/pick-folder.yaml
     env:

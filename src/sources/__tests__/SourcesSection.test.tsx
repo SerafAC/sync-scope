@@ -1,12 +1,17 @@
 import React from 'react';
-import {fireEvent, render, screen, within} from '@testing-library/react-native';
-import {PaperProvider} from 'react-native-paper';
+import {
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
+import { PaperProvider } from 'react-native-paper';
 
-import type {SourceDto} from '../../native/CloudSyncContracts';
-import {SourcesSection} from '../SourcesSection';
-import {useSources, type UseSourcesResult} from '../useSources';
+import type { SourceDto } from '../../native/CloudSyncContracts';
+import { SourcesSection } from '../SourcesSection';
+import { useSources, type UseSourcesResult } from '../useSources';
 
-jest.mock('../useSources', () => ({useSources: jest.fn()}));
+jest.mock('../useSources', () => ({ useSources: jest.fn() }));
 
 const useSourcesMock = useSources as jest.MockedFunction<typeof useSources>;
 
@@ -85,7 +90,7 @@ describe('SourcesSection', () => {
   });
 
   it('shows each row with alias, volume label, folder path and status', () => {
-    renderSection(hookState({sources: threeSources}));
+    renderSection(hookState({ sources: threeSources }));
 
     const rows = screen.getAllByTestId('sources.row');
     expect(rows).toHaveLength(3);
@@ -110,7 +115,7 @@ describe('SourcesSection', () => {
   });
 
   it('shows Re-grant only for unavailable sources', () => {
-    const state = hookState({sources: threeSources});
+    const state = hookState({ sources: threeSources });
     renderSection(state);
 
     expect(row(0).queryByTestId('sources.row.regrant')).toBeNull();
@@ -119,6 +124,20 @@ describe('SourcesSection', () => {
 
     fireEvent.press(row(1).getByTestId('sources.row.regrant'));
     expect(state.regrant).toHaveBeenCalledWith('source-2');
+  });
+
+  it('shows the folder picker hint above Add folder', () => {
+    renderSection(hookState());
+
+    const hint = screen.getByLabelText('Folder picker hint');
+    expect(hint).toHaveTextContent(
+      'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures.',
+    );
+    const rendered = JSON.stringify(screen.toJSON());
+    expect(rendered.indexOf('Pick a folder such as DCIM')).toBeGreaterThan(-1);
+    expect(rendered.indexOf('Pick a folder such as DCIM')).toBeLessThan(
+      rendered.indexOf('Add folder'),
+    );
   });
 
   it('calls add when Add folder is pressed', () => {
@@ -131,7 +150,7 @@ describe('SourcesSection', () => {
   });
 
   it('removes only after the dialog is confirmed', () => {
-    const state = hookState({sources: threeSources});
+    const state = hookState({ sources: threeSources });
     renderSection(state);
 
     fireEvent.press(row(1).getByTestId('sources.row.remove'));
@@ -148,7 +167,7 @@ describe('SourcesSection', () => {
   });
 
   it('cancelling the dialog changes nothing', () => {
-    const state = hookState({sources: threeSources});
+    const state = hookState({ sources: threeSources });
     renderSection(state);
 
     fireEvent.press(row(0).getByTestId('sources.row.remove'));
@@ -187,7 +206,7 @@ describe('SourcesSection', () => {
           message: 'This folder overlaps a folder you already added.',
           action:
             'Pick a folder that is not inside, or around, an existing one.',
-          conflictingSource: {sourceId: 'source-1', alias: 'Camera'},
+          conflictingSource: { sourceId: 'source-1', alias: 'Camera' },
         },
       }),
     );
@@ -198,7 +217,7 @@ describe('SourcesSection', () => {
   });
 
   it('shows no snackbar without an error', () => {
-    renderSection(hookState({sources: [source()]}));
+    renderSection(hookState({ sources: [source()] }));
 
     expect(screen.queryByTestId('sources.error')).toBeNull();
   });
