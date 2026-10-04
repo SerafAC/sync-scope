@@ -470,21 +470,21 @@ files, and only the ones that are safe to delete.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T080 [P] Write the decision records in `docs/decisions/`, following the existing format, and update `docs/decisions/README.md`:
+- [X] T080 [P] Write the decision records in `docs/decisions/`, following the existing format, and update `docs/decisions/README.md`:
   - `0020-pre-delete-server-recheck.md` (research R11, R12, clarification 1);
   - `0021-release-signing-and-cleartext-policy.md` (R4, R8, clarification 2);
   - a dated "Amendment 2026-10-02" in `0008-two-phase-local-deletion.md` (the `includeUnsynced` argument and row removal with the overlay as audit, R13 and R14);
   - an update to `0018-debug-repository-seam.md` (the Connect screen exists, and the seam stays for non-setup flows).
-- [ ] T081 [P] Update the docs pages:
+- [X] T081 [P] Update the docs pages:
   - `docs/architecture.md`: the root stack, the `deletion` package, the delivery list (no `NOT_IMPLEMENTED` deletion methods), schema version 4 and contract version 5;
   - `docs/sync-and-deletion-safety.md`: the re-check, per-file outcomes, what is never deleted, and that folders are never removed;
   - `docs/protocols.md`: replace "Known limit" with WebDAV HTTPS and `TLS_UNTRUSTED`, and the re-check's list-only access;
   - `docs/overview.md`.
-- [ ] T082 [P] Update `README.md` (Principle VIII). User sections lead the page: "Install the app" (APK, unknown sources), "Set up your server" (protocols, the unencrypted warning, SFTP key check), "Pick folders" (the Android restriction), and "Free up space safely" (select, size, server check, what is never deleted, permanence).
-- [ ] T083 [P] Update `DEVELOPMENT.md` › End-to-end flows: the new fixtures, the `staged/` pairs and hooks, `pnpm e2e:android:release-smoke`, the `mvp/` flows and the `SIZE_*` variables.
-- [ ] T084 [P] Add the four `Unreleased` entries listed in plan.md (Constitution Check VI) to `CHANGELOG.md`.
-- [ ] T085 Extend the accessibility sweep `src/test-utils/a11ySweep.ts` usage to `RepositoryScreen`, `RepositorySection`, `SelectionBar` and `DeleteFlow`, so every pressable has a label.
-- [ ] T086 Apply the spec follow-ups: in `specs/009-full-loop-release/spec.md`, note that the release-smoke mode and WebDAV HTTPS ship in 006 and that retention must keep the active snapshot's match keys (FR-004's move to 006 FR-022 is already recorded there). Confirm `specs/007-tree-view-image-preview/spec.md` still matches the integration closure in plan.md.
+- [X] T082 [P] Update `README.md` (Principle VIII). User sections lead the page: "Install the app" (APK, unknown sources), "Set up your server" (protocols, the unencrypted warning, SFTP key check), "Pick folders" (the Android restriction), and "Free up space safely" (select, size, server check, what is never deleted, permanence).
+- [X] T083 [P] Update `DEVELOPMENT.md` › End-to-end flows: the new fixtures, the `staged/` pairs and hooks, `pnpm e2e:android:release-smoke`, the `mvp/` flows and the `SIZE_*` variables.
+- [X] T084 [P] Add the four `Unreleased` entries listed in plan.md (Constitution Check VI) to `CHANGELOG.md`.
+- [X] T085 Extend the accessibility sweep `src/test-utils/a11ySweep.ts` usage to `RepositoryScreen`, `RepositorySection`, `SelectionBar` and `DeleteFlow`, so every pressable has a label.
+- [X] T086 Apply the spec follow-ups: in `specs/009-full-loop-release/spec.md`, note that the release-smoke mode and WebDAV HTTPS ship in 006 and that retention must keep the active snapshot's match keys (FR-004's move to 006 FR-022 is already recorded there). Confirm `specs/007-tree-view-image-preview/spec.md` still matches the integration closure in plan.md.
 - [ ] T087 Run the exit gate from [quickstart.md](./quickstart.md#1-automated-gates): `pnpm lint`, `pnpm typecheck`, `pnpm test:ci`, `pnpm test:android:unit`, `pnpm e2e:android` (API 31 and API 36: the 006 flows must pass on both), `pnpm e2e:android:release-smoke`, and `pnpm validation:services:stop` with the audit clean. Fix anything that fails, then do the manual walk-through in quickstart §3 on a real device.
 
 ---

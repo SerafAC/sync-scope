@@ -1,11 +1,13 @@
 import React, {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { NavigationContext } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Button,
@@ -159,121 +161,143 @@ export function DeleteFlow({
     setUnsyncedConfirmed(false);
   };
 
+  // Paper renders a Portal in PaperProvider's host, outside the
+  // NavigationContainer, so the screen's navigation is handed into the dialog
+  // for "Go there" (GoThereButton's useNavigation).
+  const navigation = useContext(NavigationContext);
+
   return (
     <Portal>
-      <Dialog
-        dismissable={step.kind !== 'deleting'}
-        onDismiss={onDismiss}
-        visible={visible}
-      >
-        {step.kind === 'checking' ? (
-          <>
+      <NavigationContext.Provider value={navigation}>
+        <Dialog
+          dismissable={step.kind !== 'deleting'}
+          onDismiss={onDismiss}
+          visible={visible}
+        >
+          {step.kind === 'checking' ? (
+            <DialogStep>
+              <Dialog.Content style={styles.row}>
+                <ActivityIndicator accessibilityLabel="Checking" />
+                <Text
+                  accessibilityLabel="Checking files on the server"
+                  variant="bodyLarge"
+                >
+                  Checking files on the server
+                </Text>
+              </Dialog.Content>
+              <Dialog.Actions>
+                <Button accessibilityLabel="Cancel" onPress={onDismiss}>
+                  Cancel
+                </Button>
+              </Dialog.Actions>
+            </DialogStep>
+          ) : null}
+
+          {step.kind === 'error' ? (
+            <DialogStep>
+              <Dialog.Title>Nothing was deleted</Dialog.Title>
+              <Dialog.Content style={styles.content}>
+                <Text style={themed.warning} variant="bodyMedium">
+                  {step.error.message}
+                </Text>
+                {step.error.action ? (
+                  <Text variant="bodyMedium">{step.error.action}</Text>
+                ) : null}
+              </Dialog.Content>
+              <Dialog.Actions>
+                <GoThereButton code={step.error.code} onGo={onDismiss} />
+                <Button accessibilityLabel="Cancel" onPress={onDismiss}>
+                  Cancel
+                </Button>
+                {REVIEW_AGAIN_CODES.has(step.error.code) ? (
+                  <Button accessibilityLabel="Review again" onPress={check}>
+                    Review again
+                  </Button>
+                ) : (
+                  <Button accessibilityLabel="Retry" onPress={check}>
+                    Retry
+                  </Button>
+                )}
+              </Dialog.Actions>
+            </DialogStep>
+          ) : null}
+
+          {step.kind === 'confirm' ? (
+            <Confirmation
+              includeChecked={includeChecked}
+              includeUnsynced={includeUnsynced}
+              now={now()}
+              onCancel={onDismiss}
+              onConfirmUnsynced={() => setUnsyncedConfirmed(true)}
+              onDelete={() => remove(step.plan)}
+              onToggleInclude={toggleInclude}
+              plan={step.plan}
+              unsyncedConfirmed={unsyncedConfirmed}
+              warningStyle={themed.warning}
+            />
+          ) : null}
+
+          {step.kind === 'deleting' ? (
             <Dialog.Content style={styles.row}>
-              <ActivityIndicator accessibilityLabel="Checking" />
-              <Text
-                accessibilityLabel="Checking files on the server"
-                variant="bodyLarge"
-              >
-                Checking files on the server
-              </Text>
+              <ActivityIndicator accessibilityLabel="Deleting" />
+              <Text variant="bodyLarge">{`Deleting ${step.count} files…`}</Text>
             </Dialog.Content>
-            <Dialog.Actions>
-              <Button accessibilityLabel="Cancel" onPress={onDismiss}>
-                Cancel
-              </Button>
-            </Dialog.Actions>
-          </>
-        ) : null}
+          ) : null}
 
-        {step.kind === 'error' ? (
-          <>
-            <Dialog.Title>Nothing was deleted</Dialog.Title>
-            <Dialog.Content style={styles.content}>
-              <Text style={themed.warning} variant="bodyMedium">
-                {step.error.message}
-              </Text>
-              {step.error.action ? (
-                <Text variant="bodyMedium">{step.error.action}</Text>
-              ) : null}
-            </Dialog.Content>
-            <Dialog.Actions>
-              <GoThereButton code={step.error.code} onGo={onDismiss} />
-              <Button accessibilityLabel="Cancel" onPress={onDismiss}>
-                Cancel
-              </Button>
-              {REVIEW_AGAIN_CODES.has(step.error.code) ? (
-                <Button accessibilityLabel="Review again" onPress={check}>
-                  Review again
+          {step.kind === 'result' ? (
+            <DialogStep>
+              <Dialog.Content style={styles.content}>
+                <Text
+                  accessibilityLabel={`Deleted ${
+                    step.result.deleted
+                  } files, freed ${formatBytes(step.result.freedBytes)}`}
+                  variant="titleMedium"
+                >
+                  {`Deleted ${step.result.deleted} files, freed ${formatBytes(
+                    step.result.freedBytes,
+                  )}`}
+                </Text>
+                {step.result.failures.map(failure => {
+                  const line = `Could not delete ${failure.name}: ${
+                    DELETION_REASON_TEXT[failure.reason]
+                  }`;
+                  return (
+                    <Text
+                      accessibilityLabel={line}
+                      key={failure.entryId}
+                      variant="bodyMedium"
+                    >
+                      {line}
+                    </Text>
+                  );
+                })}
+              </Dialog.Content>
+              <Dialog.Actions>
+                <Button accessibilityLabel="Done" onPress={onDismiss}>
+                  Done
                 </Button>
-              ) : (
-                <Button accessibilityLabel="Retry" onPress={check}>
-                  Retry
-                </Button>
-              )}
-            </Dialog.Actions>
-          </>
-        ) : null}
-
-        {step.kind === 'confirm' ? (
-          <Confirmation
-            includeChecked={includeChecked}
-            includeUnsynced={includeUnsynced}
-            now={now()}
-            onCancel={onDismiss}
-            onConfirmUnsynced={() => setUnsyncedConfirmed(true)}
-            onDelete={() => remove(step.plan)}
-            onToggleInclude={toggleInclude}
-            plan={step.plan}
-            unsyncedConfirmed={unsyncedConfirmed}
-            warningStyle={themed.warning}
-          />
-        ) : null}
-
-        {step.kind === 'deleting' ? (
-          <Dialog.Content style={styles.row}>
-            <ActivityIndicator accessibilityLabel="Deleting" />
-            <Text variant="bodyLarge">{`Deleting ${step.count} files…`}</Text>
-          </Dialog.Content>
-        ) : null}
-
-        {step.kind === 'result' ? (
-          <>
-            <Dialog.Content style={styles.content}>
-              <Text
-                accessibilityLabel={`Deleted ${
-                  step.result.deleted
-                } files, freed ${formatBytes(step.result.freedBytes)}`}
-                variant="titleMedium"
-              >
-                {`Deleted ${step.result.deleted} files, freed ${formatBytes(
-                  step.result.freedBytes,
-                )}`}
-              </Text>
-              {step.result.failures.map(failure => {
-                const line = `Could not delete ${failure.name}: ${
-                  DELETION_REASON_TEXT[failure.reason]
-                }`;
-                return (
-                  <Text
-                    accessibilityLabel={line}
-                    key={failure.entryId}
-                    variant="bodyMedium"
-                  >
-                    {line}
-                  </Text>
-                );
-              })}
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button accessibilityLabel="Done" onPress={onDismiss}>
-                Done
-              </Button>
-            </Dialog.Actions>
-          </>
-        ) : null}
-      </Dialog>
+              </Dialog.Actions>
+            </DialogStep>
+          ) : null}
+        </Dialog>
+      </NavigationContext.Provider>
     </Portal>
   );
+}
+
+/**
+ * Groups one step's title, content and actions. Paper's `Dialog` passes a
+ * `style` to its direct children, which a bare Fragment rejects with a
+ * development warning; this component takes it and ignores it, as
+ * `Confirmation` does.
+ */
+function DialogStep({
+  children,
+}: {
+  children: React.ReactNode;
+  style?: unknown;
+}): React.JSX.Element {
+  return <>{children}</>;
 }
 
 interface ConfirmationProps {
@@ -374,11 +398,11 @@ function Confirmation({
         ) : null}
 
         {plan.refused.count > 0 ? (
-          <View
-            accessibilityLabel={`Never deleted ${plan.refused.count}`}
-            style={styles.group}
-          >
-            <Text variant="bodyMedium">
+          <View style={styles.group}>
+            <Text
+              accessibilityLabel={`Never deleted ${plan.refused.count}`}
+              variant="bodyMedium"
+            >
               {`Never deleted: ${plan.refused.count}. Their backup state is unknown.`}
             </Text>
             {plan.refused.scanTooOld > 0 ? (

@@ -313,6 +313,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             label="Host"
             mode="outlined"
             onChangeText={value => set('host', value)}
+            testID="repository.host"
             value={draft.host}
           />
           {errorFor('host')}
@@ -325,6 +326,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             label="Port"
             mode="outlined"
             onChangeText={value => set('port', value)}
+            testID="repository.port"
             placeholder={String(
               defaultPortFor(draft.protocol, draft.webdavHttps),
             )}
@@ -341,6 +343,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             label="User name"
             mode="outlined"
             onChangeText={value => set('username', value)}
+            testID="repository.username"
             value={draft.username}
           />
           {errorFor('username')}
@@ -355,6 +358,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             mode="outlined"
             onChangeText={setPassword}
             secureTextEntry
+            testID="repository.password"
             value={password}
           />
           {fieldError?.field === 'password' ? (
@@ -374,6 +378,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             label="Remote folder"
             mode="outlined"
             onChangeText={value => set('remoteRoot', value)}
+            testID="repository.remoteRoot"
             placeholder="/photos"
             value={draft.remoteRoot}
           />

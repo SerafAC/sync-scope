@@ -8,61 +8,85 @@ result is never shown as a clean one.
 
 ## Current status
 
-SyncScope is in early development and is **not yet usable end to end**.
+SyncScope is in early development. It is **usable end to end on your own phone**: install the APK, set up
+your server, pick folders, scan, browse the results and free up space by deleting files that are backed
+up. Each of these steps is proven against live FTP, SFTP and WebDAV test servers on Android 12 (API 31)
+and Android 16 (API 36) emulators.
 
-- **Available:** connecting to a remote repository over FTP, SFTP and WebDAV with a username and password.
-  This is implemented in the app's native layer and proven against live test servers on Android 12
-  (API 31). SFTP host keys are trusted on first use, with an explicit approve or reject step, and
-  passwords are kept in the Android Keystore.
-- **Available:** choosing the local folders to check, on internal storage and on an SD card, in
-  **Settings › Folders** (see [Select folders](#select-folders)). This is proven on Android 12 (API 31)
-  and Android 16 (API 36) emulators.
-- **Available:** scanning your folders against the remote repository and seeing how many files are
-  **SYNCED**, **UNSYNCED** or **UNKNOWN**, on the **Scan** tab (see [Scan](#scan)). This is proven
-  against live FTP, SFTP and WebDAV test servers on Android 12 (API 31) and Android 16 (API 36)
-  emulators.
-- **Available:** browsing the results on the **Files** tab as a photo gallery or folder by folder, and
-  filtering them to synced, unsynced or unchecked files (see [Browse your files](#browse-your-files)).
-  This is proven on Android 12 (API 31) and Android 16 (API 36) emulators.
-- **Not available yet:** setting up the remote connection from the app's screens (until then it can only
-  be set up in a developer build, see [DEVELOPMENT.md](./DEVELOPMENT.md#test-only-seams)), the tree view
-  of the results, image preview and deleting files.
+**Not available yet:** the tree view of the results, image preview, and the setting to include hidden
+files. What changes from one version to the next is listed in [CHANGELOG.md](./CHANGELOG.md).
 
-What changes from one version to the next is listed in [CHANGELOG.md](./CHANGELOG.md).
+## Install the app
 
-## Supported protocols
+There is no store release. SyncScope comes as one APK file that runs on its own on a phone with
+Android 12 (API 31) or later, with no computer attached.
 
-| Protocol | Authentication |
-| --- | --- |
-| FTP | Username and password |
-| SFTP | Username and password; host key trusted on first use |
-| WebDAV | Username and password |
+1. Get `app-release.apk`, either from the person who builds it for you or by building it yourself (see
+   [DEVELOPMENT.md › Release key](./DEVELOPMENT.md#release-key)).
+2. Copy it to the phone and open it in a file manager. Android asks you to allow installs from that app
+   ("Install unknown apps"); allow it for this one install. You can switch it off again afterwards.
+3. Open **SyncScope**.
 
-SyncScope only reads from the remote repository. It **never uploads** files, **never deletes** anything
-remotely and **never downloads** remote file content. The only thing it will ever change is your local
-files, and only when you ask it to delete them.
+A later APK built with the same key installs over this one and keeps your server, your folders and your
+results. **Settings › Apps › SyncScope** shows the installed version.
 
-## Installing a debug APK
+Developers can also install a debug APK, which needs a computer running the development server (see
+[DEVELOPMENT.md](./DEVELOPMENT.md)).
 
-There is no store release yet. To try the current build, install a debug APK on a device or emulator
-running Android 12 (API 31) or later:
+## Set up your server
 
-1. Get `app-debug.apk`, either from a developer or by building it yourself (see
-   [DEVELOPMENT.md](./DEVELOPMENT.md)); a local build writes it to
-   `android/app/build/outputs/apk/debug/app-debug.apk`.
-2. Enable USB debugging on the device and connect it, or start an emulator.
-3. Install it with `adb install -r app-debug.apk`.
+SyncScope compares your phone with **one** backup server. It supports three protocols:
 
-You can also copy the APK to the device and open it there, after allowing installs from that source.
+| Protocol | Authentication | Encrypted |
+| --- | --- | --- |
+| SFTP | Username and password; you confirm the server's key the first time | Yes (recommended) |
+| WebDAV | Username and password | With **Use HTTPS** on |
+| FTP | Username and password | No |
 
-A debug APK does not contain the app's JavaScript bundle: it loads it from a development server running on
-a computer the device can reach (see [DEVELOPMENT.md](./DEVELOPMENT.md)). A standalone release APK is
-planned for the v1 release.
+SyncScope only reads from the server. It **never uploads** files, **never deletes** anything on the
+server and **never downloads** file content from it. The only thing it ever changes is files on your
+phone, and only when you ask it to delete them.
 
-## Select folders
+Open the **Settings** tab. The **Repository** section says **Repository not set up**. Tap **Set up
+repository** and fill in:
+
+- **Server type**: FTP, SFTP or WebDAV. For WebDAV, **Use HTTPS** is on by default.
+- **Host** and **Port**. Leave the port empty to use the standard one (FTP 21, SFTP 22, WebDAV 80, or 443
+  with HTTPS).
+- **User name** and **Password**.
+- **Remote folder**: the folder on the server that holds your backup, for example `/photos`.
+
+Tap **Save and test**. SyncScope saves the details and connects to the server. On success the form shows
+**Connected** and how many entries the remote folder holds, and the Repository section shows the server,
+user, folder and **Password stored**. If something is wrong (wrong password, unreachable host, missing
+folder), the form says what and what to do; what you typed stays there except the password.
+
+- **Unencrypted connections.** With FTP, or WebDAV without HTTPS, the password and file names travel
+  unencrypted, and the form warns you. Use them only on a network you trust; prefer SFTP.
+- **SFTP server key check.** The first time you connect to an SFTP server, SyncScope shows the server's
+  key fingerprint and asks **Trust this server?** Compare the fingerprint with the one your server
+  reports, then tap **Trust**, or **Reject** to leave it untrusted. If the key of a server you trusted
+  changes, SyncScope warns **Server key changed** and connects only if you tap **Trust new key** and
+  confirm. An unexpected change can mean someone is intercepting the connection.
+- **HTTPS certificates.** WebDAV over HTTPS works only with a certificate your phone already trusts. A
+  self-signed certificate fails with "The server's certificate is not trusted by this phone."
+- **Your password** is kept in the phone's secure storage, never shown again and never written to the
+  log. To change other details, tap **Edit repository**; leave the password empty to keep the stored one
+  (only possible while the server and user stay the same).
+
+You cannot change the server while a scan is running. After a change, the Scan tab says your results
+were made with the previous server settings; scan again.
+
+## Pick folders
 
 SyncScope checks only the folders you choose. Open the **Settings** tab; the **Folders** section lists the
 folders you have added.
+
+**Folders Android will not let you pick.** Since Android 11 the system picker refuses the top level of
+internal storage, the `Download` folder, and the `Android/data` and `Android/obb` folders ("Cannot use
+this folder"). This is an Android restriction, not a SyncScope one, and the app reminds you above **Add
+folder**. Pick a folder inside internal storage instead, such as `DCIM` or `Pictures`; the picker opens in
+`DCIM` for you. On an SD card you can pick the top level.
 
 - **Add a folder.** Tap **Add folder**. Android's own folder picker opens: go to the folder, tap **Use this
   folder**, then **Allow**. The folder appears in the list with a short name, such as **Camera**. If you
@@ -85,14 +109,13 @@ folders you have added.
 
 Your chosen folders are kept when you close and reopen the app.
 
-**Folders Android will not let you pick.** Since Android 11 the system picker refuses the top level of
-internal storage, the `Download` folder, and the `Android/data` and `Android/obb` folders. This is an
-Android restriction, not a SyncScope one. Pick a folder inside internal storage instead, such as `DCIM` or
-`Pictures`. On an SD card you can pick the top level.
-
 ## Scan
 
 The **Scan** tab checks every file in your folders against the remote repository.
+
+On a fresh install the Scan tab shows **Before you can scan**, listing what is still missing (the server,
+a folder) with a button that takes you to where you set it up. **Scan** is enabled once both are ready.
+When a scan fails because something needs fixing, the message says where, with a **Go there** button.
 
 - **Scan.** Tap **Scan**. While it runs, the screen shows what it is doing (connecting, listing the
   backup, checking the files on this device) and counters for the remote folders and files listed and the
@@ -141,7 +164,8 @@ a scan, the scan is cancelled and its partial result is thrown away. The screen 
 
 ## Browse your files
 
-The **Files** tab shows the result of your last scan, file by file. Switch between two views at the top:
+The **Files** tab shows the result of your last scan, file by file. Before your first scan it says that
+results appear after a scan, with a **Go to Scan** button. Switch between two views at the top:
 
 - **Gallery** shows the photos in your folders as a grid of thumbnails, newest first. Only images are
   shown here. Each photo carries its status (**Synced**, **Unsynced** or **Unknown**).
@@ -184,6 +208,47 @@ When a new result arrives while you are looking at the Files tab, for example af
 scratch** or when you come back to the app, the Files tab reloads by itself and shows **Results updated**
 for a moment. It keeps your view, your filter and the folder you were in. If that folder no longer exists,
 you are taken to the closest folder above it that does.
+
+## Free up space safely
+
+Delete files from your phone that are safely on your server.
+
+1. **Select.** On the **Files** tab, in Gallery or List, long-press a file. Tap more files to add or
+   remove them; a selected file shows a check mark. Folders cannot be selected; tapping one still opens
+   it. **Select all** at the top selects every file the current view shows, including ones you have not
+   scrolled to: all photos under the chosen filter in Gallery, or the files of the open folder in List.
+   The **✕** at the top, or the back button, ends selecting.
+2. **See the size.** While you select, a bar replaces the tabs at the bottom. Its left side shows how many
+   files are selected and how much space they take, for example **37 selected · 1.2 GB**, in the units
+   Android's storage settings use. It also says how many have an unknown size (not counted) and how many
+   are hidden by the current filter (still selected). The quickest clean-up: choose the **Synced**
+   filter, **Select all**, then Delete.
+3. **Server check.** Tap **Delete**. Before anything is removed, SyncScope connects to your server and
+   checks that every selected backed-up file is still there, with the same name, size and date. A file
+   whose server copy is gone moves to "not backed up"; a file the server could not answer for is never
+   deleted. If the server cannot be reached, **nothing is deleted** and you can try again.
+4. **Confirm.** **Delete from this phone?** shows how many backed-up files will be deleted and how much
+   space that frees, how many files are not backed up, how many will never be deleted, how many the server
+   check moved, and how old your scan is (with a suggestion to rescan if it is over 7 days old). Tap
+   **Delete** to go ahead.
+5. **Result.** SyncScope shows how many files were deleted and how much space was freed, and lists every
+   file it did not delete with the reason (for example already gone, changed since the scan, or no
+   permission to delete in this folder). Deleted files disappear from the results at once, with no new
+   scan.
+
+**What is never deleted:**
+
+- Files whose backup state is **unknown**, whatever you choose.
+- Files the server check could not confirm, and files from a scan too old to check (scan again).
+- Files that **are not backed up**, unless you tick **Also delete files that are not backed up** and then
+  confirm again. Those files exist only on your phone.
+- Files that changed on the phone since the scan.
+- **Folders.** Only files are deleted. A folder left empty stays, and shows 0 files.
+- **Anything on your server.** SyncScope never changes your backup.
+
+**Deleting is permanent.** Android has no recycle bin for it, and deleted files cannot be recovered from
+the phone. While a deletion runs, a scan cannot start, and the other way round. If you change your server
+settings after a scan, scan again before deleting.
 
 ## For developers
 

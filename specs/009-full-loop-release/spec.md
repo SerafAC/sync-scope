@@ -47,6 +47,29 @@ Settle these when this feature is specified:
 - **Snapshot retention**: published snapshots are never pruned, and every app open publishes a
   `LOCAL_REFRESH` snapshot, so the scan store grows over time. Decide how many snapshots to keep (for
   example the last N) ([005 plan, Risks](../005-gallery-list-filtering/plan.md#risks)).
+  Whatever is decided MUST keep the active snapshot's `remote_match_key` rows, including their
+  `directories` column (schema version 4, feature 006): the pre-delete server re-check reads the server
+  folders of each selected file from them, and a key without them is refused as `SCAN_TOO_OLD`
+  ([D020](../../docs/decisions/0020-pre-delete-server-recheck.md)). A `LOCAL_REFRESH` copies the keys
+  forward, so pruning older snapshots is safe as long as the active one keeps its keys.
+
+### Already delivered by feature 006 (spec follow-up, 2026-10-02)
+
+Feature [006-mvp](../006-mvp/spec.md) ships parts this feature originally expected to build. Extend them
+here rather than re-creating them:
+
+- **Release-smoke mode.** `pnpm e2e:android:release-smoke` (`android-flow.sh release-smoke`) builds the
+  release APK with `pnpm assemble:release` and a throwaway key, checks the signing failure without a key,
+  the `package.json` version (`aapt2 dump badging`) and the absence of debug deep links, installs it with
+  no Metro, runs `mvp/90-release-smoke` and checks an in-place update with `mvp/91-release-update`. It
+  runs on API 31; this feature adds API 36 (FR-001, FR-004, SC-002, SC-004).
+- **Release signing.** A personal key from `SYNCSCOPE_RELEASE_*` Gradle properties, with no debug-key
+  fallback ([D021](../../docs/decisions/0021-release-signing-and-cleartext-policy.md)).
+- **WebDAV over HTTPS.** The repository's `webdavHttps` flag, `TLS_UNTRUSTED` for an untrusted
+  certificate, and release builds that allow user-chosen cleartext (D021).
+- **Version derivation.** FR-004 moved to 006 FR-022 (recorded below).
+- **The repository screen and the deletion flows**, which this feature's full-loop flow drives through
+  the UI on both API levels.
 
 ## User Scenarios & Testing *(mandatory)*
 

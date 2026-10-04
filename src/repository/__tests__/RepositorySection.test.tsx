@@ -7,6 +7,7 @@ import type {
   OperationError,
   RepositorySummaryDto,
 } from '../../native/CloudSyncContracts';
+import {a11ySweep} from '../../test-utils/a11ySweep';
 import {RepositorySection} from '../RepositorySection';
 
 const mockNavigate = jest.fn();
@@ -142,5 +143,19 @@ describe('RepositorySection', () => {
       await screen.findByLabelText('Repository SFTP 10.0.2.2'),
     ).toBeOnTheScreen();
     expect(summaryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('labels every control when not set up and when set up', async () => {
+    summaryMock.mockResolvedValueOnce(NOT_CONFIGURED);
+    const result = renderSection();
+    await screen.findByLabelText('Set up repository');
+    a11ySweep(result);
+
+    summaryMock.mockResolvedValueOnce(ok(SAVED));
+    await act(async () => {
+      mockFocusCallback?.();
+    });
+    await screen.findByLabelText('Edit repository');
+    a11ySweep(result);
   });
 });

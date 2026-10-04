@@ -49,6 +49,12 @@ name: scan/06-unreachable-fails
 - assertVisible: "The SFTP server rejected the username or password."
 - assertVisible: "Check the credentials and try again."
 - assertVisible: "The previous results below are unchanged."
+# Feature 006 adds "Go there" and the "Results from previous server settings"
+# notice above the summary, so the summary can be below the fold.
+- scrollUntilVisible:
+    element: "Files that could not be checked: 0"
+    direction: DOWN
+    timeout: 15000
 - assertVisible: "Synced: 4"
 - assertVisible: "Unsynced: 3"
 - assertVisible: "Files that could not be checked: 0"

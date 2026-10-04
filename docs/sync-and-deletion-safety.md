@@ -139,13 +139,70 @@ because each needs a different answer:
 
 Deletion always happens in two steps ([D008](./decisions/0008-two-phase-local-deletion.md), R013):
 
-1. `prepareLocalDeletion` returns a plan token and a breakdown: how many files are synced, how many are
-   unsynced and warned, and how many are unknown and refused. The confirmation dialog shows exactly this.
-2. `executeLocalDeletion(planToken)` commits that plan. A stale multi-select cannot delete a different set.
+1. `prepareLocalDeletion(snapshotId, entryIds)` re-checks the selection on the server (below) and returns
+   a plan token and a breakdown: the files to delete with their total size, the files not backed up, the
+   refused files, how many files the re-check moved, and the listing age. The confirmation dialog shows
+   exactly this.
+2. `executeLocalDeletion(planToken, includeUnsynced)` commits that plan. Without `includeUnsynced`, which
+   the user sets only by acknowledging that those files exist nowhere else, not-backed-up files are kept.
 
-Outcomes are per file, never all-or-nothing: a revoked grant or an already-missing file is reported
-individually. `local_deletion_overlay` records only actual successes, so the catalog never claims a deletion
-that did not happen. The app deletes local files only; it never deletes anything remote (R026).
+Prepare refuses, and no plan exists, when the results are not the active snapshot, when the server
+settings changed since the scan (`REPOSITORY_CHANGED`), or while a scan or another deletion runs. Execute
+refuses a plan that is unknown, used, older than 15 minutes (`PLAN_NOT_FOUND`) or made on results that have
+since been replaced (`PLAN_STALE`). A stale selection or confirmation therefore never deletes a different
+set. Scans and deletions never run at the same time.
+
+### The server re-check
+
+Before a plan is made, every selected SYNCED file is checked again on the server
+([D020](./decisions/0020-pre-delete-server-recheck.md), clarification 1 of feature 006):
+
+- Each scan stores, per match key, the server folders (at most 16) that held the matched files. The
+  re-check connects once and lists only those folders, once each. It reads listings only: no file
+  content, no write (R026).
+- A file stays "to delete" only if one of its folders still lists a file with the same NFC name, size
+  and modified-time bucket, by the same rules as the scan.
+- If every folder answered and none holds it, the file moves to **not backed up**
+  (`GONE_FROM_SERVER`). If no folder confirmed it and at least one could not be listed, it moves to
+  **refused** (`RECHECK_FAILED`). A file from a scan made before the folders were stored is refused
+  (`SCAN_TOO_OLD`, "scan again").
+- If the server cannot be reached, the login fails or the SFTP host key is not trusted, the whole prepare
+  fails with that error. No plan exists, so **nothing is deleted**; the user can retry.
+
+UNSYNCED files are not re-checked, and UNKNOWN files are refused without one.
+
+### Per-file outcomes
+
+Execute checks each file on the device just before deleting it, and reports one outcome per file. One
+file's failure never stops the rest.
+
+| Outcome | When | Effect |
+| --- | --- | --- |
+| `DELETED` | The file matched the plan and the storage provider deleted it | Row removed from the results |
+| `ALREADY_GONE` | The file was no longer on the device | Row removed from the results |
+| `CHANGED` | Its size or modified time differs from the scan | Not deleted; stays in the results |
+| `ACCESS_LOST` | The folder's grant is gone or read-only | Not deleted; stays in the results |
+| `FAILED` | The provider refused and the file is still there | Not deleted; stays in the results |
+
+Every 100 files, one transaction removes the `DELETED` and `ALREADY_GONE` rows, decrements the snapshot's
+and every ancestor folder's counts, and writes a `local_deletion_overlay` row as the audit record. The
+results therefore never show as deleted a file that is still on the device, and need no rescan. If the
+app is killed mid-run, every committed batch stays committed, and the next app-open refresh catches up
+with anything deleted after the last commit. The result dialog shows the number deleted, the space freed
+and each file that was not deleted, with its reason.
+
+### What is never deleted
+
+- **UNKNOWN files**, whatever the user chooses ([D006](./decisions/0006-unknown-status-never-deletable.md)).
+- **Files the re-check could not confirm** (`RECHECK_FAILED`, `SCAN_TOO_OLD`).
+- **Not-backed-up files**, unless the user explicitly acknowledged the stronger warning.
+- **Files that changed** on the device since the scan.
+- **Folders.** Only the confirmed files are deleted. A folder left empty stays on the device and in the
+  results with 0 files, and a folder added as a source is never removed (clarification 4 of feature 006).
+- **Anything on the server.** The app deletes local files only (R026).
+
+Deletion goes through the Storage Access Framework and is permanent: Android has no recycle bin for it,
+and the confirmation says so.
 
 ## Remote-listing age near delete
 
@@ -161,6 +218,7 @@ rescan (R015, [D009](./decisions/0009-foreground-scan-and-freshness.md)).
 
 - A file can therefore show SYNCED from a stale listing after it was removed remotely. Because the user acts
   on that verdict by deleting, the remote listing's age is shown near any delete action.
-- Past **7 days**, the app suggests a rescan without blocking. The threshold is a tunable default, not a
+- Past **7 days**, the app suggests a rescan without blocking, on the Scan tab and in the deletion
+  confirmation. The server re-check covers only the selected files, so the suggestion stays. The threshold is a tunable default, not a
   hard rule.
 - Rescan from scratch is a first-class control, not a hidden setting (R016).

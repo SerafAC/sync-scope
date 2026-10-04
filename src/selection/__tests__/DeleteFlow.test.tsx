@@ -31,6 +31,7 @@ import {
 const mockNavigate = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
@@ -332,6 +333,39 @@ describe('DeleteFlow confirmation', () => {
     fireEvent.press(
       screen.getByLabelText('Also delete files that are not backed up'),
     );
+
+    expect(() => a11ySweep(result)).not.toThrow();
+  });
+});
+
+describe('DeleteFlow accessibility', () => {
+  it('names every control of a prepare error with Go there and Retry', async () => {
+    prepareMock.mockResolvedValue(
+      failed('AUTH_FAILED', 'Login failed.', 'Check Settings › Repository.'),
+    );
+    const result = renderFlow();
+    await screen.findByLabelText('Go there');
+
+    expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  it('names every control of the result with failures', async () => {
+    prepareMock.mockResolvedValue(planned());
+    executeMock.mockResolvedValue(
+      deleted({
+        deleted: 1,
+        freedBytes: 100,
+        failures: [
+          { entryId: 'e-2', name: 'beach.png', reason: 'ACCESS_LOST' },
+          { entryId: 'e-3', name: 'sunset.png', reason: 'FAILED' },
+        ],
+        removedEntryIds: ['e-1'],
+      }),
+    );
+    const result = renderFlow();
+
+    fireEvent.press(await screen.findByLabelText('Delete'));
+    await screen.findByLabelText('Done');
 
     expect(() => a11ySweep(result)).not.toThrow();
   });

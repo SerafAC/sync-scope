@@ -24,6 +24,11 @@ name: mvp/02-setup-errors
       PASSWORD: "${FTP_PASSWORD + 'wrong'}"
       ROOT: "${output.ftpRoot}"
       EXPECT: "Connection failed: .+"
+# The status sits under Save and test at the bottom of the form.
+- scrollUntilVisible:
+    element: "Check the credentials and try again."
+    direction: DOWN
+    timeout: 15000
 - assertVisible: "Connection failed: The FTP server rejected the username or password."
 - assertVisible: "Check the credentials and try again."
 - assertNotVisible: "Connected, [0-9]+ entries"
@@ -55,10 +60,11 @@ name: mvp/02-setup-errors
 - scrollUntilVisible:
     element: "Host"
     direction: UP
-- tapOn: "Host"
-- eraseText: 64
-- inputText: "10.0.2.3"
-- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "10.0.2.3"
 - back
 - extendedWaitUntil:
     visible: "Discard changes"

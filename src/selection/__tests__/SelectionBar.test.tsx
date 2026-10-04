@@ -193,6 +193,12 @@ describe('SelectionBar', () => {
     expect(style.backgroundColor).toBe(MD3DarkTheme.colors.elevation.level2);
   });
 
+  it('passes the a11y sweep with unknown sizes and without Delete', () => {
+    const result = renderBar({ count: 3, knownBytes: 70, unknownSizeCount: 1 });
+
+    expect(() => a11ySweep(result)).not.toThrow();
+  });
+
   it('passes the a11y sweep', () => {
     const result = renderBar(
       { count: 2, knownBytes: 140, hiddenByFilterCount: 1 },

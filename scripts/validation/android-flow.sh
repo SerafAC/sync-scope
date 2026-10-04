@@ -276,9 +276,24 @@ for api in $apis; do
     adb uninstall com.syncscope >/dev/null 2>&1 || true
     adb install "$release_apk"
   elif [ "$mode" = e2e ]; then
-    timeout --signal=TERM --kill-after=10 60 \
-      "$ANDROID_HOME/platform-tools/adb" -s "$serial" install -r \
-      "$repo/android/app/build/outputs/apk/debug/app-debug.apk"
+    debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"
+    # A release-smoke run leaves the release-signed APK installed, and Android
+    # refuses to update it with the debug-signed one. Only in that case is the
+    # app uninstalled first; every flow directory starts from clearState anyway.
+    if ! installed=$(timeout --signal=TERM --kill-after=10 60 \
+      "$ANDROID_HOME/platform-tools/adb" -s "$serial" install -r "$debug_apk" 2>&1); then
+      case "$installed" in
+        *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
+          adb uninstall com.syncscope >/dev/null
+          timeout --signal=TERM --kill-after=10 60 \
+            "$ANDROID_HOME/platform-tools/adb" -s "$serial" install "$debug_apk"
+          ;;
+        *)
+          printf '%s\n' "$installed" >&2
+          exit 1
+          ;;
+      esac
+    fi
   fi
   if [ "$mode" != connected ]; then
     "$repo/scripts/validation/device-fixtures.sh"

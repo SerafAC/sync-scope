@@ -78,26 +78,37 @@ appId: com.syncscope
           text: "Use HTTPS"
           index: 1
 
-- tapOn: "Host"
-- eraseText: 64
-- inputText: "${output.setupHost}"
-- tapOn: "Port"
-- eraseText: 16
-- inputText: "${PORT}"
-- tapOn: "User name"
-- eraseText: 64
-- inputText: "${USER}"
-- tapOn: "Password"
-- eraseText: 128
-- inputText: "${PASSWORD}"
-- hideKeyboard
+# Each field is replaced through fill-field.yaml (testID selectors, keyboard
+# and cursor handling are explained there). Host is first, so start at the top.
 - scrollUntilVisible:
-    element: "Remote folder"
-    direction: DOWN
-- tapOn: "Remote folder"
-- eraseText: 128
-- inputText: "${ROOT}"
-- hideKeyboard
+    element:
+      id: "repository.host"
+    direction: UP
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "${output.setupHost}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.port"
+      TEXT: "${PORT}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${USER}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${PASSWORD}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoot"
+      TEXT: "${ROOT}"
 - scrollUntilVisible:
     element: "Save and test"
     direction: DOWN
@@ -107,21 +118,26 @@ appId: com.syncscope
     when:
       true: "${output.setupExpect != ''}"
     commands:
-      - extendedWaitUntil:
-          visible: "${output.setupExpect}"
+      # The status shows under Save and test, which can be at the bottom
+      # edge of a tall form (WebDAV's HTTPS row): scroll down to it.
+      - scrollUntilVisible:
+          element: "${output.setupExpect}"
+          direction: DOWN
           timeout: 60000
 - runFlow:
     when:
       true: "${output.setupExpect == ''}"
     commands:
-      - extendedWaitUntil:
-          visible: "(Connected, [0-9]+ entries|Server key fingerprint .+|Connection failed: .+)"
+      - scrollUntilVisible:
+          element: "(Connected, [0-9]+ entries|Server key fingerprint .+|Connection failed: .+)"
+          direction: DOWN
           timeout: 60000
       - runFlow:
           when:
             visible: "Server key fingerprint .+"
           commands:
             - tapOn: "Trust server key"
-      - extendedWaitUntil:
-          visible: "Connected, [0-9]+ entries"
+      - scrollUntilVisible:
+          element: "Connected, [0-9]+ entries"
+          direction: DOWN
           timeout: 60000

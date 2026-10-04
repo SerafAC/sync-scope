@@ -46,6 +46,8 @@ let mockOptions: HeaderOptions = {};
 const optionListeners = new Set<() => void>();
 
 jest.mock('@react-navigation/native', () => ({
+  // DeleteFlow re-provides NavigationContext inside its Portal.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => mockNavigation,
 }));
 

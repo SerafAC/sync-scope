@@ -19,6 +19,17 @@ can only turn a false UNSYNCED into a correct SYNCED. `OTHER` entries (symlinks,
 followed. How listing failures affect file status is in
 [sync and deletion safety](./sync-and-deletion-safety.md#partial-scans-are-shown-as-partial).
 
+## How the pre-delete re-check uses the clients
+
+Before a deletion plan is made, the selected SYNCED files are re-checked on the server
+([D020](./decisions/0020-pre-delete-server-recheck.md)). The re-check uses the same `RemoteClient` and
+nothing more: one `connect` with the saved repository and trusted SFTP host key, then one `list` of each
+server folder that held the selected files, with the scan walk's retry policy
+(`RemoteWalker.listWithRetry`). It never opens a file and never writes, so the read-only audit below covers
+it too. A folder that answers "not found" means the files are gone; any other listing failure means they
+could not be checked, and they are not deleted. A failed `connect` fails the whole prepare, and nothing is
+deleted.
+
 ### Unreadable directories, as observed
 
 Matching ignores directories, so a folder the account cannot read must be reported as an error, never as
@@ -130,8 +141,17 @@ A hand-written client on OkHttp 4.12.0 using only `OPTIONS` and `PROPFIND`, with
 - A 404 on connect or on the root is `REMOTE_ROOT_NOT_FOUND`; a 404 on a subdirectory is
   `DIRECTORY_UNREADABLE`; a 5xx is `SERVER_ERROR`.
 
-Known limit: the scheme is fixed at `http`, because the repository configuration has no TLS flag yet. HTTPS
-WebDAV needs a configuration field before release, since release builds block cleartext.
+**HTTPS** (feature 006, [D021](./decisions/0021-release-signing-and-cleartext-policy.md)). The repository's
+`webdavHttps` flag picks the scheme: `https` when set, else `http`. The form's "Use HTTPS" switch is on by
+default for a new WebDAV setup, and configurations saved before schema version 4 keep `http`. With HTTPS
+and no port, the default port is 443 instead of 80. HTTPS uses the phone's system trust store only: an
+`SSLHandshakeException` or `SSLPeerUnverifiedException` anywhere in the failure's cause chain (for example
+a self-signed certificate) is `TLS_UNTRUSTED`, "The server's certificate is not trusted by this phone.",
+whose action suggests a public certificate or SFTP. User-installed certificates are not trusted.
+
+**Unencrypted connections.** FTP and WebDAV without HTTPS send the password and file names in clear text.
+Release builds allow it because the user chose the server; the repository form warns under the protocol
+picker whenever the choice is unencrypted.
 
 ## The read-only guarantee
 

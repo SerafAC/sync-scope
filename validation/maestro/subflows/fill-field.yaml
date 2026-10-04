@@ -1,0 +1,34 @@
+# Subflow: replace the text of one field of the Repository form (feature 006).
+# Never run on its own; setup-repository.yaml and feature flows call it.
+#
+# Params (runFlow env):
+#   FIELD  the field's testID, for example repository.host
+#   TEXT   the text to type
+#
+# The keyboard covers the lower half of the form, and the form does not scroll
+# a focused field into view, so the keyboard is hidden and the field scrolled
+# to before every tap. The field is tapped by testID: its label also matches
+# its name, and a tap on a prefilled field's floating label does not focus the
+# input. eraseText deletes backwards from the cursor, and a tap puts the cursor
+# where it lands, so the field is tapped and erased twice: the second tap lands
+# past the end of whatever the first erase left.
+appId: com.syncscope
+---
+# Callers leave the keyboard hidden (this subflow ends with hideKeyboard).
+- scrollUntilVisible:
+    element:
+      id: "${FIELD}"
+    direction: DOWN
+- tapOn:
+    id: "${FIELD}"
+- eraseText: 128
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "${FIELD}"
+    direction: DOWN
+- tapOn:
+    id: "${FIELD}"
+- eraseText: 128
+- inputText: "${TEXT}"
+- hideKeyboard

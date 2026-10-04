@@ -1131,6 +1131,20 @@ test('device fixture script requires ANDROID_SERIAL', async t => {
   assert.match(seeded.stderr, /ANDROID_SERIAL/);
 });
 
+test('e2e mode replaces a release-signed install only on a signature mismatch', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const start = source.indexOf('debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"');
+  assert.ok(start !== -1, 'e2e mode must name the debug APK once');
+  const block = source.slice(start, source.indexOf('\n  fi\n', start));
+
+  assert.match(block, /install -r "\$debug_apk"/);
+  assert.match(block, /INSTALL_FAILED_UPDATE_INCOMPATIBLE\*\)\s*\n\s*adb uninstall com\.syncscope/);
+  assert.ok(
+    block.indexOf('INSTALL_FAILED_UPDATE_INCOMPATIBLE') < block.indexOf('adb uninstall'),
+    'the app is uninstalled only after an incompatible update is refused',
+  );
+});
+
 test('e2e mode seeds device fixtures after the APK install and before Maestro', async () => {
   const source = await text('scripts/validation/android-flow.sh');
   const install = source.indexOf('app-debug.apk');

@@ -494,4 +494,44 @@ describe('RepositoryScreen', () => {
 
     a11ySweep(result);
   });
+
+  it('labels every control when editing, after a failure and in the discard prompt', async () => {
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(
+      failure('AUTH_FAILED', {action: 'Check the user name and password.'}),
+    );
+    const result = await renderScreen(SAVED);
+
+    typeInto('Host', 'other.local');
+    fireEvent.press(screen.getByLabelText('Save and test'));
+    await screen.findByLabelText(/^Connection failed:/);
+    a11ySweep(result);
+
+    typeInto('Host', 'third.local');
+    result.leave();
+    expect(screen.getByLabelText('Discard changes')).toBeOnTheScreen();
+    a11ySweep(result);
+  });
+
+  it('labels every control of the host-key dialog', async () => {
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(
+      failure('SFTP_HOST_KEY_CHANGED', {
+        hostKeyChallenge: {
+          challengeId: 'c-2',
+          host: 'nas.local',
+          port: 2222,
+          algorithm: 'ssh-ed25519',
+          fingerprint: 'SHA256:new',
+          previousFingerprint: 'SHA256:old',
+        },
+      }),
+    );
+    const result = await renderScreen(SAVED);
+
+    fireEvent.press(screen.getByLabelText('Save and test'));
+    await screen.findByLabelText('Server key fingerprint SHA256:new');
+
+    a11ySweep(result);
+  });
 });
