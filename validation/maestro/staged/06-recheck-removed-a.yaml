@@ -1,0 +1,33 @@
+# Story 6 sc. 7, FR-018a, SC-010 (SFTP), part a of a staged pair
+# (contracts/maestro-mvp.md › Runner additions): against the remote recheck/
+# tree (a fresh copy of gallery/ on every run), the Recheck source holds
+# sunset.png, beach.png and album/forest.png (Synced). The scan records
+# beach.png and sunset.png as backed up; the host hook remove-recheck-file.sh
+# then deletes recheck/beach.png on the server before part b asks to delete
+# them. Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/06-recheck-removed-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/recheck'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Recheck"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "sunset.png, Synced"

@@ -1,6 +1,6 @@
 # Decision records
 
-Append-only: reverse a decision with a new record that supersedes it; new records continue from 0020.
+Append-only: reverse a decision with a new record that supersedes it; new records continue from 0022.
 
 Each record is named `00NN-<kebab-slug>.md` and has the fields Status, Date / context, Scope, Made by and
 Revisable, followed by the sections Context, Decision, Rationale, Alternatives rejected and Related.
@@ -16,7 +16,7 @@ in which the decision was made (the record's "Date / context" field).
 | D005 | [Protocol client libraries (SSHJ, Commons Net, OkHttp PROPFIND)](./0005-protocol-client-libraries.md) | Accepted | library | M001 Layer 2 |
 | D006 | [UNKNOWN status is never deletable](./0006-unknown-status-never-deletable.md) | Accepted | architecture | M001 Layer 2 |
 | D007 | [SFTP host keys: blocking trust-on-first-use](./0007-sftp-host-key-tofu.md) | Accepted | security | M001 Layer 2 |
-| D008 | [Two-phase local deletion](./0008-two-phase-local-deletion.md) | Accepted | architecture | M001 Layer 2 |
+| D008 | [Two-phase local deletion](./0008-two-phase-local-deletion.md) (amended 2026-10-02) | Accepted | architecture | M001 Layer 2 |
 | D009 | [Foreground-only scanning and freshness](./0009-foreground-scan-and-freshness.md) | Accepted | architecture | M001 Layers 1–2 |
 | D010 | [Snapshot paging and gallery origin badge](./0010-snapshot-paging-and-origin-badge.md) | Accepted | architecture | M001 Layer 2 |
 | D011 | [Typed error envelopes and partial scans](./0011-typed-error-envelopes-partial-scans.md) | Accepted | observability | M001 Layer 3 |
@@ -26,5 +26,7 @@ in which the decision was made (the record's "Date / context" field).
 | D015 | [Docker major-version pin](./0015-docker-major-version-pin.md) | Accepted | environment | M001/S01/T08 |
 | D016 | [SAF source identity, overlap and computed availability](./0016-saf-source-identity-and-availability.md) | Accepted | architecture | 2026-09-28 |
 | D017 | [Debug-only grant-release seam for end-to-end flows](./0017-debug-grant-release-seam.md) | Accepted | testing | 2026-09-28 |
-| D018 | [Debug-only repository seam for end-to-end flows](./0018-debug-repository-seam.md) | Accepted | testing | 2026-09-30 |
+| D018 | [Debug-only repository seam for end-to-end flows](./0018-debug-repository-seam.md) (updated 2026-10-02) | Accepted | testing | 2026-09-30 |
 | D019 | [Match names in NFC, case-sensitively; strict precision buckets](./0019-match-name-normalization-and-strict-buckets.md) | Accepted | architecture | 2026-09-30 |
+| D020 | [Pre-delete server re-check of each selected file](./0020-pre-delete-server-recheck.md) | Accepted | architecture | 2026-10-02 |
+| D021 | [Release signing with a personal key; cleartext as the user's choice](./0021-release-signing-and-cleartext-policy.md) | Accepted | security | 2026-10-02 |

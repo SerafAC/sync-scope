@@ -5,8 +5,8 @@
   (Complexity Tracking) and research R11
 - **Scope**: testing
 - **Made by**: agent
-- **Revisable**: Yes. When feature 006 (MVP) builds the Connect screen, the flows can configure the repository
-  through the UI instead, with the same assertions, and this seam can be removed.
+- **Revisable**: Yes. Feature 006 (MVP) built the repository screen; see the update of 2026-10-02 below. The seam
+  can be removed once no flow needs a fast setup.
 
 ## Context
 
@@ -56,10 +56,23 @@ here, and real state rather than faked app state. The activity is not in the rel
 - A debug flag that slows the scan down without going through the seam: it would be a second, separate
   test hook for the same flows; the pause rides on this seam and is off unless a flow asks for it.
 
+## Update 2026-10-02
+
+Feature 006 (MVP) added the repository screen (Settings › Repository), so the "no Connect screen" premise
+no longer holds. The `mvp/` Maestro flows set up FTP, SFTP (including host-key approval) and WebDAV through
+that screen and then scan (spec FR-013, SC-002).
+
+The seam stays, debug-only and unchanged, for the scan, browse and deletion flows whose subject is not
+setup: they need a configured repository quickly and with the per-run `scanDelayMs`, and typing six fields
+through the UI in every flow would slow the suite without proving more (research R16). The seam is absent
+from the release APK, and `android-flow.sh release-smoke` asserts that its link finds no activity there
+([D021](./0021-release-signing-and-cleartext-policy.md)).
+
 ## Related
 
 - Requirements: R001, R020
 - Features: specs/004-scan-engine-matching (plan Complexity Tracking, research R11,
   `contracts/maestro-scan.md`)
 - Decisions: [D012](./0012-maestro-e2e-proof-bar.md), [D014](./0014-container-credentials-via-runner-args.md),
-  [D017](./0017-debug-grant-release-seam.md)
+  [D017](./0017-debug-grant-release-seam.md), [D021](./0021-release-signing-and-cleartext-policy.md)
+- Features: specs/006-mvp (research R16, `contracts/maestro-mvp.md`)

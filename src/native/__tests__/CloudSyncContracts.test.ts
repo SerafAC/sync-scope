@@ -3,12 +3,21 @@ import * as path from 'path';
 
 import type {
   ActiveSnapshotDto,
+  CloudSyncError,
+  DeletionFailureReason,
+  DeletionPlanDto,
+  ExecuteLocalDeletionResult,
   FileEntryDto,
   FileIssueCode,
   LocalImageHandleResult,
   LocalImageSpec,
   LaunchSourcePickerResult,
+  ListSelectableEntriesResult,
   ListSourcesResult,
+  PrepareLocalDeletionResult,
+  RepositoryConfigInput,
+  RepositoryField,
+  RepositorySummaryResult,
   ScanMode,
   ScanPhase,
   ScanRunDto,
@@ -27,7 +36,10 @@ import {
   IMAGE_ERROR_TEXT,
   LOCAL_IMAGE_MAX_EDGE_PX,
   LOCAL_IMAGE_MIN_EDGE_PX,
+  MAX_DELETION_PLAN_AGE_MILLIS,
   MAX_PAGE_SIZE,
+  MVP_ERROR_TEXT,
+  REPOSITORY_DEFAULT_PORTS,
   SCAN_ERROR_TEXT,
   STALE_REMOTE_LISTING_MILLIS,
   SOURCE_ERROR_TEXT,
@@ -38,7 +50,7 @@ import {
 
 describe('CloudSync versioned contract', () => {
   it('exposes a stable positive contract version', () => {
-    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(4);
+    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(5);
     expect(Number.isInteger(CLOUD_SYNC_CONTRACT_VERSION)).toBe(true);
   });
 
@@ -50,6 +62,16 @@ describe('CloudSync versioned contract', () => {
     expect(MAX_PAGE_SIZE).toBe(200);
     expect(DEFAULT_PAGE_SIZE).toBeGreaterThanOrEqual(50);
     expect(DEFAULT_PAGE_SIZE).toBeLessThanOrEqual(100);
+  });
+
+  it('mirrors the repository default ports and the deletion plan age (contract v5)', () => {
+    expect(REPOSITORY_DEFAULT_PORTS).toEqual({
+      FTP: 21,
+      SFTP: 22,
+      WEBDAV: 80,
+      WEBDAV_HTTPS: 443,
+    });
+    expect(MAX_DELETION_PLAN_AGE_MILLIS).toBe(900_000);
   });
 
   it('clamps requested page sizes into the supported range', () => {
@@ -75,8 +97,8 @@ describe('CloudSync versioned contract', () => {
     );
   });
 
-  it('inserts the source, scan and image error codes, in order, just before INTERNAL_ERROR', () => {
-    expect(Object.values(CloudSyncErrorCode).slice(-11)).toEqual([
+  it('inserts the source, scan, image and MVP error codes, in order, just before INTERNAL_ERROR', () => {
+    expect(Object.values(CloudSyncErrorCode).slice(-16)).toEqual([
       'SOURCE_OVERLAP',
       'SOURCE_UNSUPPORTED',
       'SOURCE_REGRANT_MISMATCH',
@@ -87,8 +109,50 @@ describe('CloudSync versioned contract', () => {
       'SCAN_NOT_FOUND',
       'REFRESH_UNAVAILABLE',
       'IMAGE_UNAVAILABLE',
+      'TLS_UNTRUSTED',
+      'DELETION_IN_PROGRESS',
+      'REPOSITORY_CHANGED',
+      'PLAN_NOT_FOUND',
+      'PLAN_STALE',
       'INTERNAL_ERROR',
     ]);
+  });
+
+  it('carries the exact message and action for each MVP error code (contract v5)', () => {
+    expect(MVP_ERROR_TEXT).toEqual({
+      TLS_UNTRUSTED: {
+        message: "The server's certificate is not trusted by this phone.",
+        action:
+          'Use a certificate from a public authority, or connect with SFTP.',
+      },
+      DELETION_IN_PROGRESS: {
+        message: 'Files are being deleted.',
+        action: 'Wait until the deletion finishes.',
+      },
+      REPOSITORY_CHANGED: {
+        message: 'These results were made with your previous server settings.',
+        action: 'Scan again before deleting.',
+      },
+      PLAN_NOT_FOUND: {
+        message: 'This deletion is no longer available.',
+        action: 'Review the selection and tap Delete again.',
+      },
+      PLAN_STALE: {
+        message: 'The results changed since you reviewed this deletion.',
+        action: 'Review the selection and tap Delete again.',
+      },
+    });
+  });
+
+  it('points a missing repository at Settings › Repository, not a Connect screen', () => {
+    const contract = fs.readFileSync(
+      path.join(__dirname, '..', 'CloudSyncContracts.ts'),
+      'utf8',
+    );
+    expect(contract).toContain(
+      'No repository has been saved yet; set one up in Settings › Repository.',
+    );
+    expect(contract).not.toContain('Connect screen');
   });
 
   it('carries the exact message and action for the image error code', () => {
@@ -245,6 +309,7 @@ describe('CloudSync versioned contract', () => {
       completedAtMillis: 5,
       remoteListedAtMillis: 4,
       precisionMillis: 1000,
+      configRevision: 3,
       coverage: 'INCOMPLETE',
       summary: {
         synced: 1,
@@ -435,6 +500,181 @@ describe('CloudSync versioned contract', () => {
       expect(clampImageEdge(Number.NaN)).toBe(256);
       expect(clampImageEdge(Number.POSITIVE_INFINITY)).toBe(256);
       expect(clampImageEdge(Number.NEGATIVE_INFINITY)).toBe(256);
+    });
+  });
+
+  describe('repository, selection and deletion DTOs (contract v5)', () => {
+    it('names the offending repository field on an error', () => {
+      const fields: RepositoryField[] = [
+        'protocol',
+        'host',
+        'port',
+        'username',
+        'password',
+        'remoteRoot',
+      ];
+      const invalidPort: CloudSyncError = {
+        code: CloudSyncErrorCode.INVALID_QUERY,
+        message: 'The repository port is invalid: it must be a number.',
+        action: 'Correct the port and save again.',
+        field: 'port',
+      };
+      const noField: CloudSyncError = {
+        code: CloudSyncErrorCode.INTERNAL_ERROR,
+        message: 'Unexpected.',
+        action: null,
+        field: null,
+      };
+      // @ts-expect-error field is one of the repository form fields
+      const badField: CloudSyncError = {...invalidPort, field: 'password2'};
+      expect(fields).toHaveLength(6);
+      expect(invalidPort.field).toBe('port');
+      expect(noField.field).toBeNull();
+      expect(badField.code).toBe('INVALID_QUERY');
+    });
+
+    it('types the repository summary and the save config', () => {
+      const summary: RepositorySummaryResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        repository: {
+          protocol: 'WEBDAV',
+          host: 'nas.local',
+          port: 443,
+          username: 'me',
+          remoteRoot: '/backup',
+          precisionMillis: null,
+          credentialPresent: true,
+          hostKeyTrusted: null,
+          revision: 3,
+          webdavHttps: true,
+        },
+      };
+      const legacyCaller: RepositoryConfigInput = {
+        protocol: 'SFTP',
+        host: 'nas.local',
+        port: null,
+        username: 'me',
+        remoteRoot: '/backup',
+      };
+      const https: RepositoryConfigInput = {
+        ...legacyCaller,
+        protocol: 'WEBDAV',
+        webdavHttps: true,
+      };
+      const noRevision: RepositorySummaryResult = {
+        ...summary,
+        // @ts-expect-error the summary always carries its revision in contract v5
+        repository: {...summary.repository, revision: undefined},
+      };
+      expect(isErrorResult(summary)).toBe(false);
+      expect(legacyCaller.webdavHttps).toBeUndefined();
+      expect(https.webdavHttps).toBe(true);
+      expect(noRevision.status).toBe('ok');
+    });
+
+    it('carries the repository revision on the active snapshot', () => {
+      // @ts-expect-error configRevision is required in contract v5
+      const missing: ActiveSnapshotDto = {
+        snapshotId: 'snap-1',
+        completedAtMillis: 5,
+        remoteListedAtMillis: 4,
+        precisionMillis: 1000,
+        coverage: 'COMPLETE',
+        summary: {
+          synced: 0,
+          unsynced: 0,
+          unknown: 0,
+          unreadableRemoteDirectories: 0,
+          remoteListingInterruptedBy: null,
+          skippedSources: [],
+        },
+      };
+      expect(missing.snapshotId).toBe('snap-1');
+    });
+
+    it('types the selectable entries envelope with -1 for unknown sizes', () => {
+      const ok: ListSelectableEntriesResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        selectable: {
+          entryIds: ['e-1', 'e-2'],
+          sizes: [70, -1],
+          statuses: ['SYNCED', 'UNKNOWN'],
+          images: [true, false],
+        },
+      };
+      const stale: ListSelectableEntriesResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'error',
+        error: {
+          code: CloudSyncErrorCode.STALE_GENERATION,
+          message: 'Stale.',
+          action: null,
+        },
+      };
+      const badStatus: ListSelectableEntriesResult = {
+        ...ok,
+        // @ts-expect-error statuses are FileStatus values
+        selectable: {...ok.selectable, statuses: ['DELETED']},
+      };
+      expect(isErrorResult(ok)).toBe(false);
+      expect(isErrorResult(stale)).toBe(true);
+      expect(badStatus.status).toBe('ok');
+    });
+
+    it('types the deletion plan and result envelopes', () => {
+      const plan: DeletionPlanDto = {
+        planToken: 'plan-1',
+        toDelete: {count: 3, bytes: 210},
+        unsynced: {count: 1, bytes: 70},
+        refused: {count: 2, scanTooOld: 0},
+        movedByRecheck: 1,
+        missing: 0,
+        unknownSizeCount: 0,
+        remoteListedAtMillis: 4,
+      };
+      const prepared: PrepareLocalDeletionResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        plan,
+      };
+      const changed: PrepareLocalDeletionResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'error',
+        error: {
+          code: CloudSyncErrorCode.REPOSITORY_CHANGED,
+          ...MVP_ERROR_TEXT.REPOSITORY_CHANGED,
+        },
+      };
+      const reasons: DeletionFailureReason[] = [
+        'ALREADY_GONE',
+        'CHANGED',
+        'ACCESS_LOST',
+        'FAILED',
+      ];
+      const executed: ExecuteLocalDeletionResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        result: {
+          deleted: 2,
+          freedBytes: 140,
+          failures: [{entryId: 'e-3', name: 'c.png', reason: 'ALREADY_GONE'}],
+          removedEntryIds: ['e-1', 'e-2', 'e-3'],
+        },
+      };
+      // @ts-expect-error a deletion failure reason is a closed set
+      const badReason: DeletionFailureReason = 'DELETED';
+      // @ts-expect-error an ok plan result carries a plan
+      const noPlan: PrepareLocalDeletionResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+      };
+      expect(isErrorResult(prepared)).toBe(false);
+      expect(isErrorResult(changed)).toBe(true);
+      expect(isErrorResult(executed)).toBe(false);
+      expect(reasons).toHaveLength(4);
+      expect([badReason, noPlan]).toHaveLength(2);
     });
   });
 });

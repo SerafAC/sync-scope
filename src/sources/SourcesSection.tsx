@@ -1,5 +1,5 @@
-import React, {useMemo, useState} from 'react';
-import {StyleSheet, View} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
@@ -11,8 +11,11 @@ import {
   useTheme,
 } from 'react-native-paper';
 
-import type {SourceAvailability, SourceDto} from '../native/CloudSyncContracts';
-import {useSources, type SourcesError} from './useSources';
+import type {
+  SourceAvailability,
+  SourceDto,
+} from '../native/CloudSyncContracts';
+import { useSources, type SourcesError } from './useSources';
 
 const STATUS_TEXT: Record<SourceAvailability, string> = {
   AVAILABLE: 'Available',
@@ -31,6 +34,10 @@ export function sourcesErrorText(error: SourcesError): string {
       : error.message;
   return error.action ? `${summary} ${error.action}` : summary;
 }
+
+/** Shown above Add folder: the folders the system picker refuses (research R7). */
+export const FOLDER_PICKER_HINT =
+  'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures.';
 
 type SourceRowProps = {
   source: SourceDto;
@@ -54,8 +61,8 @@ function SourceRow({
   const chipStyles = useMemo(
     () =>
       StyleSheet.create({
-        background: {backgroundColor: chipBackground},
-        text: {color: chipText},
+        background: { backgroundColor: chipBackground },
+        text: { color: chipText },
       }),
     [chipBackground, chipText],
   );
@@ -66,14 +73,16 @@ function SourceRow({
         <Text
           style={styles.alias}
           testID="sources.row.alias"
-          variant="titleMedium">
+          variant="titleMedium"
+        >
           {source.alias}
         </Text>
         <View style={[styles.chip, chipStyles.background]}>
           <Text
             style={chipStyles.text}
             testID="sources.row.status"
-            variant="labelMedium">
+            variant="labelMedium"
+          >
             {STATUS_TEXT[source.availability]}
           </Text>
         </View>
@@ -87,14 +96,16 @@ function SourceRow({
           <Button
             mode="text"
             onPress={() => onRegrant(source.sourceId)}
-            testID="sources.row.regrant">
+            testID="sources.row.regrant"
+          >
             Re-grant
           </Button>
         )}
         <Button
           mode="text"
           onPress={() => onRemove(source)}
-          testID="sources.row.remove">
+          testID="sources.row.remove"
+        >
           Remove
         </Button>
       </View>
@@ -108,7 +119,7 @@ function SourceRow({
  * a snackbar for typed errors (research R14).
  */
 export function SourcesSection(): React.JSX.Element {
-  const {sources, loading, error, add, regrant, remove, dismissError} =
+  const { sources, loading, error, add, regrant, remove, dismissError } =
     useSources();
   const [pendingRemoval, setPendingRemoval] = useState<SourceDto | null>(null);
 
@@ -142,12 +153,16 @@ export function SourcesSection(): React.JSX.Element {
           source={source}
         />
       ))}
+      <Text accessibilityLabel="Folder picker hint" variant="bodySmall">
+        {FOLDER_PICKER_HINT}
+      </Text>
       <Button
         icon="folder-plus-outline"
         mode="contained"
         onPress={() => add()}
         style={styles.addButton}
-        testID="sources.add">
+        testID="sources.add"
+      >
         Add folder
       </Button>
       <Portal>
@@ -162,7 +177,8 @@ export function SourcesSection(): React.JSX.Element {
             <Dialog.Actions>
               <Button
                 onPress={() => setPendingRemoval(null)}
-                testID="sources.dialog.cancel">
+                testID="sources.dialog.cancel"
+              >
                 Cancel
               </Button>
               <Button onPress={confirmRemoval} testID="sources.dialog.confirm">
@@ -174,10 +190,11 @@ export function SourcesSection(): React.JSX.Element {
       </Portal>
       {error != null ? (
         <Snackbar
-          action={{label: 'Dismiss', onPress: dismissError}}
+          action={{ label: 'Dismiss', onPress: dismissError }}
           onDismiss={dismissError}
           testID="sources.error"
-          visible>
+          visible
+        >
           {sourcesErrorText(error)}
         </Snackbar>
       ) : null}

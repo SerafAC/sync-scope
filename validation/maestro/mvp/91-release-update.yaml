@@ -1,0 +1,31 @@
+# Story 4 sc. 5: an update keeps the app's data. In release-smoke mode
+# (android-flow.sh step 7) this runs after the same signed APK is re-installed
+# in place with `adb install -r`; in the debug workspace it runs right after
+# mvp/90-release-smoke and proves the state survives a relaunch. Either way the
+# repository from 90 is still set up and its scan results are still in Files,
+# with no new scan.
+# Continues mvp/90-release-smoke: never clears state.
+appId: com.syncscope
+name: mvp/91-release-update
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+
+# The repository is still set up.
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Repository SFTP ${SFTP_HOST}"
+    timeout: 15000
+- assertVisible: "Edit repository"
+- assertNotVisible: "Repository not set up"
+
+# The results are still there; nothing in this flow starts a scan.
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "sunset.png, Synced"
+- assertVisible: "harbor.png, Unsynced"
+- assertNotVisible: "No scan results yet"

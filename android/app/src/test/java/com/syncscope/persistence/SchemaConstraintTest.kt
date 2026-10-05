@@ -149,7 +149,7 @@ class SchemaConstraintTest {
   }
 
   private companion object {
-    const val CURRENT_SCHEMA_VERSION = 3
+    const val CURRENT_SCHEMA_VERSION = 4
   }
 
   private suspend fun seedSnapshot() {

@@ -41,6 +41,12 @@ export interface UsePagedQueryOptions {
    * Wired to `useScan().refresh`: the reload follows the new `snapshotId`.
    */
   onSnapshotLost?: () => unknown;
+  /**
+   * A change reloads page 1 of the same snapshot and query, as a snapshot
+   * change does but without `snapshotChanged`: rows were removed in place
+   * (a deletion, research R14).
+   */
+  reloadKey?: number;
 }
 
 export interface UsePagedQueryResult {
@@ -130,6 +136,7 @@ export function usePagedQuery({
   query,
   read,
   onSnapshotLost,
+  reloadKey = 0,
 }: UsePagedQueryOptions): UsePagedQueryResult {
   const queryKey = queryKeyOf(query);
   const stableQuery = useMemo<QuerySpec>(
@@ -254,7 +261,7 @@ export function usePagedQuery({
     shownSnapshot.current = null;
     commit(emptyState(snapshotId, queryKey, 'loading-first'));
     fetchPage({ snapshotId, queryKey, query: stableQuery }, null, false);
-  }, [snapshotId, queryKey, stableQuery, commit, fetchPage]);
+  }, [snapshotId, queryKey, stableQuery, commit, fetchPage, reloadKey]);
 
   const loadMore = useCallback(() => {
     const current = stateRef.current;

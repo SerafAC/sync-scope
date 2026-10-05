@@ -7,7 +7,10 @@ appId: com.syncscope
     visible: "Settings"
     timeout: 60000
 - tapOn: "Settings"
-- extendedWaitUntil:
-    visible:
+# Settings › Repository sits above Folders (feature 006), so once folders are
+# listed, Add folder can be below the fold: scroll to it.
+- scrollUntilVisible:
+    element:
       id: "sources.add"
+    direction: DOWN
     timeout: 30000

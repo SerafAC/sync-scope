@@ -9,6 +9,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- Repository setup screen, first-run guidance, multi-select with selection size, safe two-phase deletion
+  and a release APK build (feature 006, MVP): Settings › Repository sets up and edits the FTP, SFTP or
+  WebDAV server and tests it, with SFTP key approval in the app (and a warning when a trusted key
+  changed); the Scan tab lists what is missing before a first scan, error messages name the place that
+  fixes them with "Go there", and the Files tab explains that results appear after a scan; the folder
+  picker hint names the folders Android refuses and the picker starts in DCIM; gallery and list view
+  support long-press selection, "Select all" and a selection bar with the count and total size; deleting
+  re-checks every selected backed-up file on the server, shows a breakdown, never deletes UNKNOWN files,
+  deletes not-backed-up files only after a stronger confirmation, never removes folders, and reports each
+  file it did not delete (D020, D008 amendment); and `pnpm assemble:release` builds an APK that runs
+  without a development machine, signed with a personal release key kept outside the repository (D021).
+  Proven by Maestro flows in `validation/maestro/mvp/` and `staged/`, and by
+  `pnpm e2e:android:release-smoke`.
 - Files tab with a photo gallery and a folder list, filters for synced / unsynced / issues, and origin
   badges on same-named photos from different folders (feature 005): the gallery is a virtualized grid of
   local thumbnails, newest first, read page by page; the list browses each source folder by folder with a
@@ -46,6 +59,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- Release builds allow user-chosen unencrypted connections (FTP, and WebDAV without HTTPS), with a
+  warning in the repository form; WebDAV can use HTTPS, on by default for a new setup, and an untrusted
+  certificate is reported as `TLS_UNTRUSTED` (D021).
+- CloudSync contract version 5 (`listSelectableEntries`, `prepareLocalDeletion` and
+  `executeLocalDeletion(planToken, includeUnsynced)` implemented, `webdavHttps`, `revision`,
+  `configRevision` and the error `field`, five new error codes); scan store schema version 4
+  (`remote_match_key.directories` and `repository_config.webdavHttps`, by a Room auto-migration from
+  version 3).
+- The app version now comes from `package.json`: `versionName` is the version and `versionCode` is
+  `major * 10000 + minor * 100 + patch`, printed by `:app:printVersion`.
 - CloudSync contract version 4: `FileEntryDto` gains `nameInOtherSource` and `matchingFileCount`;
   `getLocalImageHandle` is implemented (moved from feature 006) and returns local-only thumbnails; the
   `IMAGE_UNAVAILABLE` error code was added; directories in `queryTreeChildren` ignore the filter, and the

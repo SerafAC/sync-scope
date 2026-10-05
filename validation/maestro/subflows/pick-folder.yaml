@@ -53,8 +53,14 @@ appId: com.syncscope
 - tapOn: "(?i)use this folder"
 - tapOn: "(?i)allow"
 
-# Back in the app.
+# Back in the app (the tab bar is showing again). The new row can push Add
+# folder below the fold, under Settings › Repository (feature 006), so scroll
+# to it only once the picker is gone.
 - extendedWaitUntil:
-    visible:
+    visible: "Settings"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
       id: "sources.add"
+    direction: DOWN
     timeout: 15000

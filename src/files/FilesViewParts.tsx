@@ -28,6 +28,8 @@ export interface FilesViewProps {
   onSnapshotChange: () => void;
   /** A read found the snapshot gone: re-read the scan state. */
   onSnapshotLost?: () => unknown;
+  /** Bumped after a deletion: reload page 1, keeping the folder and filter. */
+  reloadKey?: number;
 }
 
 function errorText(error: CloudSyncError): string {

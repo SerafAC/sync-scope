@@ -1,0 +1,41 @@
+# Story 6 sc. 6, FR-020 (SFTP), part b of a staged pair: runs after
+# change-device-files.sh removed beach.png and re-timed sunset.png on the
+# device. No launchApp and no state reset: the confirmation dialog from part a
+# is still open and its plan lives only in memory. The deletion re-checks
+# each file on the device first, so it deletes nothing: beach.png is already
+# gone and sunset.png changed since the scan. A rescan from scratch proves
+# sunset.png is still on the device.
+appId: com.syncscope
+name: staged/08-changed-b
+---
+- assertVisible: "Delete 2 backed-up files, .+"
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Deleted 0 files, freed .+"
+    timeout: 60000
+- assertVisible: "Could not delete beach.png: Already gone"
+- assertVisible: "Could not delete sunset.png: Changed since the scan"
+- tapOn: "Done"
+
+# beach.png left the results (already gone); sunset.png stays selected.
+- extendedWaitUntil:
+    visible: "Selection 1 selected, .+"
+    timeout: 15000
+- assertNotVisible: "beach.png, .+"
+- tapOn: "Clear selection"
+- extendedWaitUntil:
+    notVisible: "Selection .+"
+    timeout: 15000
+
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "sunset.png, .+"
+    timeout: 15000
+- assertNotVisible: "beach.png, .+"

@@ -17,8 +17,14 @@
 # SyncScopeE2E/GalleryBulk, GALLERY_BULK_FILES copies of one PNG. The images
 # come from fixture-images.sh, which fixture-seed.sh shares.
 #
+# Feature 006 adds SyncScopeE2E/Delete, Recheck, Offline, Select and Changed,
+# each the same tree as Gallery (seed_gallery_tree), for the selection and
+# deletion flows. Those flows delete or change device files, so every gallery
+# tree is removed and re-created on each run.
+#
 # Targets the device in ANDROID_SERIAL. Idempotent: directories use mkdir -p,
-# fixture files are overwritten and the bulk tree is regenerated from scratch.
+# fixture files are overwritten and the bulk and gallery trees are regenerated
+# from scratch.
 # Fails loudly when no public removable volume is mounted (R10: never skip
 # removable-storage coverage).
 set -eu
@@ -106,8 +112,8 @@ seed_scan_file only-here.txt 'only in restricted'
 bulk=/sdcard/SyncScopeE2E/Bulk
 adb_shell "rm -rf $bulk && i=0 && while [ \$i -lt 200 ]; do n=\$((i + 1000)); mkdir -p $bulk/d\${n#1}; i=\$((i + 1)); done && i=0 && while [ \$i -lt $bulk_files ]; do d=\$((i % 200 + 1000)); f=\$((i + 100000)); echo \"bulk \${f#1}\" > $bulk/d\${d#1}/f\${f#1}.txt; i=\$((i + 1)); done" 600
 
-# Gallery sources: each image is pushed once from a temp file (adb push does
-# not keep mtimes, so every file is touched afterwards).
+# Gallery sources: images are pushed from a temp file (adb push does not keep
+# mtimes, so every file is touched afterwards).
 gallery=/sdcard/SyncScopeE2E/Gallery
 twin=/sdcard/SyncScopeE2E/GalleryTwin
 png_tmp=$(mktemp)
@@ -118,18 +124,29 @@ push_png() {
     "$ANDROID_HOME/platform-tools/adb" -s "$serial" push "$png_tmp" "$2" >/dev/null
   adb_shell "touch -d @1704067200 $2"
 }
-adb_shell "mkdir -p $gallery/album"
-adb_shell "mkdir -p $gallery/drafts"
+
+# seed_gallery_tree <dir>: the one definition of the gallery tree. Removes
+# and re-creates <dir>, so files a previous run deleted come back.
+seed_gallery_tree() {
+  tree=$1
+  adb_shell "rm -rf $tree"
+  adb_shell "mkdir -p $tree/album"
+  adb_shell "mkdir -p $tree/drafts"
+  push_png "$PNG_SUNSET" "$tree/sunset.png"
+  push_png "$PNG_BEACH" "$tree/beach.png"
+  push_png "$PNG_FOREST" "$tree/album/forest.png"
+  push_png "$PNG_HARBOR" "$tree/harbor.png"
+  adb_shell "cp $tree/harbor.png $tree/drafts/draft.png"
+  adb_shell "touch -d @1704067200 $tree/drafts/draft.png"
+  adb_shell "printf 'gallery notes\\n' > $tree/album/notes.txt"
+  adb_shell "touch -d @1704067200 $tree/album/notes.txt"
+}
+
+for name in Gallery Delete Recheck Offline Select Changed; do
+  seed_gallery_tree "/sdcard/SyncScopeE2E/$name"
+done
 adb_shell "mkdir -p $twin"
-push_png "$PNG_SUNSET" "$gallery/sunset.png"
-push_png "$PNG_BEACH" "$gallery/beach.png"
-push_png "$PNG_FOREST" "$gallery/album/forest.png"
-push_png "$PNG_HARBOR" "$gallery/harbor.png"
 push_png "$PNG_TWIN" "$twin/sunset.png"
-adb_shell "cp $gallery/harbor.png $gallery/drafts/draft.png"
-adb_shell "touch -d @1704067200 $gallery/drafts/draft.png"
-adb_shell "printf 'gallery notes\\n' > $gallery/album/notes.txt"
-adb_shell "touch -d @1704067200 $gallery/album/notes.txt"
 
 # GalleryBulk: one adb shell loop copying the pushed harbor.png. Adding 10000
 # and stripping the leading 1 zero-pads the file numbers to g0000…g9999.

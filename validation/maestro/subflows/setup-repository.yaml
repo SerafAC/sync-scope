@@ -1,0 +1,143 @@
+# Subflow: set up the repository through the Repository form (feature 006,
+# contracts/maestro-mvp.md), the way a user does: Settings › Set up repository
+# (or Edit repository), fill every field, Save and test. Never run on its own.
+#
+# Params (runFlow env):
+#   PROTOCOL  FTP, SFTP or WEBDAV
+#   HOST      optional: the server address; 10.0.2.2 (the emulator's host)
+#             when omitted. Callers pass ${<P>_HOST}
+#   PORT      the host port of the container
+#   USER      the per-run container user (android-flow.sh, D014)
+#   PASSWORD  the password to type
+#   ROOT      the remote folder, for example /srv/fixtures/gallery (callers
+#             prefix their root with ${<P>_ROOT}, as the D018 seam does)
+#   HTTPS     optional, WebDAV only: "true" or "false" sets the Use HTTPS
+#             switch; omitted, the switch is left as it is
+#   START     optional: "settings" (default) opens Settings and taps Set up
+#             repository or Edit repository; "form" expects the form to be
+#             open already (the Scan checklist, or a retry after a failure)
+#   EXPECT    optional: the status to wait for after Save and test (a regex).
+#             Omitted, an SFTP key prompt is answered with Trust server key
+#             and the flow waits for "Connected, <n> entries". Given, the
+#             subflow stops once it is visible and answers nothing, so a flow
+#             can assert the key prompt or a failure itself.
+#
+# Every field is cleared before it is typed, so the subflow also edits a
+# prefilled form.
+appId: com.syncscope
+---
+- evalScript: "${output.setupStart = typeof START !== 'undefined' && START ? START : 'settings'}"
+- evalScript: "${output.setupExpect = typeof EXPECT !== 'undefined' && EXPECT ? EXPECT : ''}"
+- evalScript: "${output.setupHost = typeof HOST !== 'undefined' && HOST ? HOST : '10.0.2.2'}"
+- evalScript: "${output.setupHttps = typeof HTTPS !== 'undefined' && HTTPS ? HTTPS : ''}"
+- evalScript: "${output.setupProtocolLabel = 'Protocol ' + ({FTP: 'FTP', SFTP: 'SFTP', WEBDAV: 'WebDAV'})[PROTOCOL]}"
+
+- runFlow:
+    when:
+      true: "${output.setupStart == 'settings'}"
+    commands:
+      - tapOn: "Settings"
+      - extendedWaitUntil:
+          visible: "(Set up repository|Edit repository)"
+          timeout: 30000
+      - runFlow:
+          when:
+            visible: "Set up repository"
+          commands:
+            - tapOn: "Set up repository"
+      - runFlow:
+          when:
+            visible: "Edit repository"
+          commands:
+            - tapOn: "Edit repository"
+- extendedWaitUntil:
+    visible: "${output.setupProtocolLabel}"
+    timeout: 30000
+
+- tapOn: "${output.setupProtocolLabel}"
+# WebDAV's HTTPS switch: only the Switch itself is ever "checked", so the
+# checked selector finds it unambiguously; the label Text comes before it.
+- runFlow:
+    when:
+      true: "${PROTOCOL == 'WEBDAV' && output.setupHttps == 'false'}"
+      visible:
+        text: "Use HTTPS"
+        checked: true
+    commands:
+      - tapOn:
+          text: "Use HTTPS"
+          checked: true
+- runFlow:
+    when:
+      true: "${PROTOCOL == 'WEBDAV' && output.setupHttps == 'true'}"
+      notVisible:
+        text: "Use HTTPS"
+        checked: true
+    commands:
+      - tapOn:
+          text: "Use HTTPS"
+          index: 1
+
+# Each field is replaced through fill-field.yaml (testID selectors, keyboard
+# and cursor handling are explained there). Host is first, so start at the top.
+- scrollUntilVisible:
+    element:
+      id: "repository.host"
+    direction: UP
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "${output.setupHost}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.port"
+      TEXT: "${PORT}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${USER}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${PASSWORD}"
+- runFlow:
+    file: fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoot"
+      TEXT: "${ROOT}"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+
+- runFlow:
+    when:
+      true: "${output.setupExpect != ''}"
+    commands:
+      # The status shows under Save and test, which can be at the bottom
+      # edge of a tall form (WebDAV's HTTPS row): scroll down to it.
+      - scrollUntilVisible:
+          element: "${output.setupExpect}"
+          direction: DOWN
+          timeout: 60000
+- runFlow:
+    when:
+      true: "${output.setupExpect == ''}"
+    commands:
+      - scrollUntilVisible:
+          element: "(Connected, [0-9]+ entries|Server key fingerprint .+|Connection failed: .+)"
+          direction: DOWN
+          timeout: 60000
+      - runFlow:
+          when:
+            visible: "Server key fingerprint .+"
+          commands:
+            - tapOn: "Trust server key"
+      - scrollUntilVisible:
+          element: "Connected, [0-9]+ entries"
+          direction: DOWN
+          timeout: 60000

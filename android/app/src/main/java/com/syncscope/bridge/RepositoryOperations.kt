@@ -9,20 +9,25 @@ import com.syncscope.persistence.RepositoryConfigDao
 import com.syncscope.persistence.RepositoryConfigEntity
 import com.syncscope.remote.ConnectOutcome
 import com.syncscope.remote.HostKeyTrustStore
+import com.syncscope.remote.RemoteClient
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.SftpHostKeyException
+import com.syncscope.scan.BusyState
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
  * saveRepository / testRepository / getRepositorySummary.
  *
- * Room's `repository_config` holds only protocol, host, port, username, root, precision,
- * and the `credentialVersion` pointer; the password lives in [CredentialStore] and is
+ * Room's `repository_config` holds only protocol, host, port, username, root, `webdavHttps`,
+ * precision, and the `credentialVersion` pointer; the password lives in [CredentialStore] and is
  * wiped from memory on every path. v1 has exactly one profile: saving replaces it.
  * Save and test are serialised so a test never races a save of a different endpoint.
+ * A save is refused while [busy] reports a scan or a deletion (research R3, FR-011), so the
+ * configuration a run reads never changes under it.
  */
 class RepositoryOperations(
   private val repositories: () -> RepositoryConfigDao,
@@ -30,6 +35,8 @@ class RepositoryOperations(
   private val hostKeys: () -> HostKeyTrustStore,
   private val clients: () -> RemoteClientFactory,
   private val envelope: CloudSyncEnvelope,
+  /** The scan coordinator's state; [BusyState.NONE] where no coordinator exists (the debug seam). */
+  private val busy: () -> BusyState,
 ) {
   private val lock = Mutex()
 
@@ -45,6 +52,7 @@ class RepositoryOperations(
       if (password != null && password.isEmpty()) return envelope.invalidField("password", "it is empty")
 
       return lock.withLock {
+        busyRefusal()?.let { return@withLock it }
         val existing = repositories().get()
         val credentialVersion =
           when {
@@ -66,6 +74,7 @@ class RepositoryOperations(
               precisionMillis = UNKNOWN_PRECISION,
               credentialVersion = credentialVersion,
               revision = (existing?.revision ?: 0L) + 1,
+              webdavHttps = parsed.webdavHttps,
             ),
           )
         Log.i(TAG, "repository saved: protocol=${parsed.protocol} credentialVersion=$credentialVersion")
@@ -136,6 +145,8 @@ class RepositoryOperations(
         putInt("port", row.port)
         putString("username", row.username)
         putString("remoteRoot", row.remoteRoot)
+        putBoolean("webdavHttps", row.webdavHttps)
+        putDouble("revision", row.revision.toDouble())
         if (row.precisionMillis > UNKNOWN_PRECISION) {
           putDouble("precisionMillis", row.precisionMillis.toDouble())
         } else {
@@ -148,6 +159,13 @@ class RepositoryOperations(
     )
   }
 
+  private fun busyRefusal(): WritableMap? =
+    when (busy()) {
+      BusyState.NONE -> null
+      BusyState.SCAN -> envelope.sourceError(CloudSyncErrorCode.SCAN_IN_PROGRESS)
+      BusyState.DELETION -> envelope.sourceError(CloudSyncErrorCode.DELETION_IN_PROGRESS)
+    }
+
   private fun notConfigured(): WritableMap =
     envelope.error(CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED, NOT_CONFIGURED_MESSAGE, NOT_CONFIGURED_ACTION)
 
@@ -156,12 +174,6 @@ class RepositoryOperations(
       row.host.equals(config.host, ignoreCase = true) &&
       row.port == config.port &&
       row.username == config.username
-
-  private fun RepositoryConfigEntity.protocol(): RemoteProtocol? =
-    RemoteProtocol.entries.firstOrNull { it.name == protocol }
-
-  private fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
-    protocol()?.let { RemoteConfig(it, host, port, username, remoteRoot) }
 
   internal sealed interface Parsed {
     data class Valid(val config: RemoteConfig) : Parsed
@@ -173,9 +185,9 @@ class RepositoryOperations(
     private const val TAG = "CloudSync"
 
     const val NOT_CONFIGURED_MESSAGE = "No repository has been set up yet."
-    const val NOT_CONFIGURED_ACTION = "Enter the server details on the Connect screen."
+    const val NOT_CONFIGURED_ACTION = "Set up your server in Settings › Repository."
     const val CREDENTIAL_UNAVAILABLE_MESSAGE = "The saved password is no longer available."
-    const val CREDENTIAL_UNAVAILABLE_ACTION = "Enter the password and save the repository again."
+    const val CREDENTIAL_UNAVAILABLE_ACTION = "Enter the password again in Settings › Repository."
 
     /** Stored until testRepository discovers the real value; reported to JS as null. */
     const val UNKNOWN_PRECISION = 0L
@@ -186,11 +198,12 @@ class RepositoryOperations(
     private val HOST_FORBIDDEN = Regex("""[\s/\\@?#]""")
     private val CONTROL = Regex("""\p{Cntrl}""")
 
-    private fun defaultPort(protocol: RemoteProtocol): Int =
+    /** The port used when none is given; [https] matters for WebDAV only (research R2, R4). */
+    internal fun defaultPort(protocol: RemoteProtocol, https: Boolean): Int =
       when (protocol) {
-        RemoteProtocol.FTP -> 21
-        RemoteProtocol.SFTP -> 22
-        RemoteProtocol.WEBDAV -> 80
+        RemoteProtocol.FTP -> RepositoryDefaultPorts.FTP
+        RemoteProtocol.SFTP -> RepositoryDefaultPorts.SFTP
+        RemoteProtocol.WEBDAV -> if (https) RepositoryDefaultPorts.WEBDAV_HTTPS else RepositoryDefaultPorts.WEBDAV
       }
 
     /** Validates the JS config object. Rejections name the field and never echo the value. */
@@ -200,6 +213,15 @@ class RepositoryOperations(
           RemoteProtocol.entries.firstOrNull { it.name == name }
         } ?: return Parsed.Invalid("protocol", "it must be FTP, SFTP, or WEBDAV")
 
+      // Absent means plain HTTP, so existing callers (the D018 seam) keep working; ignored unless WebDAV.
+      val webdavHttps =
+        when {
+          !map.hasKey("webdavHttps") || map.isNull("webdavHttps") -> false
+          map.getType("webdavHttps") != ReadableType.Boolean ->
+            return Parsed.Invalid("webdavHttps", "it must be true or false")
+          else -> protocol == RemoteProtocol.WEBDAV && map.getBoolean("webdavHttps")
+        }
+
       val host = map.string("host")?.trim()
       if (host.isNullOrEmpty()) return Parsed.Invalid("host", "it is required")
       if (host.length > MAX_HOST || HOST_FORBIDDEN.containsMatchIn(host) || CONTROL.containsMatchIn(host)) {
@@ -208,7 +230,7 @@ class RepositoryOperations(
 
       val port =
         when {
-          !map.hasKey("port") || map.isNull("port") -> defaultPort(protocol)
+          !map.hasKey("port") || map.isNull("port") -> defaultPort(protocol, webdavHttps)
           map.getType("port") != ReadableType.Number -> return Parsed.Invalid("port", "it must be a number")
           else -> {
             val raw = map.getDouble("port")
@@ -238,10 +260,57 @@ class RepositoryOperations(
         return Parsed.Invalid("remoteRoot", "it must not contain relative segments")
       }
 
-      return Parsed.Valid(RemoteConfig(protocol, host, port, username, root))
+      return Parsed.Valid(RemoteConfig(protocol, host, port, username, root, webdavHttps))
     }
 
     private fun ReadableMap.string(key: String): String? =
       if (hasKey(key) && getType(key) == ReadableType.String) getString(key) else null
+  }
+}
+
+internal fun RepositoryConfigEntity.protocol(): RemoteProtocol? = RemoteProtocol.entries.firstOrNull { it.name == protocol }
+
+/** The non-secret connection parameters of the saved repository; null for an unknown protocol. */
+internal fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
+  protocol()?.let { RemoteConfig(it, host, port, username, remoteRoot, webdavHttps) }
+
+/**
+ * A fresh, authenticated client for the saved repository, shared by the scan and the pre-delete re-check
+ * (Principle III). [onCreated] sees the client before it connects, so an owner can cancel it.
+ *
+ * The password is loaded from [credentials] for [credentialVersion] and wiped straight after `connect`.
+ * Throws [RemoteClientException]: `CREDENTIAL_UNAVAILABLE` when the password cannot be loaded, the
+ * client's code when `connect` fails, and an [SftpHostKeyException] (`SFTP_HOST_KEY_UNVERIFIED`) when an
+ * SFTP key awaits approval. The client is closed on every failure.
+ */
+internal suspend fun connectRepository(
+  clients: RemoteClientFactory,
+  credentials: CredentialStore,
+  config: RemoteConfig,
+  credentialVersion: Long,
+  onCreated: (RemoteClient) -> Unit = {},
+): RemoteClient {
+  val client = clients.create(config.protocol)
+  onCreated(client)
+  val password = credentials.load(credentialVersion)
+  if (password == null) {
+    client.close()
+    throw RemoteClientException(
+      CloudSyncErrorCode.CREDENTIAL_UNAVAILABLE,
+      RepositoryOperations.CREDENTIAL_UNAVAILABLE_MESSAGE,
+      RepositoryOperations.CREDENTIAL_UNAVAILABLE_ACTION,
+    )
+  }
+  try {
+    when (val outcome = client.connect(config, password)) {
+      ConnectOutcome.Connected -> return client
+      is ConnectOutcome.HostKeyApprovalRequired ->
+        throw SftpHostKeyException(CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED, outcome.challenge)
+    }
+  } catch (t: Throwable) {
+    client.close()
+    throw t
+  } finally {
+    password.fill('\u0000')
   }
 }

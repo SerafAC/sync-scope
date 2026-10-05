@@ -24,6 +24,8 @@ import org.robolectric.annotation.Config
  * the limit silently.
  *
  * Measured locally (Robolectric, JDK 21): gallery ≈ 125 ms, top-level tree ≈ 60 ms, folder ≈ 60 ms.
+ * "Select all" (`selectableEntries`) over 50 000 rows has its own budget, [SELECT_ALL_BUDGET_MILLIS]:
+ * measured ≈ 120 ms in gallery and ≈ 110 ms in one folder.
  * Without the pinned duplicate-probe index the gallery page took ≈ 700 ms.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -78,6 +80,44 @@ class SnapshotQueryPerformanceTest {
     assertTrue("first GALLERY page took ${galleryMillis}ms", galleryMillis < BUDGET_MILLIS)
     assertTrue("first top-level queryTreeChildren page took ${treeMillis}ms", treeMillis < BUDGET_MILLIS)
     assertTrue("first folder queryTreeChildren page took ${subtreeMillis}ms", subtreeMillis < BUDGET_MILLIS)
+  }
+
+  /** "Select all" over 50 000 matching rows returns them in one read under [SELECT_ALL_BUDGET_MILLIS]. */
+  @Test
+  fun selectAllOverFiftyThousandRowsStaysWithinBudget() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val run = store.beginRun("run-1", "FULL", 1L, "CONNECTING", 1_000L)
+    store.stageSnapshot(stagingSnapshot(SNAPSHOT, run.runId))
+    store.stageLocalNodes(listOf(directory("src-1", "dir", "Camera", null)))
+    val files = ArrayList<LocalNodeEntity>(5_000)
+    for (i in 0 until SELECT_ALL_ROWS) {
+      files +=
+        localNode(
+          SNAPSHOT,
+          "src-1",
+          "f$i",
+          "IMG_$i.jpg",
+          parentId = "dir",
+          mimeType = "image/jpeg",
+          sizeBytes = if (i % 10 == 0) null else 1_000L + i,
+          status = listOf("SYNCED", "UNSYNCED", "UNKNOWN")[i % 3],
+        )
+      if (files.size == 5_000) {
+        store.stageLocalNodes(files)
+        files.clear()
+      }
+    }
+    store.stageLocalNodes(files)
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val gallery = SnapshotQuery(view = FileView.GALLERY)
+    val galleryMillis = medianMillis { assertEquals(SELECT_ALL_ROWS, store.selectableEntries(SNAPSHOT, gallery).entryIds.size) }
+    val folder = SnapshotQuery(sourceId = "src-1", parentId = "dir")
+    val folderMillis = medianMillis { assertEquals(SELECT_ALL_ROWS, store.selectableEntries(SNAPSHOT, folder).entryIds.size) }
+
+    println("SnapshotQueryPerformanceTest: selectAll gallery=${galleryMillis}ms folder=${folderMillis}ms")
+    assertTrue("select all in gallery took ${galleryMillis}ms", galleryMillis < SELECT_ALL_BUDGET_MILLIS)
+    assertTrue("select all in a folder took ${folderMillis}ms", folderMillis < SELECT_ALL_BUDGET_MILLIS)
   }
 
   private suspend fun medianMillis(read: suspend () -> Unit): Long {
@@ -156,5 +196,7 @@ class SnapshotQueryPerformanceTest {
     const val TOP_DIRECTORIES_PER_SOURCE = 10
     const val SUBDIRECTORIES_PER_TOP = 99
     const val FILES_PER_SOURCE = 25_000
+    const val SELECT_ALL_ROWS = 50_000
+    const val SELECT_ALL_BUDGET_MILLIS = 1_000L
   }
 }

@@ -83,6 +83,11 @@ cp "$root/gallery/beach.png" "$root/gallery-partial/beach.png"
 cp "$root/gallery/album/forest.png" "$root/gallery-partial/album/forest.png"
 write_png "$PNG_HARBOR" "$root/gallery-partial/restricted/hidden.png"
 
+# Recheck fixture (feature 006): a copy of gallery/ that flow 06 mutates on the
+# host (hooks/remove-recheck-file.sh), so it is re-created on every seed run.
+rm -rf "$root/recheck"
+cp -Rp "$root/gallery" "$root/recheck"
+
 # The host owner retains cleanup rights. Container accounts map to different
 # UIDs and receive only read/execute bits, while each server also enforces its
 # protocol-level read-only mode.
@@ -114,7 +119,10 @@ touch -d '@1704067200.000000000' \
   "$root/gallery-partial/sunset.png" \
   "$root/gallery-partial/beach.png" \
   "$root/gallery-partial/album/forest.png" \
-  "$root/gallery-partial/restricted/hidden.png"
+  "$root/gallery-partial/restricted/hidden.png" \
+  "$root/recheck/sunset.png" \
+  "$root/recheck/beach.png" \
+  "$root/recheck/album/forest.png"
 touch -d '@1704067200.000000000' "$root/timestamps/bucket-start.bin"
 touch -d '@1704067200.999000000' "$root/timestamps/bucket-end.bin"
 touch -h -d '@1704067200.000000000' "$root/non-regular/escape-link"

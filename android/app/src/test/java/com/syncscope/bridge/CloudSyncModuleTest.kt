@@ -13,10 +13,12 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.syncscope.persistence.SyncScopeDatabase
+import com.syncscope.persistence.sourceRoot
 import com.syncscope.scan.REMOTE_ROOT
 import com.syncscope.scan.ScanHarness
 import com.syncscope.scan.localFile
 import com.syncscope.scan.remoteFile
+import com.syncscope.source.DocumentStat
 import com.syncscope.source.FakeSafAccess
 import com.syncscope.source.RecordingActivity
 import com.syncscope.source.SourcePicker
@@ -71,12 +73,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesFour() {
+  fun contractVersionResolvesFive() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(4, promise.resolved)
+    assertEquals(5, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -86,8 +88,6 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
-        { module.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) },
-        { module.executeLocalDeletion("plan", it) },
       )
 
     for (call in calls) {
@@ -104,7 +104,7 @@ class CloudSyncModuleTest {
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(4, empty.getInt("contractVersion"))
+    assertEquals(5, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -227,10 +227,11 @@ class CloudSyncModuleTest {
           "cancelScan" to { scans.cancelScan("no-such-run", it) },
           "getScanState" to { scans.getScanState(it) },
           "getLocalImageHandle" to { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) },
+          "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 4, result.getInt("contractVersion"))
+        assertEquals(method, 5, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
@@ -241,6 +242,12 @@ class CloudSyncModuleTest {
       assertEquals(
         "SNAPSHOT_NOT_FOUND",
         resolve { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) }
+          .getMap("error")!!
+          .getString("code"),
+      )
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) }
           .getMap("error")!!
           .getString("code"),
       )
@@ -291,6 +298,10 @@ class CloudSyncModuleTest {
       val page = resolve { scans.queryFiles(active.getString("snapshotId")!!, JavaOnlyMap(), null, it) }
       assertEquals("ok", page.getString("status"))
       assertEquals(2, page.getMap("page")!!.getArray("entries")!!.size())
+
+      val selectable = resolve { scans.listSelectableEntries(active.getString("snapshotId")!!, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1"), it) }
+      assertEquals("ok", selectable.getString("status"))
+      assertEquals(2, selectable.getMap("selectable")!!.getArray("entryIds")!!.size())
     } finally {
       scans.invalidate()
       h.close()
@@ -385,5 +396,104 @@ class CloudSyncModuleTest {
     val result = promise.resolved as ReadableMap
     assertEquals("INTERNAL_ERROR", result.getMap("error")!!.getString("code"))
     assertEquals(true, result.isNull("page"))
+  }
+
+  // --- deletion methods (T067) ---
+
+  @Test
+  fun deletionMethodsNoLongerResolveNotImplemented() {
+    val h = ScanHarness(appContext)
+    val deletions = scanModule(h)
+    try {
+      val empty = resolve { deletions.prepareLocalDeletion("snap", JavaOnlyArray(), it) }.getMap("error")!!
+      assertEquals("INVALID_QUERY", empty.getString("code"))
+      assertEquals("entryIds", empty.getString("field"))
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { deletions.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) }.getMap("error")!!.getString("code"),
+      )
+      for (include in listOf(false, true)) {
+        val result = resolve { deletions.executeLocalDeletion("plan", include, it) }
+        assertEquals(5, result.getInt("contractVersion"))
+        assertEquals("PLAN_NOT_FOUND", result.getMap("error")!!.getString("code"))
+      }
+    } finally {
+      deletions.invalidate()
+      h.close()
+    }
+  }
+
+  @Test
+  fun aBackedUpFileIsDeletedThroughTheModuleAndLeavesTheResults() {
+    val h = ScanHarness(appContext)
+    val deletions = scanModule(h)
+    try {
+      runBlocking {
+        h.configure()
+        h.addSource("src-1")
+      }
+      h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+      h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "new.txt", size = 3))
+      val runId = resolve { deletions.startScan("FULL", it) }.getString("runId")!!
+      val snapshotId = awaitRun(deletions, runId) { it.getString("terminalState") != null }.getMap("active")!!.getString("snapshotId")!!
+      val nodes = runBlocking { h.nodes(snapshotId) }.associateBy { it.name }
+      saf.hold(sourceRoot("src-1").treeUri)
+      for (node in nodes.values) saf.documents[node.documentUri] = DocumentStat(node.sizeBytes, node.modifiedUtcMillis)
+      val exact = nodes.getValue("exact.txt")
+      val fresh = nodes.getValue("new.txt")
+
+      val prepared = resolve { deletions.prepareLocalDeletion(snapshotId, JavaOnlyArray.of(exact.entryId, fresh.entryId), it) }
+      assertEquals("ok", prepared.getString("status"))
+      val plan = prepared.getMap("plan")!!
+      assertEquals(1, plan.getMap("toDelete")!!.getInt("count"))
+      assertEquals(22, plan.getMap("toDelete")!!.getInt("bytes"))
+      assertEquals(1, plan.getMap("unsynced")!!.getInt("count"))
+      assertEquals(0, plan.getMap("refused")!!.getInt("count"))
+      assertTrue("the re-check connected once and closed", h.remote.created.all { it.closed })
+
+      val token = plan.getString("planToken")!!
+      val executed = resolve { deletions.executeLocalDeletion(token, false, it) }
+      assertEquals("ok", executed.getString("status"))
+      val result = executed.getMap("result")!!
+      assertEquals(1, result.getInt("deleted"))
+      assertEquals(22, result.getInt("freedBytes"))
+      assertEquals(0, result.getArray("failures")!!.size())
+      assertEquals(exact.entryId, result.getArray("removedEntryIds")!!.getString(0))
+      assertEquals("only the backed-up file was deleted", listOf(exact.documentUri), saf.deleted)
+
+      val page = resolve { deletions.queryFiles(snapshotId, JavaOnlyMap(), null, it) }.getMap("page")!!.getArray("entries")!!
+      assertEquals(listOf("new.txt"), (0 until page.size()).map { page.getMap(it)!!.getString("name") })
+      assertEquals(
+        "PLAN_NOT_FOUND",
+        resolve { deletions.executeLocalDeletion(token, false, it) }.getMap("error")!!.getString("code"),
+      )
+    } finally {
+      deletions.invalidate()
+      h.close()
+    }
+  }
+
+  @Test
+  fun prepareWhileAScanRunsIsRefused() {
+    val h = ScanHarness(appContext)
+    val deletions = scanModule(h)
+    try {
+      runBlocking {
+        h.configure()
+        h.addSource("src-1")
+      }
+      h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+      h.remote.hold()
+      resolve { deletions.startScan(null, it) }
+      runBlocking { withTimeout(10_000) { h.remote.reachedGate.await() } }
+
+      val refused = resolve { deletions.prepareLocalDeletion("snap", JavaOnlyArray.of("entry"), it) }
+
+      assertEquals("SCAN_IN_PROGRESS", refused.getMap("error")!!.getString("code"))
+    } finally {
+      h.remote.release()
+      deletions.invalidate()
+      h.close()
+    }
   }
 }

@@ -1,0 +1,65 @@
+# Story 6 sc. 7, FR-018a, SC-010 (SFTP), part b of a staged pair: runs after
+# remove-recheck-file.sh deleted recheck/beach.png on the server. No state reset:
+# the snapshot from part a is still the active one, so beach.png
+# and sunset.png are both shown Synced. The server check before deleting
+# finds beach.png gone from its directory and moves it out of the backed-up
+# group, so only sunset.png is deleted; a rescan then lists beach.png as
+# Unsynced (it is still on the device) and no sunset.png.
+appId: com.syncscope
+name: staged/06-recheck-removed-b
+---
+- launchApp
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+
+# Select both backed-up files.
+- longPressOn: "beach.png, Synced"
+- extendedWaitUntil:
+    visible: "beach.png, Synced, selected"
+    timeout: 15000
+- tapOn: "sunset.png, Synced"
+- extendedWaitUntil:
+    visible: "sunset.png, Synced, selected"
+    timeout: 15000
+- assertVisible: "Selection 2 selected, .+"
+
+# The server check moves beach.png out of the backed-up group.
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "Delete 1 backed-up files, .+"
+    timeout: 60000
+- assertVisible: "Moved by server check 1"
+- assertVisible: "Not backed up 1"
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Deleted 1 files, freed .+"
+    timeout: 60000
+- assertNotVisible: "Could not delete .+"
+- tapOn: "Done"
+
+# beach.png was never attempted and stays selected; sunset.png is gone.
+- extendedWaitUntil:
+    visible: "Selection 1 selected, .+"
+    timeout: 15000
+- assertNotVisible: "sunset.png, .+"
+- tapOn: "Clear selection"
+- extendedWaitUntil:
+    notVisible: "Selection .+"
+    timeout: 15000
+
+# A rescan from scratch: beach.png is still on the device, now Unsynced.
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Unsynced"
+    timeout: 15000
+- assertNotVisible: "beach.png, Synced"
+- assertNotVisible: "sunset.png, .+"

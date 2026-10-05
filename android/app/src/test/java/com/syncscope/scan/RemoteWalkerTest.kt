@@ -41,6 +41,56 @@ class RemoteWalkerTest {
   }
 
   @Test
+  fun everyKeyRecordsTheDirectoriesItWasListedIn() = runBlocking {
+    script.ok("/root", file("exact.txt", 22), dir("a"), dir("b"))
+    script.ok("/root/a", file("reusable.jpg", 27))
+    script.ok("/root/b", file("reusable.jpg", 27))
+
+    val result = walk()
+
+    val bucket = MatchIndex.bucketOf(MTIME, PRECISION)
+    assertEquals(listOf("/root"), result.index.directoriesOf("exact.txt", 22, bucket))
+    assertEquals(listOf("/root/a", "/root/b"), result.index.directoriesOf("reusable.jpg", 27, bucket))
+    val rows = result.index.toRows("snap").associateBy { it.name }
+    assertEquals("/root/a\n/root/b", rows.getValue("reusable.jpg").directories)
+  }
+
+  @Test
+  fun aRetriedDirectoryIsRecordedOnce() = runBlocking {
+    script.ok("/root", dir("a"))
+    script.fail("/root/a", CloudSyncErrorCode.CONNECTION_LOST)
+    script.ok("/root/a", file("x", 1))
+    val result = walk()
+    assertEquals(listOf("/root/a"), result.index.directoriesOf("x", 1, MatchIndex.bucketOf(MTIME, PRECISION)))
+  }
+
+  @Test
+  fun listWithRetryAppliesTheSamePolicyOutsideTheWalk() = runBlocking {
+    script.fail("/root/a", CloudSyncErrorCode.CONNECTION_TIMEOUT)
+    script.ok("/root/a", file("x", 1))
+    val entries = listWithRetry(session(), "/root/a") { backoffs += it }
+    assertEquals(listOf("x"), entries.map { it.name })
+    assertEquals(listOf(1_000L), backoffs)
+    assertEquals(1, script.reconnects)
+  }
+
+  @Test
+  fun listWithRetryGivesUpAfterThreeAttemptsAndNeverRetriesOtherCodes() {
+    repeat(3) { script.fail("/root/a", CloudSyncErrorCode.CONNECTION_LOST) }
+    val exhausted =
+      assertThrows(RemoteClientException::class.java) { runBlocking { listWithRetry(session(), "/root/a") { backoffs += it } } }
+    assertEquals(CloudSyncErrorCode.CONNECTION_LOST, exhausted.code)
+    assertEquals(listOf(1_000L, 2_000L), backoffs)
+    assertEquals(RemoteWalker.MAX_ATTEMPTS, script.listed.size)
+
+    script.fail("/root/b", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    val notFound =
+      assertThrows(RemoteClientException::class.java) { runBlocking { listWithRetry(session(), "/root/b") { backoffs += it } } }
+    assertEquals(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, notFound.code)
+    assertEquals("no further backoff", 2, backoffs.size)
+  }
+
+  @Test
   fun rootWithTrailingSlashJoinsCleanly() = runBlocking {
     script.ok("/", dir("a"))
     script.ok("/a", file("x", 1))

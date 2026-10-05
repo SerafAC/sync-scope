@@ -2,6 +2,11 @@
 # scan and named in the summary by its alias, with the reason "Access lost",
 # instead of failing the scan or silently dropping its files.
 #
+# Feature 006 (FR-007, research R6): with no readable folder left, the Scan
+# tab no longer offers a rescan and lists "Add a folder" instead. The skip is
+# therefore proven by the automatic local refresh on return, which runs the
+# same local phase (ScanEngine) as a full scan.
+#
 # The debug-only seam syncscope-debug://release-grants (D017) releases every
 # persisted SAF grant, the same OS state a real revocation leaves.
 # Self-contained: starts from clearState (contracts/maestro-scan.md).
@@ -38,8 +43,8 @@ name: scan/07-revoked-source
     optional: true
 - launchApp
 - runFlow: ../subflows/open-scan.yaml
-# Coming back starts the automatic local refresh (FR-003); let it end so the
-# rescan below is the run under test.
+# Coming back starts the automatic local refresh (FR-003): it is the run under
+# test.
 - extendedWaitUntil:
     visible: "Local refresh"
     timeout: 60000
@@ -49,25 +54,23 @@ name: scan/07-revoked-source
 - extendedWaitUntil:
     visible: "Completed .+"
     timeout: 60000
-- copyTextFrom: "Generation \\d+"
-- evalScript: "${output.beforeRescan = parseInt(maestro.copiedText.replace('Generation ', ''), 10)}"
+# The checklist card now sits above the summary, so scroll to the skip line.
+- scrollUntilVisible:
+    element: "Skipped Scan: Access lost"
+    direction: DOWN
+    timeout: 15000
+- assertNotVisible: "Scan failed"
 
-# With no readable source the run can end before progress is drawn, so wait
-# for the outcome instead of the progress card.
-- tapOn:
+# 006 FR-007: no readable folder is left, so no rescan is offered and the
+# checklist leads to the Folders section instead.
+- scrollUntilVisible:
+    element: "Before you can scan"
+    direction: UP
+    timeout: 15000
+- assertVisible: "Add a folder"
+- assertNotVisible: "Set up the server"
+- assertVisible:
     text: "Rescan from scratch"
     below: "Checks every file in your folders against the backup."
     above: "Settings"
-- extendedWaitUntil:
-    visible: "Full scan"
-    timeout: 60000
-- extendedWaitUntil:
-    notVisible: "Scan progress"
-    timeout: 60000
-- extendedWaitUntil:
-    visible: "Completed .+"
-    timeout: 60000
-- copyTextFrom: "Generation \\d+"
-- assertTrue: "${parseInt(maestro.copiedText.replace('Generation ', ''), 10) > output.beforeRescan}"
-- assertVisible: "Skipped Scan: Access lost"
-- assertNotVisible: "Scan failed"
+    enabled: false

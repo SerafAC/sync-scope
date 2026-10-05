@@ -8,14 +8,38 @@ import type {
 } from '../../native/CloudSyncContracts';
 import {formatTimestamp} from '../../scan/ScanSummaryCard';
 import {useScan, type ScanState} from '../../scan/useScan';
+import {
+  useSetupChecklist,
+  type SetupChecklist,
+} from '../../setup/useSetupChecklist';
 import {ScanScreen} from '../ScanScreen';
+
+const mockNavigate = jest.fn();
+
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({navigate: mockNavigate}),
+}));
 
 jest.mock('../../scan/useScan', () => ({
   ...jest.requireActual('../../scan/useScan'),
   useScan: jest.fn(),
 }));
 
+jest.mock('../../setup/useSetupChecklist', () => ({
+  useSetupChecklist: jest.fn(),
+}));
+
 const useScanMock = useScan as jest.MockedFunction<typeof useScan>;
+const useChecklistMock = useSetupChecklist as jest.MockedFunction<
+  typeof useSetupChecklist
+>;
+
+const READY: SetupChecklist = {
+  repository: 'ready',
+  folders: 'ready',
+  resultsFromOldSettings: false,
+  loading: false,
+};
 
 const NOW = 1_800_000_000_000;
 
@@ -55,6 +79,7 @@ function active(): ActiveSnapshotDto {
     completedAtMillis: NOW - 5_000,
     remoteListedAtMillis: NOW - 6_000,
     precisionMillis: 1000,
+    configRevision: 1,
     coverage: 'COMPLETE',
     summary: {
       synced: 4,
@@ -85,8 +110,12 @@ function hookState(overrides: Partial<ScanState> = {}): ScanState {
   };
 }
 
-function renderScreen(state: ScanState) {
+function renderScreen(
+  state: ScanState,
+  checklist: Partial<SetupChecklist> = {},
+) {
   useScanMock.mockReturnValue(state);
+  useChecklistMock.mockReturnValue({...READY, ...checklist});
   return render(
     <PaperProvider>
       <ScanScreen />
@@ -273,5 +302,160 @@ describe('ScanScreen', () => {
     ]) {
       expect(screen.getByLabelText(label)).toBeOnTheScreen();
     }
+  });
+  describe('setup checklist (FR-007)', () => {
+    it('lists the server and a folder, each leading to its place, and disables Scan', () => {
+      const state = hookState();
+      renderScreen(state, {repository: 'missing', folders: 'none'});
+
+      const card = within(screen.getByLabelText('Before you can scan'));
+      fireEvent.press(card.getByLabelText('Set up the server'));
+      expect(mockNavigate).toHaveBeenCalledWith('Repository');
+      fireEvent.press(card.getByLabelText('Add a folder'));
+      expect(mockNavigate).toHaveBeenCalledWith('Settings');
+
+      expect(screen.getByLabelText('Scan')).toBeDisabled();
+      fireEvent.press(screen.getByLabelText('Scan'));
+      expect(state.scan).not.toHaveBeenCalled();
+    });
+
+    it('lists only the items that are not ready', () => {
+      const view = renderScreen(hookState(), {folders: 'none'});
+      expect(screen.queryByLabelText('Set up the server')).toBeNull();
+      expect(screen.getByLabelText('Add a folder')).toBeOnTheScreen();
+      view.unmount();
+
+      renderScreen(hookState(), {repository: 'missing'});
+      expect(screen.getByLabelText('Set up the server')).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Add a folder')).toBeNull();
+    });
+
+    it('asks for the password again when it is missing or unreadable', () => {
+      renderScreen(hookState(), {repository: 'needsPassword'});
+
+      expect(
+        screen.getByText('Enter the server password again.'),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText('Set up the server')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Scan')).toBeDisabled();
+    });
+
+    it('says when no added folder can be read', () => {
+      renderScreen(hookState(), {folders: 'noneAvailable'});
+
+      expect(
+        screen.getByText(
+          'None of your folders can be read any more. Add a folder or allow access again.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText('Scan')).toBeDisabled();
+    });
+
+    it('disables Rescan from scratch too while an item is not ready', () => {
+      renderScreen(hookState({run: completed(), active: active()}), {
+        repository: 'needsPassword',
+      });
+
+      expect(screen.getByLabelText('Rescan from scratch')).toBeDisabled();
+    });
+
+    it('shows no card and enables Scan when everything is ready', () => {
+      renderScreen(hookState());
+
+      expect(screen.queryByLabelText('Before you can scan')).toBeNull();
+      expect(screen.getByLabelText('Scan')).toBeEnabled();
+    });
+
+    it('shows no card and keeps Scan enabled until the checklist has loaded', () => {
+      renderScreen(hookState(), {
+        repository: 'missing',
+        folders: 'none',
+        loading: true,
+      });
+
+      expect(screen.queryByLabelText('Before you can scan')).toBeNull();
+      expect(screen.getByLabelText('Scan')).toBeEnabled();
+    });
+  });
+
+  it('notes results made with previous server settings (FR-010)', () => {
+    const view = renderScreen(hookState({run: completed(), active: active()}), {
+      resultsFromOldSettings: true,
+    });
+
+    const notice = within(
+      screen.getByLabelText('Results from previous server settings'),
+    );
+    expect(
+      notice.getByText(
+        'These results were made with your previous server settings. Scan again.',
+      ),
+    ).toBeOnTheScreen();
+    view.unmount();
+
+    renderScreen(hookState({run: completed(), active: active()}));
+    expect(
+      screen.queryByLabelText('Results from previous server settings'),
+    ).toBeNull();
+  });
+
+  describe('Go there (FR-006)', () => {
+    function failedWith(code: string): ScanRunDto {
+      return run({
+        phase: 'FAILED',
+        terminalState: 'FAILED',
+        finishedAtMillis: NOW - 1_000,
+        error: {code, message: `${code} message`, action: null},
+      });
+    }
+
+    it('leads from a failed run to the place that fixes it', () => {
+      const failed = failedWith('AUTH_FAILED');
+      renderScreen(hookState({run: failed, interrupted: failed}));
+
+      const box = within(screen.getByLabelText('Scan failed'));
+      fireEvent.press(box.getByLabelText('Go there'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('Repository');
+    });
+
+    it('offers nothing for a failed run without a fix target', () => {
+      const failed = failedWith('CONNECTION_TIMEOUT');
+      renderScreen(hookState({run: failed, interrupted: failed}));
+
+      expect(screen.getByLabelText('Scan failed')).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Go there')).toBeNull();
+    });
+
+    it('leads from a start error to its place and dismisses it', () => {
+      const state = hookState({
+        error: {
+          code: 'NO_SOURCES_SELECTED',
+          message: 'No folders are selected to check.',
+          action: 'Add a folder in Settings › Folders.',
+        },
+      });
+      renderScreen(state);
+
+      fireEvent.press(screen.getByLabelText('Go there'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('Settings');
+      expect(state.dismissError).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers nothing for a start error without a fix target', () => {
+      renderScreen(
+        hookState({
+          error: {
+            code: 'SCAN_IN_PROGRESS',
+            message: 'A scan is already running.',
+            action: null,
+          },
+        }),
+      );
+
+      expect(screen.getByText('A scan is already running.')).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Go there')).toBeNull();
+    });
   });
 });

@@ -30,7 +30,10 @@ class SourcePicker(
   /** The pending pick: completed with the picked tree URI, or null when the picker was closed. */
   private val slot = AtomicReference<CompletableDeferred<Uri?>?>(null)
 
-  /** Opens the picker, at [regrantSourceId]'s folder when re-granting, and handles the pick. */
+  /**
+   * Opens the picker and handles the pick. A re-grant starts at [regrantSourceId]'s own folder; a new
+   * folder starts in DCIM (research R7), which the system ignores when DCIM does not exist.
+   */
   suspend fun launch(regrantSourceId: String?): WritableMap {
     // SOURCE_NOT_FOUND is decided before the picker opens.
     val initialUri =
@@ -62,11 +65,27 @@ class SourcePicker(
           Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
           Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
       )
-      initialUri?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(it)) }
+      putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri?.let { startAt(Uri.parse(it)) } ?: dcimUri())
     }
 
   companion object {
     /** Request code for the tree picker; results with any other code belong to someone else. */
     const val REQUEST_CODE = 0x5C01
+
+    /**
+     * The re-granted source's own folder as a document URI. DocumentsUI only honours a document
+     * URI as `EXTRA_INITIAL_URI`: a bare tree URI is ignored and the picker opens at the storage
+     * root. Anything that is not a tree URI is passed through unchanged.
+     */
+    private fun startAt(source: Uri): Uri =
+      if (DocumentsContract.isTreeUri(source)) {
+        DocumentsContract.buildDocumentUriUsingTree(source, DocumentsContract.getTreeDocumentId(source))
+      } else {
+        source
+      }
+
+    /** Where the picker starts when adding a folder: the camera folder of primary shared storage. */
+    private fun dcimUri(): Uri =
+      DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:DCIM")
   }
 }

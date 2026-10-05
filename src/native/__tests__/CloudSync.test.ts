@@ -2,14 +2,22 @@ import {TurboModuleRegistry} from 'react-native';
 
 import {
   CloudSync,
+  approveSftpHostKey,
   cancelScan,
+  executeLocalDeletion,
   getLocalImageHandle,
+  getRepositorySummary,
   getScanState,
   launchSourcePicker,
+  listSelectableEntries,
   listSources,
+  prepareLocalDeletion,
   queryFiles,
+  rejectSftpHostKey,
   removeSource,
+  saveRepository,
   startScan,
+  testRepository,
 } from '../CloudSync';
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
@@ -356,6 +364,7 @@ const activeSnapshot = {
   completedAtMillis: 1_700_000_100_000,
   remoteListedAtMillis: 1_700_000_050_000,
   precisionMillis: 1000,
+  configRevision: 2,
   coverage: 'COMPLETE',
   summary: {
     synced: 4,
@@ -505,6 +514,44 @@ describe('CloudSync scan wrappers', () => {
         run: runningRun,
         active: activeSnapshot,
       });
+    });
+
+    it('parses the active snapshot configRevision (contract v5)', async () => {
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 5,
+          status: 'ok',
+          run: null,
+          active: {...activeSnapshot, configRevision: 7},
+        }),
+      });
+
+      const result = await getScanState();
+
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') {
+        expect(result.active?.configRevision).toBe(7);
+      }
+    });
+
+    it('reads a missing or malformed configRevision as 0, never undefined', async () => {
+      for (const configRevision of [undefined, null, '7']) {
+        mockNative({
+          getScanState: jest.fn().mockResolvedValue({
+            contractVersion: 5,
+            status: 'ok',
+            run: null,
+            active: {...activeSnapshot, configRevision},
+          }),
+        });
+
+        const result = await getScanState();
+
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok') {
+          expect(result.active?.configRevision).toBe(0);
+        }
+      }
     });
 
     it('maps missing run and active to null', async () => {
@@ -675,5 +722,565 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     if (result.status === 'error') {
       expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
     }
+  });
+});
+
+describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const gallery = {filter: 'ALL', view: 'GALLERY', sort: 'NAME_ASC'} as const;
+  const wire = {
+    entryIds: ['e-1', 'e-2', 'e-3'],
+    sizes: [70, -1, 0],
+    statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
+    images: [true, true, false],
+  };
+
+  it('passes the snapshot and query through and maps -1 to null', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      selectable: {...wire, stray: 'ignored'},
+    });
+    mockNative({listSelectableEntries: native});
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(native).toHaveBeenCalledWith('snap-1', gallery);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      selectable: {
+        entryIds: ['e-1', 'e-2', 'e-3'],
+        sizes: [70, null, 0],
+        statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
+        images: [true, true, false],
+      },
+    });
+  });
+
+  it('accepts an empty selection', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'ok',
+        selectable: {entryIds: [], sizes: [], statuses: [], images: []},
+      }),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.selectable.entryIds).toEqual([]);
+    }
+  });
+
+  it('normalises a STALE_GENERATION error envelope', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'STALE_GENERATION',
+          message: 'These results were replaced by a newer scan.',
+          action: 'Select the files again.',
+        },
+      }),
+    });
+
+    expect(await listSelectableEntries('snap-1', gallery)).toEqual({
+      contractVersion: v,
+      status: 'error',
+      error: {
+        code: 'STALE_GENERATION',
+        message: 'These results were replaced by a newer scan.',
+        action: 'Select the files again.',
+        conflictingSource: null,
+      },
+    });
+  });
+
+  it.each([
+    ['sizes shorter than entryIds', {...wire, sizes: [70, -1]}],
+    ['statuses longer than entryIds', {...wire, statuses: [...wire.statuses, 'SYNCED']}],
+    ['images shorter than entryIds', {...wire, images: [true]}],
+    ['a missing array', {entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses}],
+    ['an unknown status', {...wire, statuses: ['SYNCED', 'DELETED', 'UNSYNCED']}],
+    ['a non-numeric size', {...wire, sizes: [70, '1', 0]}],
+    ['a non-string entryId', {...wire, entryIds: ['e-1', 2, 'e-3']}],
+    ['a non-boolean image flag', {...wire, images: [true, 1, false]}],
+    ['no selectable payload', undefined],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, selectable) => {
+    mockNative({
+      listSelectableEntries: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', selectable}),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+      expect(result.contractVersion).toBe(v);
+    }
+  });
+
+  it('turns a rejected native call into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      listSelectableEntries: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const result = await listSelectableEntries('snap-1', gallery);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
+    }
+  });
+});
+
+describe('CloudSync repository wrappers (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const summary = {
+    protocol: 'WEBDAV',
+    host: 'nas.local',
+    port: 443,
+    username: 'alice',
+    remoteRoot: '/photos',
+    precisionMillis: null,
+    credentialPresent: true,
+    hostKeyTrusted: null,
+    revision: 3,
+    webdavHttps: true,
+  };
+
+  it('saveRepository sends webdavHttps and the typed password', async () => {
+    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({saveRepository: save});
+
+    const result = await saveRepository(
+      {
+        protocol: 'WEBDAV',
+        host: 'nas.local',
+        port: null,
+        username: 'alice',
+        remoteRoot: '/photos',
+        webdavHttps: true,
+      },
+      'secret',
+    );
+
+    expect(result).toEqual({contractVersion: 5, status: 'ok'});
+    expect(save).toHaveBeenCalledWith(
+      {
+        protocol: 'WEBDAV',
+        host: 'nas.local',
+        port: null,
+        username: 'alice',
+        remoteRoot: '/photos',
+        webdavHttps: true,
+      },
+      'secret',
+    );
+  });
+
+  it('saveRepository sends webdavHttps false when absent and null for an empty password', async () => {
+    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({saveRepository: save});
+
+    await saveRepository(
+      {protocol: 'FTP', host: 'h', port: 21, username: 'u', remoteRoot: '/'},
+      '',
+    );
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({webdavHttps: false}),
+      null,
+    );
+  });
+
+  it('keeps a known error field and drops an unknown one', async () => {
+    const error = (field: unknown) => ({
+      contractVersion: 5,
+      status: 'error',
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'The repository port is invalid.',
+        action: 'Correct the port and save again.',
+        field,
+      },
+    });
+    const save = jest
+      .fn()
+      .mockResolvedValueOnce(error('port'))
+      .mockResolvedValueOnce(error('webdavHttps'));
+    mockNative({saveRepository: save});
+    const config = {
+      protocol: 'FTP' as const,
+      host: 'h',
+      port: 0,
+      username: 'u',
+      remoteRoot: '/',
+    };
+
+    const known = await saveRepository(config, 'p');
+    const unknown = await saveRepository(config, 'p');
+
+    expect(known.status === 'error' && known.error.field).toBe('port');
+    expect(unknown.status === 'error' && unknown.error.field).toBeUndefined();
+    expect(unknown.status === 'error' && unknown.error.code).toBe(
+      'INVALID_QUERY',
+    );
+  });
+
+  it('getRepositorySummary reads revision and webdavHttps', async () => {
+    mockNative({
+      getRepositorySummary: jest
+        .fn()
+        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: summary}),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result).toEqual({contractVersion: 5, status: 'ok', repository: summary});
+  });
+
+  it('getRepositorySummary defaults a missing revision and webdavHttps', async () => {
+    const older: Record<string, unknown> = {...summary};
+    delete older.revision;
+    delete older.webdavHttps;
+    mockNative({
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        repository: {...older, protocol: 'SFTP', hostKeyTrusted: false},
+      }),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.repository.revision).toBe(0);
+      expect(result.repository.webdavHttps).toBe(false);
+      expect(result.repository.hostKeyTrusted).toBe(false);
+    }
+  });
+
+  it('getRepositorySummary passes REPOSITORY_NOT_CONFIGURED through', async () => {
+    mockNative({
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'error',
+        error: {
+          code: 'REPOSITORY_NOT_CONFIGURED',
+          message: 'No repository has been set up yet.',
+          action: 'Set up your server in Settings › Repository.',
+        },
+      }),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status === 'error' && result.error.code).toBe(
+      'REPOSITORY_NOT_CONFIGURED',
+    );
+  });
+
+  it('getRepositorySummary treats a malformed repository as INTERNAL_ERROR', async () => {
+    mockNative({
+      getRepositorySummary: jest
+        .fn()
+        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: {}}),
+    });
+
+    const result = await getRepositorySummary();
+
+    expect(result.status === 'error' && result.error.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('testRepository returns the connection and carries a host-key challenge', async () => {
+    const connection = {
+      protocol: 'SFTP',
+      reachable: true,
+      entryCount: 4,
+      precisionMillis: 1000,
+      precisionBasis: 'SFTP_V3_WHOLE_SECONDS',
+      precisionPersisted: true,
+    };
+    const challenge = {
+      challengeId: 'c-1',
+      host: 'nas.local',
+      port: 22,
+      algorithm: 'ssh-ed25519',
+      fingerprint: 'SHA256:abc',
+      previousFingerprint: null,
+    };
+    mockNative({
+      testRepository: jest
+        .fn()
+        .mockResolvedValueOnce({contractVersion: 5, status: 'ok', connection})
+        .mockResolvedValueOnce({
+          contractVersion: 5,
+          status: 'error',
+          error: {
+            code: 'SFTP_HOST_KEY_UNVERIFIED',
+            message: 'The server key is not trusted yet.',
+            action: null,
+            hostKeyChallenge: challenge,
+          },
+        }),
+    });
+
+    const ok = await testRepository();
+    const prompt = await testRepository();
+
+    expect(ok).toEqual({contractVersion: 5, status: 'ok', connection});
+    expect(prompt.status === 'error' && prompt.error.hostKeyChallenge).toEqual(
+      challenge,
+    );
+  });
+
+  it('approve and reject pass the challenge ID through', async () => {
+    const approve = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    const reject = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
+    mockNative({approveSftpHostKey: approve, rejectSftpHostKey: reject});
+
+    expect((await approveSftpHostKey('c-1')).status).toBe('ok');
+    expect((await rejectSftpHostKey('c-2')).status).toBe('ok');
+    expect(approve).toHaveBeenCalledWith('c-1');
+    expect(reject).toHaveBeenCalledWith('c-2');
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    for (const result of [
+      await getRepositorySummary(),
+      await saveRepository({
+        protocol: 'FTP',
+        host: 'h',
+        port: null,
+        username: 'u',
+        remoteRoot: '/',
+      }),
+      await testRepository(),
+      await approveSftpHostKey('c'),
+      await rejectSftpHostKey('c'),
+    ]) {
+      expect(result.status === 'error' && result.error.code).toBe(
+        'NATIVE_MODULE_UNAVAILABLE',
+      );
+    }
+  });
+});
+
+describe('CloudSync deletion wrappers (contract v5)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const plan = {
+    planToken: 'tok-1',
+    toDelete: {count: 2, bytes: 300},
+    unsynced: {count: 1, bytes: 0},
+    refused: {count: 3, scanTooOld: 1},
+    movedByRecheck: 1,
+    missing: 0,
+    unknownSizeCount: 1,
+    remoteListedAtMillis: 1_704_067_200_000,
+  };
+  const deletion = {
+    deleted: 1,
+    freedBytes: 120,
+    failures: [{entryId: 'e-2', name: 'beach.png', reason: 'ALREADY_GONE'}],
+    removedEntryIds: ['e-1', 'e-2'],
+  };
+
+  it('prepare passes the snapshot and IDs through and returns the plan', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      plan: {...plan, stray: 1},
+    });
+    mockNative({prepareLocalDeletion: native});
+
+    const result = await prepareLocalDeletion('snap-1', ['e-1', 'e-2']);
+
+    expect(native).toHaveBeenCalledWith('snap-1', ['e-1', 'e-2']);
+    expect(result).toEqual({contractVersion: v, status: 'ok', plan});
+  });
+
+  it('prepare normalises a typed error and keeps a host-key action', async () => {
+    mockNative({
+      prepareLocalDeletion: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'SFTP_HOST_KEY_CHANGED',
+          message: 'The SFTP server presented a different host key.',
+          action: 'Check the server in Settings › Repository.',
+        },
+      }),
+    });
+
+    expect(await prepareLocalDeletion('snap-1', ['e-1'])).toEqual({
+      contractVersion: v,
+      status: 'error',
+      error: {
+        code: 'SFTP_HOST_KEY_CHANGED',
+        message: 'The SFTP server presented a different host key.',
+        action: 'Check the server in Settings › Repository.',
+        conflictingSource: null,
+      },
+    });
+  });
+
+  it.each([
+    ['an empty token', {...plan, planToken: ''}],
+    ['a missing token', {...plan, planToken: undefined}],
+    ['toDelete without bytes', {...plan, toDelete: {count: 2}}],
+    ['negative unsynced bytes', {...plan, unsynced: {count: 1, bytes: -1}}],
+    ['refused without scanTooOld', {...plan, refused: {count: 3}}],
+    ['a fractional movedByRecheck', {...plan, movedByRecheck: 1.5}],
+    ['a string missing', {...plan, missing: '0'}],
+    ['no unknownSizeCount', {...plan, unknownSizeCount: undefined}],
+    ['a NaN listing time', {...plan, remoteListedAtMillis: Number.NaN}],
+    ['no plan payload', undefined],
+  ])('prepare turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
+    mockNative({
+      prepareLocalDeletion: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', plan: bad}),
+    });
+
+    const result = await prepareLocalDeletion('snap-1', ['e-1']);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('execute passes the token and the acknowledgement through', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      result: deletion,
+    });
+    mockNative({executeLocalDeletion: native});
+
+    const result = await executeLocalDeletion('tok-1', true);
+
+    expect(native).toHaveBeenCalledWith('tok-1', true);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      result: deletion,
+    });
+  });
+
+  it('execute normalises PLAN_STALE', async () => {
+    mockNative({
+      executeLocalDeletion: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code: 'PLAN_STALE',
+          message: 'The results changed since you reviewed this deletion.',
+          action: 'Review the selection and tap Delete again.',
+        },
+      }),
+    });
+
+    const result = await executeLocalDeletion('tok-1', false);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('PLAN_STALE');
+    }
+  });
+
+  it.each([
+    ['a missing deleted count', {...deletion, deleted: undefined}],
+    ['negative freedBytes', {...deletion, freedBytes: -5}],
+    ['failures that are not an array', {...deletion, failures: {}}],
+    [
+      'an unknown failure reason',
+      {
+        ...deletion,
+        failures: [{entryId: 'e', name: 'n', reason: 'SKIPPED_UNSYNCED'}],
+      },
+    ],
+    [
+      'a failure without a name',
+      {...deletion, failures: [{entryId: 'e', reason: 'FAILED'}]},
+    ],
+    ['a non-string removed ID', {...deletion, removedEntryIds: ['e-1', 2]}],
+    ['no result payload', undefined],
+  ])('execute turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
+    mockNative({
+      executeLocalDeletion: jest
+        .fn()
+        .mockResolvedValue({contractVersion: v, status: 'ok', result: bad}),
+    });
+
+    const result = await executeLocalDeletion('tok-1', false);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('turns rejected native calls into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      prepareLocalDeletion: jest.fn().mockRejectedValue(new Error('boom')),
+      executeLocalDeletion: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const prepared = await prepareLocalDeletion('snap-1', ['e-1']);
+    const executed = await executeLocalDeletion('tok-1', false);
+
+    expect(prepared.status === 'error' && prepared.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+    expect(executed.status === 'error' && executed.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const prepared = await prepareLocalDeletion('snap-1', ['e-1']);
+    const executed = await executeLocalDeletion('tok-1', false);
+
+    expect(prepared.status === 'error' && prepared.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
+    expect(executed.status === 'error' && executed.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
   });
 });

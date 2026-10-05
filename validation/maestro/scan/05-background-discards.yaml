@@ -33,9 +33,10 @@ name: scan/05-background-discards
 
 # Add the Bulk source next to the Scan source.
 - tapOn: "Settings"
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "sources.add"
+    direction: DOWN
     timeout: 15000
 - tapOn:
     id: "sources.add"

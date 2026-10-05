@@ -98,6 +98,42 @@ def syncScopeContainerCredentials() {
     return arguments
 }
 
+/**
+ * The app version comes from package.json, the single source (FR-022, research R17).
+ * versionName is the version string; versionCode is major * 10000 + minor * 100 + patch, so minor
+ * and patch must stay below 100. Anything else fails the build instead of shipping a wrong code.
+ */
+def syncScopeVersion() {
+    def packageFile = file("../../package.json")
+    def version = new groovy.json.JsonSlurper().parse(packageFile).version
+    def match = (version instanceof String) ? (version =~ /^(\d+)\.(\d+)\.(\d+)$/) : null
+    if (match == null || !match.matches()) {
+        throw new GradleException("package.json version '${version}' must be MAJOR.MINOR.PATCH (${packageFile})")
+    }
+    def major = match.group(1).toInteger()
+    def minor = match.group(2).toInteger()
+    def patch = match.group(3).toInteger()
+    if (minor >= 100 || patch >= 100) {
+        throw new GradleException("package.json version '${version}' needs minor and patch below 100 (${packageFile})")
+    }
+    return [name: version, code: major * 10000 + minor * 100 + patch]
+}
+
+def appVersion = syncScopeVersion()
+
+/**
+ * Release signing (research R8, D021). The personal key comes only from these Gradle properties, kept in
+ * ~/.gradle/gradle.properties or passed as ORG_GRADLE_PROJECT_* environment variables, never from the
+ * repository. There is no fallback to the debug key: a release build without all four fails below.
+ */
+def releaseSigningProperties = [
+    "SYNCSCOPE_RELEASE_STORE_FILE",
+    "SYNCSCOPE_RELEASE_STORE_PASSWORD",
+    "SYNCSCOPE_RELEASE_KEY_ALIAS",
+    "SYNCSCOPE_RELEASE_KEY_PASSWORD",
+]
+def releaseSigningConfigured = releaseSigningProperties.every { findProperty(it) }
+
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
@@ -110,13 +146,25 @@ android {
         applicationId "com.syncscope"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersion.code
+        versionName appVersion.name
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Deny cleartext unless a build type explicitly opts in.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
         // Container credentials live on the host; instrumentation reads them as runner arguments.
         testInstrumentationRunnerArguments.putAll(syncScopeContainerCredentials())
+    }
+    signingConfigs {
+        release {
+            // Set only when all four properties are present; the task-graph check below fails a release
+            // build otherwise, and debug and unit-test builds never need the key.
+            if (releaseSigningConfigured) {
+                storeFile file(findProperty("SYNCSCOPE_RELEASE_STORE_FILE"))
+                storePassword findProperty("SYNCSCOPE_RELEASE_STORE_PASSWORD")
+                keyAlias findProperty("SYNCSCOPE_RELEASE_KEY_ALIAS")
+                keyPassword findProperty("SYNCSCOPE_RELEASE_KEY_PASSWORD")
+            }
+        }
     }
     externalNativeBuild {
         cmake {
@@ -129,8 +177,9 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
-            // The shipped APK carries no blanket cleartext permit.
-            manifestPlaceholders = [usesCleartextTraffic: "false"]
+            signingConfig signingConfigs.release
+            // The user chooses the protocol; the form warns about unencrypted connections (D021).
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -146,6 +195,25 @@ android {
             // Room JVM tests run under Robolectric against real SQLite.
             includeAndroidResources = true
         }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    // Fail fast, before any work, when a release task is scheduled without the personal key (R8).
+    if (!releaseSigningConfigured && graph.allTasks.any { it.name.contains("Release") }) {
+        throw new GradleException(
+            "Release signing is not configured. Set SYNCSCOPE_RELEASE_STORE_FILE, …_STORE_PASSWORD, " +
+            "…_KEY_ALIAS and …_KEY_PASSWORD in ~/.gradle/gradle.properties (DEVELOPMENT.md › Release key).")
+    }
+}
+
+tasks.register("printVersion") {
+    description = "Prints the versionName and versionCode derived from package.json."
+    def name = appVersion.name
+    def code = appVersion.code
+    doLast {
+        println "versionName=${name}"
+        println "versionCode=${code}"
     }
 }
 

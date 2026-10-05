@@ -21,6 +21,7 @@ import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
+import com.syncscope.scan.BusyState
 import com.syncscope.scan.ScanPacing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,8 @@ class ConfigureRepositoryActivity : Activity() {
         hostKeys = { deps.hostKeys },
         clients = { deps.clients },
         envelope = deps.envelope,
+        // The seam runs before any flow starts a scan and owns no scan coordinator.
+        busy = { BusyState.NONE },
       )
     val saved = operations.save(request.config, request.password)
     errorCode(saved)?.let { return it }

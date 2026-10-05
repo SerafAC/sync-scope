@@ -29,6 +29,12 @@ function renderChips(counts: StatusCountDto[] | null) {
 }
 
 describe('FilterChips', () => {
+  it('takes only the height of its chips, not a share of the screen', () => {
+    renderChips(COUNTS);
+
+    expect(screen.getByTestId('filter-chips')).toHaveStyle({ flexGrow: 0 });
+  });
+
   it('shows the four chips in order, with exact labels and counts', () => {
     renderChips(COUNTS);
 

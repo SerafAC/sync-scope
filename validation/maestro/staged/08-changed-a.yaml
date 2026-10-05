@@ -1,0 +1,47 @@
+# Story 6 sc. 6, FR-020 (SFTP), part a of a staged pair: against the remote
+# gallery/ tree, the Changed source holds sunset.png and beach.png (Synced).
+# Both are selected and the server check confirms them; the flow stops with
+# the confirmation dialog open, so the plan stays in memory. The device hook
+# change-device-files.sh then removes beach.png and gives sunset.png a new
+# mtime before part b taps Delete.
+# Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/08-changed-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Changed"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- longPressOn: "beach.png, Synced"
+- extendedWaitUntil:
+    visible: "beach.png, Synced, selected"
+    timeout: 15000
+- tapOn: "sunset.png, Synced"
+- extendedWaitUntil:
+    visible: "sunset.png, Synced, selected"
+    timeout: 15000
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "Delete 2 backed-up files, .+"
+    timeout: 60000
+- assertVisible:
+    text: "Delete"
+    enabled: true

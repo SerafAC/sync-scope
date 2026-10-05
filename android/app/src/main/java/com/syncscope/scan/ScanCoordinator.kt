@@ -3,6 +3,7 @@ package com.syncscope.scan
 import android.util.Log
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.bridge.CloudSyncErrorCode
+import com.syncscope.deletion.ExclusiveRunner
 import com.syncscope.persistence.ScanRunEntity
 import com.syncscope.persistence.SnapshotStore
 import java.util.concurrent.atomic.AtomicReference
@@ -19,6 +20,18 @@ import kotlinx.coroutines.withContext
 
 /** `startScan` while a run is active (`SCAN_IN_PROGRESS`). */
 class ScanInProgress : Exception(CloudSyncErrorCode.SCAN_IN_PROGRESS.name)
+
+/** A scan or deletion step while a deletion prepare or execute runs (`DELETION_IN_PROGRESS`, FR-021). */
+class DeletionInProgress : Exception(CloudSyncErrorCode.DELETION_IN_PROGRESS.name)
+
+/** What keeps the coordinator busy, so a refusal can name it (`SCAN_IN_PROGRESS` or `DELETION_IN_PROGRESS`). */
+enum class BusyState {
+  NONE,
+  SCAN,
+
+  /** A [ScanCoordinator.runExclusive] block (a deletion prepare or execute) runs. */
+  DELETION,
+}
 
 /** `cancelScan` named a run that does not exist (`SCAN_NOT_FOUND`). */
 class ScanNotFound : Exception(CloudSyncErrorCode.SCAN_NOT_FOUND.name)
@@ -46,7 +59,7 @@ class ScanCoordinator(
   private val scope: CoroutineScope,
   private val clock: () -> Long = System::currentTimeMillis,
   private val onProgressPublished: (ScanProgress.Counters) -> Unit = {},
-) {
+) : ExclusiveRunner {
   private class ActiveRun(val run: ScanRunEntity, val progress: ScanProgress, val job: CompletableJob) {
     val control = RunControl()
     @Volatile var cancelReason: String? = null
@@ -63,18 +76,23 @@ class ScanCoordinator(
   private var abandonedRunsAborted = false
   private val active = AtomicReference<ActiveRun?>(null)
 
+  /** Set while a [runExclusive] block (a deletion prepare or execute) runs. */
+  @Volatile private var exclusive = false
+
   /** The last run this process ran, kept so its final counters and failure action stay readable. */
   @Volatile private var last: ActiveRun? = null
   @Volatile private var lastFailureAction: Pair<String, String?>? = null
 
   /**
-   * Creates and launches a run. Throws [ScanInProgress] while one is active and the engine's
-   * [ScanRefused] when a precondition fails; in both cases no run is created.
+   * Creates and launches a run. Throws [ScanInProgress] while one is active, [DeletionInProgress] while
+   * a [runExclusive] block runs, and the engine's [ScanRefused] when a precondition fails; in each case
+   * no run is created.
    */
   suspend fun start(mode: ScanMode): ScanRunEntity =
     mutex.withLock {
       abortAbandonedRunsOnce()
       if (active.get() != null) throw ScanInProgress()
+      if (exclusive) throw DeletionInProgress()
       val ticket = engine.begin(mode)
       val progress = ScanProgress(clock, onPublish = onProgressPublished)
       progress.phase = ticket.run.phase
@@ -152,6 +170,35 @@ class ScanCoordinator(
     val action = lastFailureAction?.takeIf { it.first == run.runId }?.second
     return ScanRunView(run, run.phase, mine?.progress?.latest ?: ScanProgress.Counters(), action)
   }
+
+  /**
+   * Runs [block] while no scan can start and no other exclusive block can run (FR-021). Throws
+   * [ScanInProgress] while a run is active and [DeletionInProgress] while another exclusive block runs;
+   * in both cases [block] never runs. The coordinator is released when [block] returns or throws.
+   */
+  override suspend fun <T> runExclusive(block: suspend () -> T): T {
+    mutex.withLock {
+      if (active.get() != null) throw ScanInProgress()
+      if (exclusive) throw DeletionInProgress()
+      exclusive = true
+    }
+    try {
+      return block()
+    } finally {
+      exclusive = false
+    }
+  }
+
+  /** True while a scan run or an exclusive block is active. */
+  fun isBusy(): Boolean = busyState() != BusyState.NONE
+
+  /** Which of a scan run or an exclusive block is active; a run wins if both are seen. */
+  fun busyState(): BusyState =
+    when {
+      active.get() != null -> BusyState.SCAN
+      exclusive -> BusyState.DELETION
+      else -> BusyState.NONE
+    }
 
   /** Waits for the active run, if any, to end. */
   internal suspend fun awaitIdle() {

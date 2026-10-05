@@ -63,6 +63,7 @@ function active(overrides: Partial<ActiveSnapshotDto> = {}): ActiveSnapshotDto {
     completedAtMillis: NOW - 500,
     remoteListedAtMillis: NOW - 600,
     precisionMillis: 1000,
+    configRevision: 1,
     coverage: 'COMPLETE',
     summary: {
       synced: 4,
@@ -226,6 +227,18 @@ describe('useScan auto-refresh', () => {
   it('ignores REFRESH_UNAVAILABLE', async () => {
     getScanStateMock.mockResolvedValue(state(completed(), active()));
     startScanMock.mockResolvedValue(scanError('REFRESH_UNAVAILABLE'));
+
+    const {result} = renderScan();
+    await waitFor(() => expect(startScanMock).toHaveBeenCalledTimes(1));
+    await flush();
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.run?.terminalState).toBe('COMPLETED');
+  });
+
+  it('skips the refresh this time when a deletion is running', async () => {
+    getScanStateMock.mockResolvedValue(state(completed(), active()));
+    startScanMock.mockResolvedValue(scanError('DELETION_IN_PROGRESS'));
 
     const {result} = renderScan();
     await waitFor(() => expect(startScanMock).toHaveBeenCalledTimes(1));

@@ -7,6 +7,8 @@ import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -30,11 +32,12 @@ import org.xmlpull.v1.XmlPullParserException
  * redirected OPTIONS into a content fetch, which the audit forbids even for reads (R026).
  * Authentication is HTTP Basic; the header value lives only for the session and never
  * reaches a message, a log line, or the bridge.
+ *
+ * The scheme follows [RemoteConfig.webdavHttps] ([webdavScheme]). HTTPS uses the system trust
+ * store; a certificate the phone does not trust fails as `TLS_UNTRUSTED` (research R4).
  */
 class WebDavRemoteClient(
   private val httpClient: OkHttpClient = defaultHttpClient(),
-  /** The fixture is cleartext on loopback; release builds block cleartext in the manifest. */
-  private val scheme: String = "http",
 ) : RemoteClient {
 
   private class Session(val base: HttpUrl, val authorization: String, val rootPath: String)
@@ -46,7 +49,7 @@ class WebDavRemoteClient(
     close()
     val base =
       try {
-        HttpUrl.Builder().scheme(scheme).host(config.host).port(config.port).build()
+        HttpUrl.Builder().scheme(webdavScheme(config)).host(config.host).port(config.port).build()
       } catch (e: IllegalArgumentException) {
         // OkHttp's message quotes the host verbatim, so only the cause keeps it.
         throw WebDavFailures.failure(CloudSyncErrorCode.CONNECTION_REFUSED, cause = e)
@@ -188,6 +191,9 @@ class WebDavRemoteClient(
   }
 }
 
+/** `https` when the repository asks for it, else plain `http` (the debug fixtures and existing rows). */
+internal fun webdavScheme(config: RemoteConfig): String = if (config.webdavHttps) "https" else "http"
+
 /** Which request a status belongs to, so a 404 can tell a missing root from a vanished folder. */
 internal enum class WebDavScope { CONNECT, ROOT, SUBDIRECTORY }
 
@@ -209,6 +215,9 @@ internal object WebDavFailures {
     val chain = generateSequence<Throwable>(e) { it.cause.takeIf { cause -> cause !== it } }.take(8).toList()
     val code =
       when {
+        // A certificate chain the system trust store rejects, or one that does not name the host.
+        chain.any { it is SSLHandshakeException || it is SSLPeerUnverifiedException } ->
+          CloudSyncErrorCode.TLS_UNTRUSTED
         chain.any { it is SocketTimeoutException } -> CloudSyncErrorCode.CONNECTION_TIMEOUT
         chain.any { it is ConnectException || it is NoRouteToHostException || it is UnknownHostException } ->
           CloudSyncErrorCode.CONNECTION_REFUSED
@@ -252,6 +261,8 @@ internal object WebDavFailures {
         CloudSyncErrorCode.DIRECTORY_UNREADABLE ->
           "The WebDAV server refused to list a directory." to
             "Check that the account may list the configured folder."
+        CloudSyncErrorCode.TLS_UNTRUSTED ->
+          requireNotNull(code.defaultMessage) to code.defaultAction
         else -> "The WebDAV connection was lost." to "Reconnect the repository."
       }
     return RemoteClientException(code, message, action, status, cause)

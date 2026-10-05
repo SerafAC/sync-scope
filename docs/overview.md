@@ -25,16 +25,27 @@ like a clean one. See [sync and deletion safety](./sync-and-deletion-safety.md).
 
 ## The user loop
 
-1. **Connect** to one remote repository over FTP, SFTP or WebDAV with a username and password (R001). SFTP
-   host keys are trusted on first use (R002).
-2. **Pick folders** on device or removable storage through the Storage Access Framework (R005).
+1. **Connect** to one remote repository over FTP, SFTP or WebDAV with a username and password (R001), in
+   **Settings › Repository**. SFTP host keys are trusted on first use, after the user checks the
+   fingerprint (R002). WebDAV can use HTTPS. A setup checklist on the Scan tab leads a new user to this
+   step and the next.
+2. **Pick folders** on device or removable storage through the Storage Access Framework (R005). Android
+   refuses the top level of the storage and the Download folder; the app says so, and the picker starts
+   in DCIM.
 3. **Scan** in the foreground, with visible progress and cancellation (R006).
 4. **Browse and filter** the results on the **Files** tab in gallery, list or tree view (R008, R009,
    R010), filtered to all, synced, unsynced or issues-unknown (R011), with an image preview from any view
    (R014). Gallery and list view, with the filters, are delivered by feature 005; tree view and preview by
    feature 007.
-5. **Select** files, from any of the three views (R012).
-6. **Delete locally**, after an honest pre-flight breakdown of what will happen (R012, R013).
+5. **Select** files, from any of the three views (R012). A selection bar shows the count and total size.
+   Gallery and list view are delivered by feature 006 (MVP); tree view and preview by feature 007.
+6. **Delete locally**, after the selected backed-up files are re-checked on the server and an honest
+   pre-flight breakdown of what will happen (R012, R013,
+   [D020](./decisions/0020-pre-delete-server-recheck.md)). Only files are deleted, never folders and never
+   anything on the server.
+
+The app ships as an APK signed with the owner's personal release key, installed directly on the phone
+with no development machine ([D021](./decisions/0021-release-signing-and-cleartext-policy.md)).
 
 Scope limits for v1 are in [scope](./scope.md).
 
@@ -50,4 +61,7 @@ Scope limits for v1 are in [scope](./scope.md).
 | Source | A local folder the user selected through the Storage Access Framework, from on-device or removable storage, in **Settings › Folders**. Sources persist across restarts. Sources never overlap: a folder that is the same as, inside, or around an existing source is rejected with a message naming that source. Each source gets an alias generated once when it is added and never edited: the folder name, extended with the volume label and then parent folder names only as far as needed to be unique (for example "Camera" and "Camera (SDCARD)"). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
 | Source availability | Computed each time the list is shown, never stored. **Available**: the folder can be read. **Access lost** (`GRANT_REVOKED`): Android no longer grants the app access; the user can Re-grant by picking the same folder again, or remove the source. **Storage missing** (`STORAGE_MISSING`): access is granted but the folder or its volume cannot be reached, for example because the SD card was taken out. An unavailable source stays listed rather than vanishing, and scanning (feature 004) treats it as skipped, never as empty. |
 | Files tab | Where the results of the active snapshot are browsed. **Gallery** is a grid of the local images, newest first; **List** browses the selected sources folder by folder, with a breadcrumb back up. One set of filter chips (All, Synced, Unsynced, Issues or unknown) applies to both, and each chip shows how many files of that view match it ([005 spec](../specs/005-gallery-list-filtering/spec.md)). |
+| Selection | The set of files picked for deletion in the current results, kept across view and filter changes and cleared when a new snapshot replaces the results. Directories are never selectable. |
+| Deletion plan | The breakdown `prepareLocalDeletion` returns after the server re-check: files to delete, not backed up, and refused. Only the confirmed plan is executed, once, within 15 minutes, on the results it was made from ([D008](./decisions/0008-two-phase-local-deletion.md)). |
+| Repository | The one backup server the app compares against, set up in **Settings › Repository**: protocol, address, port, user, remote folder, the password (kept in Android Keystore-backed storage, never shown again) and, for WebDAV, whether to use HTTPS. |
 | Origin badge | A label on a gallery tile naming the tile's source by its alias. It appears only when a file with the same name exists in another source, because a flat grid gives no other clue which folder a photo is from ([D010](./decisions/0010-snapshot-paging-and-origin-badge.md)). |

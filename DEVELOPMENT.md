@@ -38,7 +38,7 @@ Every script in `package.json`, grouped by purpose. Run them with `pnpm <script>
 | `android` | Builds the debug app, installs it on a connected device or emulator and launches it. |
 | `build` | Alias for `assemble:debug`. |
 | `assemble:debug` | Builds `android/app/build/outputs/apk/debug/app-debug.apk` with Gradle. |
-| `assemble:release` | Builds the release APK with Gradle. |
+| `assemble:release` | Builds the signed, self-contained `android/app/build/outputs/apk/release/app-release.apk` (needs the [release key](#release-key)). |
 
 ### Project progress
 
@@ -153,7 +153,7 @@ If no `mounted` public volume is listed, see
 `pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36. For each
 API level `scripts/validation/android-flow.sh` starts the protocol containers and Metro, boots the AVD,
 builds and installs the debug APK, runs `scripts/validation/device-fixtures.sh`, and then runs
-`maestro test validation/maestro`. Metro is started once and serves both API levels, under a 2-hour cap
+`maestro test validation/maestro`, followed by the [staged pairs](#staged-pairs-and-hooks). Metro is started once and serves both API levels, under a 2-hour cap
 (`scripts/validation/metro-service.sh`). A full two-API run takes about 55 minutes, so a 1-hour cap would
 end Metro during the API 36 pass. The flows are the proof that a user-visible capability works
 ([D012](./docs/decisions/0012-maestro-e2e-proof-bar.md)). The rules below apply to every flow; feature
@@ -167,10 +167,11 @@ validation/maestro/
 ├── config.yaml      # executionOrder.flowsOrder + continueOnFailure: false
 ├── subflows/        # reusable steps, never run on their own
 │   ├── pick-folder.yaml            # drives the system folder picker; env VOLUME, PATH
-│   ├── open-sources.yaml           # launches the app and opens Settings › Folders
+│   ├── open-sources.yaml           # launches the app, opens Settings and scrolls to Add folder (below Repository)
 │   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT
 │   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true), or the SOURCES list
 │   ├── open-scan.yaml              # opens the Scan tab
+│   ├── setup-repository.yaml       # the Repository form, as a user fills it; env PROTOCOL, PORT, USER, PASSWORD, ROOT, HTTPS, START, EXPECT
 │   ├── start-scan.yaml             # taps Scan (or BUTTON) and waits for the run to end
 │   └── open-files.yaml             # opens the Files tab and waits for its first page
 ├── sources/         # one directory per feature area (feature 003)
@@ -179,12 +180,25 @@ validation/maestro/
 ├── scan/            # feature 004
 │   ├── 01-clean-scan-{ftp,sftp,webdav}.yaml
 │   └── …
-└── browse/          # feature 005
-    ├── 01-gallery-thousands.yaml
-    ├── 02-gallery-filters.yaml
-    ├── 03-gallery-issues-unknown.yaml
-    ├── 04-list-browse.yaml
-    └── 05-results-updated.yaml
+├── browse/          # feature 005
+│   ├── 01-gallery-thousands.yaml
+│   ├── 02-gallery-filters.yaml
+│   ├── 03-gallery-issues-unknown.yaml
+│   ├── 04-list-browse.yaml
+│   └── 05-results-updated.yaml
+├── mvp/             # feature 006
+│   ├── 01-setup-{ftp,sftp,webdav}.yaml
+│   ├── 02-setup-errors.yaml
+│   ├── 03-first-run.yaml
+│   ├── 04-select-size.yaml
+│   ├── 05-delete-synced.yaml
+│   ├── 90-release-smoke.yaml       # also the release-smoke mode's flow
+│   └── 91-release-update.yaml      # release-smoke only: after an in-place update
+└── staged/          # feature 006: a/b(/c) parts with a hook between them; not in config.yaml
+    ├── pairs.txt
+    ├── 06-recheck-removed-{a,b}.yaml
+    ├── 07-delete-offline-{a,b,c}.yaml
+    └── 08-changed-{a,b}.yaml
 ```
 
 - Flow files are named `NN-<verb>-<object>.yaml`, where `NN` is the order within the directory.
@@ -205,6 +219,12 @@ validation/maestro/
   `Folder drafts, 0 matching, no matches`, `Breadcrumb All folders`. The full list is in
   `specs/005-gallery-list-filtering/contracts/maestro-browse.md` (Selectors). A new label goes in `a11y.ts`
   and its unit test, not inline in a component.
+- **Repository form** (feature 006): its buttons and status are selected by accessibility label, as in the
+  Files tab (`specs/006-mvp/contracts/maestro-mvp.md`, Selectors). Its text fields are tapped by `testID`
+  (`repository.host`, `repository.port`, `repository.username`, `repository.password`,
+  `repository.remoteRoot`): a prefilled field's floating label also matches its name, and a tap on that
+  label does not focus the input. Hide the keyboard and scroll to each field before tapping it, as
+  `subflows/setup-repository.yaml` does; the keyboard covers the lower fields.
 - **System UI** (the folder picker, permission dialogs): select by visible text, and only inside
   `subflows/`. Differences between Android versions are handled there with `runFlow: when:` branches,
   never in feature flows. For example, `pick-folder.yaml` matches the picker's confirm buttons
@@ -217,8 +237,9 @@ validation/maestro/
 - A flow that depends on an earlier flow says so in a leading comment, for example
   `# requires: 01-add-internal`.
 - In `sources/`, only the first flow uses `launchApp: clearState: true`, and later flows build on its
-  state. Every `scan/` and `browse/` flow is self-contained instead: it starts from `clearState`,
-  configures the repository through the seam and adds only the sources it needs. A restart is `stopApp` then
+  state. Every `scan/`, `browse/` and `mvp/` flow is self-contained instead: it starts from `clearState`,
+  configures the repository (through the seam, or through the form with `subflows/setup-repository.yaml`)
+  and adds only the sources it needs. A restart is `stopApp` then
   `launchApp` without `clearState`.
 
 ### Test-only seams
@@ -232,8 +253,9 @@ reproduce a real OS or app state through production code, never fake app state. 
 - `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`
   saves and tests a repository with the production `RepositoryOperations`, approving an SFTP host-key
   challenge on the way, and shows `Repository configured` or `Repository error: <CODE>`
-  ([D018](./docs/decisions/0018-debug-repository-seam.md)). It stands in for the Connect screen until
-  feature 006 (MVP). An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
+  ([D018](./docs/decisions/0018-debug-repository-seam.md)). Feature 006 added the Repository screen, and
+  the `mvp/` flows set up each protocol through it (`subflows/setup-repository.yaml`); the seam stays for
+  flows whose subject is not setup. An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
   (`ScanPacing`, a no-op in release builds), which the `01-clean-scan-*` flows use so the progress card
   stays visible; a link without it resets the pause to 0. Flows call it through
   `subflows/configure-repository.yaml`. The password travels in the link, which Android and Maestro may
@@ -269,6 +291,20 @@ decodable PNGs so the gallery can draw thumbnails:
   whole numbers 1 to 9 999), regenerated on every run. Only `browse/01-gallery-thousands` adds it, and it
   asserts `Filter All, 2000`, so keep the default when running that flow; spec scenario 1 needs at least
   2 000.
+
+For the selection and deletion flows (feature 006) it seeds five more sources on internal storage, each
+the same tree as `Gallery` (`sunset.png`, `beach.png`, `album/forest.png`, `harbor.png`,
+`drafts/draft.png`, `album/notes.txt`), so every flow that deletes or changes files has its own copy:
+
+| Source | Used by |
+| --- | --- |
+| `SyncScopeE2E/Select` | `mvp/04-select-size` |
+| `SyncScopeE2E/Delete` | `mvp/05-delete-synced` |
+| `SyncScopeE2E/Recheck` | `staged/06-recheck-removed-*` |
+| `SyncScopeE2E/Offline` | `staged/07-delete-offline-*` |
+| `SyncScopeE2E/Changed` | `staged/08-changed-*` |
+
+These flows delete real files, so every gallery tree is removed and re-created on each run.
 
 The images are embedded as base64 in `scripts/validation/fixture-images.sh`, which `device-fixtures.sh`
 and `fixture-seed.sh` both source, so no image tool is needed. The twin image must keep a different byte
@@ -307,6 +343,10 @@ The browse flows (feature 005) use two more roots, built from the same embedded 
 The expected chip counts per root and view are in
 `specs/005-gallery-list-filtering/contracts/maestro-browse.md` (Fixtures).
 
+Feature 006 adds `recheck/`, a copy of `gallery/` that `fixture-seed.sh` re-creates on every seed run,
+because `staged/06-recheck-removed` removes `recheck/beach.png` mid-scenario. The `mvp/` and `staged/`
+flows otherwise use `gallery/` and `gallery-partial/`.
+
 When the tree changes, update the exact-tree expectations in `ProtocolConnectInstrumentedTest` and
 `scripts/validation/validation-infrastructure.test.mjs` in the same change.
 
@@ -324,7 +364,19 @@ to `/tmp/cloud-sync-checker-syncscope-<protocol>/credentials` as `username=…` 
 | `FTP_USER`, `FTP_PASSWORD` (and the `SFTP_` and `WEBDAV_` pairs) | the per-run credentials |
 | `FTP_ROOT`, `SFTP_ROOT`, `WEBDAV_ROOT` | `/`, `/srv/fixtures`, `/webdav`; each flow appends its remote root, such as `/scan/clean`, `/scan/partial`, `/gallery` or `/gallery-partial` |
 
-Each scan flow passes the set it needs to `subflows/configure-repository.yaml`. The browse flows read only
+Each scan flow passes the set it needs to `subflows/configure-repository.yaml`, and each `mvp/` setup
+flow to `subflows/setup-repository.yaml`.
+
+The selection and deletion flows assert byte totals, which `android-flow.sh` measures from the seeded
+remote fixtures with `size_of` (the flows never hard-code a byte count). The values are raw byte sums;
+the flows assert them with a ` B` suffix, the way the app shows a total below 1 kB:
+
+| Variable | Files |
+| --- | --- |
+| `SIZE_BEACH` | `beach.png` |
+| `SIZE_SYNC_2` | `sunset.png`, `beach.png` |
+| `SIZE_IMAGES_5` | the five device images: `sunset.png`, `beach.png`, `album/forest.png`, `harbor.png`, `drafts/draft.png` (the last two measured from `gallery-partial/restricted/hidden.png`, which is the same PNG) |
+| `SIZE_SYNCED_3` | `sunset.png`, `beach.png`, `album/forest.png` | The browse flows read only
 the local snapshot, so they are protocol-agnostic and all use SFTP; the three protocols are covered by the
 scan flows.
 
@@ -341,6 +393,57 @@ The `browse/` flows run after `scan/`, in the order pinned in `config.yaml`:
 | `05-results-updated` | `gallery`; Gallery | after a rescan, `Results updated` and the same folder found again |
 
 Each flow is self-contained, so any one can be run alone as described below.
+
+### MVP flow order
+
+The `mvp/` flows (feature 006) run after `browse/`. The full scenario mapping is in
+`specs/006-mvp/contracts/maestro-mvp.md`.
+
+| Flow | Setup | Proves |
+| --- | --- | --- |
+| `01-setup-{ftp,sftp,webdav}` | the form, root `gallery` | each protocol set up through the UI, the unencrypted warning, SFTP key approval, and the prefilled edit form |
+| `02-setup-errors` | the form | a wrong password shows the error and keeps the fields; the discard prompt |
+| `03-first-run` | clearState | the Scan checklist, the Files empty state, the folder picker hint and DCIM start folder, then a first scan |
+| `04-select-size` | SFTP, `gallery`; Select | long-press, tap, Select all, the count and size, hidden by filter, back clears |
+| `05-delete-synced` | SFTP, `gallery-partial`, then `gallery`; Delete | real deletion of the SYNCED files, UNKNOWN files survive, folders stay; then the not-backed-up opt-in |
+| `90-release-smoke` | clearState, no seam | setup, folder, scan and results; valid on debug and release |
+| `91-release-update` | after `adb install -r` | the server, folders and results survive an update (release-smoke only) |
+
+### Staged pairs and hooks
+
+A scenario that needs server or device state to change between two steps is split into parts in
+`validation/maestro/staged/`. `config.yaml` never lists them, so the workspace run skips them. After the
+workspace, `android-flow.sh` reads `staged/pairs.txt`: each line alternates flows and hooks,
+`<flow>|<hook and args>|<flow>[|<hook and args>|<flow>…]`. Only the first flow of a line starts from
+`clearState`. Hooks are in `scripts/validation/hooks/` and run on the host:
+
+| Hook | Does | Line |
+| --- | --- | --- |
+| `remove-recheck-file.sh` | deletes `recheck/beach.png` from the fixture tree the containers serve | `06-recheck-removed`: the server re-check moves the file, and it is not deleted |
+| `pause-service.sh <protocol>` / `resume-service.sh <protocol>` | `docker compose pause` / `unpause` of one container | `07-delete-offline`: with the server unreachable, nothing is deleted |
+| `change-device-files.sh` | through `adb`, removes `Changed/beach.png` and sets a new mtime on `Changed/sunset.png` while the confirmation is open | `08-changed`: per-file `Already gone` and `Changed since the scan` |
+| `restore-recheck-file.sh` | puts `recheck/beach.png` back after the staged lines | run by the runner, so the protocol audit and the next API level see the seeded tree |
+
+A pause registers its resume in the runner's `trap` before it runs, so a failed flow never leaves a
+container paused. The staged flows all use the SFTP container. The hooks are covered by
+`validation-infrastructure.test.mjs`.
+
+### Release smoke
+
+`pnpm e2e:android:release-smoke` (`android-flow.sh release-smoke --api 31`) proves the installable APK:
+
+1. `pnpm assemble:release` with no `SYNCSCOPE_RELEASE_*` properties must fail with "Release signing is
+   not configured". The run refuses to start if `~/.gradle/gradle.properties` sets them.
+2. It generates a throwaway keystore in a temp directory and builds with `pnpm assemble:release` through
+   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_*`.
+3. `aapt2 dump badging` must report the `versionName` and `versionCode` derived from `package.json`.
+4. It installs the release APK with Metro stopped, and asserts that `syncscope-debug://configure-repository`
+   resolves to no activity.
+5. It runs `mvp/90-release-smoke`, re-installs the same APK with `adb install -r`, and runs
+   `mvp/91-release-update`.
+6. It deletes the keystore.
+
+It needs the protocol containers like `pnpm e2e:android`, and runs on API 31 only.
 
 ### Running one flow
 
@@ -374,7 +477,10 @@ maestro test -e SFTP_PORT=32122 -e SFTP_ROOT=/srv/fixtures \
 pnpm validation:services:stop               # also runs the read-only protocol audit
 ```
 
-For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webdav`. Stop the emulator afterwards with
+For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webdav`. The `mvp/04` and
+`mvp/05` flows also need the `SIZE_*` variables above; compute them from
+`/tmp/cloud-sync-checker-syncscope-sftp/fixtures` as `android-flow.sh` does. A staged line must be run as
+a whole, with its hook between the parts. Stop the emulator afterwards with
 `android-validator.sh stop` and the same arguments. The Maestro binary used by the scripts is
 `~/.cache/cloud-sync-checker-toolchain/maestro-2.10.0/maestro/bin/maestro`.
 
@@ -394,8 +500,10 @@ For FTP use port `32120` and root `/`; for WebDAV, port `32180` and root `/webda
 
 - The project uses [Semantic Versioning](https://semver.org/). The `version` field in `package.json` is the
   single source of truth for the version.
-- The Android `versionName` and `versionCode` in `android/app/build.gradle` do not derive from it yet.
-  Deriving them from `package.json` is tracked in `specs/009-full-loop-release`.
+- `android/app/build.gradle` derives the Android version from it: `versionName` is the version and
+  `versionCode` is `major * 10000 + minor * 100 + patch`. The build fails on a version that is not plain
+  `MAJOR.MINOR.PATCH`, or on a minor or patch of 100 or more. `android/gradlew -p android -q
+  :app:printVersion` prints both values.
 
 ### Changelog
 
@@ -411,6 +519,54 @@ behaviour-changing change adds an entry under `## [Unreleased]`, in the same cha
    ISO date, and leave an empty `## [Unreleased]` section above it.
 4. Build the release APK with `pnpm assemble:release`.
 5. Commit the version bump and changelog together, and tag the commit `vX.Y.Z`.
+
+### Release key
+
+The release APK is signed with your personal key, so a later build installs over an earlier one and the
+app keeps its data. There is no fallback to the debug key. The key and its passwords never go into the
+repository.
+
+1. Create the key once. Keep the keystore outside the repository:
+
+   ```sh
+   mkdir -p ~/keys
+   keytool -genkeypair -v -storetype PKCS12 -keystore ~/keys/syncscope-release.p12 -alias syncscope -keyalg RSA -keysize 4096 -validity 10000
+   ```
+
+2. Add four properties to `~/.gradle/gradle.properties`. Gradle does not expand `~`, so give the keystore
+   as an absolute path:
+
+   ```properties
+   SYNCSCOPE_RELEASE_STORE_FILE=/home/<you>/keys/syncscope-release.p12
+   SYNCSCOPE_RELEASE_STORE_PASSWORD=<store password>
+   SYNCSCOPE_RELEASE_KEY_ALIAS=syncscope
+   SYNCSCOPE_RELEASE_KEY_PASSWORD=<key password>
+   ```
+
+   Instead of the file, you can export them as environment variables named
+   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE`, `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD`,
+   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS` and `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD`.
+   `pnpm e2e:android:release-smoke` does this with a throwaway key.
+
+3. Build with `pnpm assemble:release`. The APK is
+   `android/app/build/outputs/apk/release/app-release.apk`. It bundles the JavaScript, so it runs without
+   Metro. Install it with `adb install -r android/app/build/outputs/apk/release/app-release.apk`, or copy it
+   to the phone and open it.
+
+If any of the four properties is missing, every task whose name contains `Release` fails at once with
+"Release signing is not configured. Set SYNCSCOPE_RELEASE_STORE_FILE, …". Debug builds and JVM tests never
+need the key.
+
+**Back up the keystore and its passwords.** Android installs an update only when it is signed with the
+same key. If the key is lost, the next build can only be installed after uninstalling the app, and
+uninstalling deletes the app's data: the server settings, the folder list and the scan results.
+
+**Why `hermes-compiler` is hoisted.** A release build compiles the JavaScript bundle to Hermes bytecode.
+React Native's Gradle plugin looks for the `hermesc` binary at `node_modules/hermes-compiler`, but
+`hermes-compiler` is only a dependency of `react-native`, and pnpm keeps it out of the top-level
+`node_modules`. The `publicHoistPattern: [hermes-compiler]` entry in `pnpm-workspace.yaml` puts it there.
+Without it, `pnpm assemble:release` fails while bundling. Debug builds load the bundle from Metro, so they
+do not notice. After changing that entry, run `pnpm install` again.
 
 ## Technical documentation
 

@@ -33,6 +33,7 @@ export function FilterChips({
       contentContainerStyle={styles.row}
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.bar}
       testID="filter-chips"
     >
       {FILTER_ORDER.map(f => {
@@ -54,6 +55,11 @@ export function FilterChips({
 }
 
 const styles = StyleSheet.create({
+  // A ScrollView grows by default; in the screen's column it would take half the height from the
+  // view below while the chips stay at its top.
+  bar: {
+    flexGrow: 0,
+  },
   row: {
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,

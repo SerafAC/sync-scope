@@ -88,6 +88,33 @@ describe('typed native boundary', () => {
     expect(source).not.toContain('startScan(): ');
   });
 
+  it('lists selectable entries and executes a plan with includeUnsynced (contract v5)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /listSelectableEntries\(\s*snapshotId: string,\s*querySpec: QuerySpecInput,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).toMatch(
+      /prepareLocalDeletion\(\s*snapshotId: string,\s*entryIds: Array<string>,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).toMatch(
+      /executeLocalDeletion\(\s*planToken: string,\s*includeUnsynced: boolean,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).not.toMatch(/owned by later features/);
+  });
+
+  it('error DTO carries an optional field name (contract v5)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /export type CloudSyncErrorDto = \{[^}]*field\?: string \| null;[^}]*\};/,
+    );
+  });
+
   it('spec pages are bounded by the shared page contract', () => {
     const source = fs.readFileSync(
       path.join(SPECS_DIR, 'NativeCloudSync.ts'),

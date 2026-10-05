@@ -93,6 +93,16 @@ class ScanEngineTest {
     assertTrue(h.db.remoteMatchKeyDao().forSnapshot(snapshotId).all { it.precisionMillis == 1_000L })
     assertEquals(1_000L, h.db.repositoryConfigDao().get()!!.precisionMillis)
 
+    // Every staged match key carries the remote directories its files were listed in (research R11).
+    val staged = h.store.matchKeyBatches.flatten().associateBy { it.name }
+    assertEquals(REMOTE_ROOT, staged.getValue("exact.txt").directories)
+    assertEquals(REMOTE_ROOT, staged.getValue("é-decomposed.txt").directories)
+    assertEquals("$REMOTE_ROOT/a", staged.getValue("reusable.jpg").directories)
+    assertEquals(
+      staged.values.associate { it.name to it.directories },
+      h.db.remoteMatchKeyDao().forSnapshot(snapshotId).associate { it.name to it.directories },
+    )
+
     val counts = h.store.counts(snapshotId)
     fun count(sourceId: String?, status: String) = counts.single { it.sourceId == sourceId && it.status == status }.count
     assertEquals(3L, count(null, "SYNCED"))
@@ -103,6 +113,16 @@ class ScanEngineTest {
 
     assertTrue("every client is closed", h.remote.created.all { it.closed })
     assertEquals("one pacing call per local file, none per directory", 5, h.pauses.get())
+  }
+
+  @Test
+  fun webdavHttpsRepositoryIsScannedOverHttps() = runBlocking {
+    h.configure(protocol = "WEBDAV", webdavHttps = true)
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+
+    assertTrue(h.scan() is ScanOutcome.Published)
+    assertTrue("the scan keeps the saved HTTPS setting", h.remote.created.first().connectedTo!!.webdavHttps)
   }
 
   @Test
@@ -307,8 +327,12 @@ class ScanEngineTest {
     val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
 
     assertEquals("no remote client is created", clients, h.remote.created.size)
-    suspend fun keys(id: String) = h.db.remoteMatchKeyDao().forSnapshot(id).map { listOf(it.name, it.sizeBytes, it.bucket, it.duplicateCount, it.precisionMillis) }.toSet()
+    suspend fun keys(id: String) = h.db.remoteMatchKeyDao().forSnapshot(id).map { listOf(it.name, it.sizeBytes, it.bucket, it.duplicateCount, it.precisionMillis, it.directories) }.toSet()
     assertEquals(keys(first), keys(refreshed))
+    assertEquals(
+      "$REMOTE_ROOT\n$REMOTE_ROOT/b",
+      h.db.remoteMatchKeyDao().forSnapshot(refreshed).single { it.name == "reusable.jpg" }.directories,
+    )
     val old: SnapshotEntity = h.db.snapshotDao().byId(first)!!
     val new: SnapshotEntity = h.db.snapshotDao().byId(refreshed)!!
     assertEquals(old.remoteListedAtMillis, new.remoteListedAtMillis)

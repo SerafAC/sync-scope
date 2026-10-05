@@ -1,0 +1,20 @@
+# Story 6 sc. 8, FR-018a, SC-010 (SFTP), part c of a staged pair: runs after
+# resume-service.sh unpaused the SFTP container, without a state reset. A
+# rescan from scratch re-reads the device and still lists beach.png as Synced,
+# so the failed server check in part b deleted zero files.
+appId: com.syncscope
+name: staged/07-delete-offline-c
+---
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "sunset.png, Synced"

@@ -2,6 +2,9 @@ package com.syncscope.persistence
 
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.syncscope.deletion.DeletionOutcome
+import com.syncscope.deletion.DeletionRow
+import com.syncscope.deletion.DeletionSnapshots
 
 /** One row of a browse page, mirroring `FileEntryDto` on the JS side. */
 data class FileEntry(
@@ -21,6 +24,17 @@ data class FileEntry(
   val matchingFileCount: Long? = null,
 )
 
+/**
+ * Every `FILE` row a query would show, as four parallel arrays in the same order, mirroring
+ * `SelectableEntriesDto` on the JS side. A size of `-1` means the size is unknown.
+ */
+class SelectableEntries(
+  val entryIds: List<String>,
+  val sizes: LongArray,
+  val statuses: List<String>,
+  val images: BooleanArray,
+)
+
 /** A bounded page of entries, mirroring `FilePageDto` on the JS side. */
 data class FilePage(
   val entries: List<FileEntry>,
@@ -38,7 +52,7 @@ data class FilePage(
  * terminal state, cannot publish and cannot disturb the last known good
  * pointer.
  */
-open class SnapshotStore(private val db: SyncScopeDatabase) {
+open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots {
 
   /**
    * Creates a run with generation `maxGeneration() + 1`, read and inserted in one transaction so two
@@ -75,7 +89,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
 
   suspend fun run(runId: String): ScanRunEntity? = db.scanRunDao().byId(runId)
 
-  suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
+  override suspend fun snapshot(snapshotId: String): SnapshotEntity? = db.snapshotDao().byId(snapshotId)
 
   /** `INCOMPLETE` once any remote-scope or `SOURCE` gap was recorded (data-model "Snapshot"). */
   suspend fun setCoverage(snapshotId: String, coverage: String) {
@@ -90,7 +104,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
    * The precision a snapshot was matched with: every match key and `local_node` row of one snapshot
    * carries the run's single precision, so any row answers. Null when the snapshot has no rows.
    */
-  suspend fun precisionOf(snapshotId: String): Long? =
+  open suspend fun precisionOf(snapshotId: String): Long? =
     db.remoteMatchKeyDao().anyPrecision(snapshotId) ?: db.localNodeDao().anyPrecision(snapshotId)
 
   suspend fun stageSnapshot(snapshot: SnapshotEntity) {
@@ -125,11 +139,61 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   suspend fun matchKeys(snapshotId: String): List<RemoteMatchKeyEntity> =
     db.remoteMatchKeyDao().forSnapshot(snapshotId)
 
+  /**
+   * The match key of [snapshotId] for an NFC name, size and bucket at [precisionMillis], or null; its
+   * `directories` drive the pre-delete re-check (research R11, R12).
+   */
+  open suspend fun matchKey(snapshotId: String, nfcName: String, sizeBytes: Long, precisionMillis: Long, bucket: Long): RemoteMatchKeyEntity? =
+    db.remoteMatchKeyDao().exact(snapshotId, nfcName, sizeBytes, precisionMillis, bucket)
+
   suspend fun ambiguities(snapshotId: String): List<RemoteAmbiguityEntity> =
     db.remoteAmbiguityDao().forSnapshot(snapshotId)
 
   suspend fun counts(snapshotId: String): List<SnapshotCountsEntity> =
     db.snapshotCountsDao().forSnapshot(snapshotId)
+
+  /**
+   * Reflects one batch of deletion outcomes in the published [snapshotId] without a rescan (research R14,
+   * data-model "Deletion write rule"), in one transaction: a failure anywhere rolls the whole batch back.
+   *
+   * For each outcome whose state removes the row (`DELETED`, `ALREADY_GONE`) and whose `FILE` row still
+   * exists: delete the row, decrement `snapshot_counts` for its source and for all sources, decrement the
+   * matching descendant count on every ancestor directory, and insert a `local_deletion_overlay` row. The
+   * stored row's source, parent and status are used, so a row already removed is never counted twice.
+   * Other outcomes change nothing. At most [MAX_DELETIONS_PER_BATCH] outcomes; the caller chunks.
+   */
+  override suspend fun recordDeletions(snapshotId: String, outcomes: List<DeletionOutcome>) {
+    require(outcomes.size <= MAX_DELETIONS_PER_BATCH) { "at most $MAX_DELETIONS_PER_BATCH outcomes per batch" }
+    val removals = outcomes.filter { it.state.removesRow }
+    if (removals.isEmpty()) return
+    db.withTransaction {
+      val nodes = db.localNodeDao()
+      val parents = HashMap<String, String?>()
+      val overlays = ArrayList<LocalDeletionOverlayEntity>(removals.size)
+      for (outcome in removals) {
+        val row = nodes.byEntry(snapshotId, outcome.row.entryId) ?: continue
+        if (row.kind != KIND_FILE || nodes.deleteFile(snapshotId, row.entryId) == 0) continue
+        db.snapshotCountsDao().decrement(snapshotId, row.sourceId, row.status)
+        val ancestors = ArrayList<String>()
+        var parent = row.parentId
+        while (parent != null) {
+          val directory: String = parent
+          ancestors += directory
+          parent = parents.getOrPut(directory) { nodes.parentOf(snapshotId, directory) }
+        }
+        if (ancestors.isNotEmpty()) nodes.decrementDescendantCounts(snapshotId, ancestors, row.status)
+        overlays +=
+          LocalDeletionOverlayEntity(
+            id = 0,
+            snapshotId = snapshotId,
+            localEntryId = row.entryId,
+            state = outcome.state.name,
+            atMillis = outcome.atMillis,
+          )
+      }
+      if (overlays.isNotEmpty()) db.localDeletionOverlayDao().insertAll(overlays)
+    }
+  }
 
   /**
    * LOCAL_REFRESH (research R2, R7): gives the staged [toSnapshotId] the remote side of
@@ -261,6 +325,32 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
 
   suspend fun activeSnapshot(): ActiveSnapshotEntity? = db.activeSnapshotDao().get()
 
+  override suspend fun activeSnapshotId(): String? = activeSnapshot()?.snapshotId
+
+  /**
+   * The `FILE` rows of [snapshotId] among [entryIds], with what a deletion plan keeps of each (data-model
+   * "Deletion plan"); directories and unknown IDs are left out. Read in chunks of
+   * [MAX_IDS_PER_QUERY] IDs to stay under SQLite's bound-variable limit, in the order of [entryIds].
+   */
+  override suspend fun deletionRows(snapshotId: String, entryIds: Collection<String>): List<DeletionRow> {
+    val ids = entryIds.distinct()
+    val order = ids.withIndex().associate { it.value to it.index }
+    return ids.chunked(MAX_IDS_PER_QUERY).flatMap { chunk ->
+      db.localNodeDao().filesByEntry(snapshotId, chunk).map {
+        DeletionRow(
+          entryId = it.entryId,
+          sourceId = it.sourceId,
+          parentId = it.parentId,
+          documentUri = it.documentUri,
+          name = it.name,
+          sizeBytes = it.sizeBytes,
+          modifiedUtcMillis = it.modifiedUtcMillis,
+          status = it.status,
+        )
+      }
+    }.sortedBy { order.getValue(it.entryId) }
+  }
+
   /**
    * Reclaims runs left non-terminal by process death: marks them ABORTED and
    * drops their staging snapshot, which cascades away every staged row. The
@@ -313,41 +403,8 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
       }
 
     val limit = query.effectivePageSize()
-    val args = mutableListOf<Any?>(snapshotId)
-    val where = StringBuilder("snapshotId = ?")
-
-    val filterClause =
-      when (query.filter) {
-        FileFilter.ALL -> null
-        FileFilter.SYNCED -> "status = 'SYNCED'"
-        FileFilter.UNSYNCED -> "status = 'UNSYNCED'"
-        FileFilter.ISSUES_UNKNOWN -> "(status = 'UNKNOWN' OR issueCode IS NOT NULL)"
-      }
-    if (filterClause != null) {
-      // Browsing a folder never dead-ends: directories are always listed and the filter narrows
-      // files only (research R3). A flat `queryFiles` read keeps 004's rule.
-      val browsing = topLevelOnly || query.parentId != null
-      where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
-    }
+    val (where, args) = scopeOf(snapshotId, query, topLevelOnly)
     val gallery = query.view == FileView.GALLERY
-    if (gallery) {
-      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
-    }
-    query.sourceId?.let {
-      where.append(" AND sourceId = ?")
-      args += it
-    }
-    if (topLevelOnly) {
-      where.append(" AND parentId IS NULL")
-    }
-    query.parentId?.let {
-      where.append(" AND parentId = ?")
-      args += it
-    }
-    query.search?.takeIf { it.isNotEmpty() }?.let {
-      where.append(" AND name LIKE ? ESCAPE '\\'")
-      args += "%${escapeLike(it)}%"
-    }
 
     val ascending = query.sort == FileSort.NAME_ASC || query.sort == FileSort.TIME_ASC
     val sortColumn =
@@ -413,6 +470,41 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
   }
 
   /**
+   * "Select all" (`listSelectableEntries`): every `FILE` row [query] would show, in one read. GALLERY
+   * follows `queryFiles` (the filter applies to every row, images only, `sourceId`/`parentId` narrow
+   * when given). LIST follows `queryTreeChildren` for one folder: the direct children of
+   * `query.parentId` (the source's top level when null) in `query.sourceId`, which is required.
+   * Directories are never returned; `pageSize`, `sort` and `search` are ignored. Throws
+   * [SnapshotNotFoundException] when the snapshot is missing or still staged.
+   */
+  suspend fun selectableEntries(snapshotId: String, query: SnapshotQuery): SelectableEntries {
+    val list = query.view == FileView.LIST
+    require(!list || query.sourceId != null) { "a LIST selection needs a sourceId" }
+    val snapshot = db.snapshotDao().byId(snapshotId)
+    if (snapshot == null || !snapshot.publishable) {
+      throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
+    }
+    val (where, args) = scopeOf(snapshotId, query.copy(search = null), topLevelOnly = list && query.parentId == null)
+    where.append(" AND kind = 'FILE'")
+    val sql =
+      "SELECT entryId, sizeBytes, status, COALESCE(mimeType LIKE 'image/%', 0) AS isImage" +
+        " FROM local_node WHERE $where"
+    val rows = db.localNodeDao().selectable(SimpleSQLiteQuery(sql, args.toTypedArray()))
+    val sizes = LongArray(rows.size)
+    val images = BooleanArray(rows.size)
+    rows.forEachIndexed { index, row ->
+      sizes[index] = row.sizeBytes ?: UNKNOWN_SIZE
+      images[index] = row.isImage
+    }
+    return SelectableEntries(
+      entryIds = rows.map { it.entryId },
+      sizes = sizes,
+      statuses = rows.map { it.status },
+      images = images,
+    )
+  }
+
+  /**
    * The local document of [entryId] in a published snapshot, for `getLocalImageHandle`: its
    * `documentUri` and `mimeType`, or null when the entry is unknown or is a `DIRECTORY`. Throws
    * [SnapshotNotFoundException] when the snapshot is missing or still staged.
@@ -425,11 +517,68 @@ open class SnapshotStore(private val db: SyncScopeDatabase) {
     return db.localNodeDao().imageEntry(snapshotId, entryId)
   }
 
-  private companion object {
-    val DISCARD_STATES = setOf("CANCELLED", "FAILED")
-    const val KIND_DIRECTORY = "DIRECTORY"
+  companion object {
+    /** [recordDeletions] takes at most this many outcomes per transaction (research R14). */
+    const val MAX_DELETIONS_PER_BATCH = 100
+
+    /** IDs bound in one `IN (…)` read; well under SQLite's 999-variable limit on old builds. */
+    const val MAX_IDS_PER_QUERY = 500
+
+    /** `sizes[i]` of a [SelectableEntries] row whose size is unknown. */
+    private const val UNKNOWN_SIZE = -1L
+    private val DISCARD_STATES = setOf("CANCELLED", "FAILED")
+    private const val KIND_DIRECTORY = "DIRECTORY"
+    private const val KIND_FILE = "FILE"
     /** Room's name for `Index(snapshotId, name, sizeBytes)` on `local_node` (schema 3.json). */
-    const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
+    private const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
+  }
+
+  /**
+   * The row scope of a browse read, shared by [queryFilePage] and [selectableEntries] so the filter,
+   * view and parent rules are defined once: the snapshot, the filter (directories always pass while
+   * browsing a folder, research R3), GALLERY's image-only rule, the source, the parent (or the top
+   * level) and the search. Returns the `WHERE` clause and its bind arguments.
+   */
+  private fun scopeOf(
+    snapshotId: String,
+    query: SnapshotQuery,
+    topLevelOnly: Boolean,
+  ): Pair<StringBuilder, MutableList<Any?>> {
+    val args = mutableListOf<Any?>(snapshotId)
+    val where = StringBuilder("snapshotId = ?")
+
+    val filterClause =
+      when (query.filter) {
+        FileFilter.ALL -> null
+        FileFilter.SYNCED -> "status = 'SYNCED'"
+        FileFilter.UNSYNCED -> "status = 'UNSYNCED'"
+        FileFilter.ISSUES_UNKNOWN -> "(status = 'UNKNOWN' OR issueCode IS NOT NULL)"
+      }
+    if (filterClause != null) {
+      // Browsing a folder never dead-ends: directories are always listed and the filter narrows
+      // files only (research R3). A flat `queryFiles` read keeps 004's rule.
+      val browsing = topLevelOnly || query.parentId != null
+      where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
+    }
+    if (query.view == FileView.GALLERY) {
+      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
+    }
+    query.sourceId?.let {
+      where.append(" AND sourceId = ?")
+      args += it
+    }
+    if (topLevelOnly) {
+      where.append(" AND parentId IS NULL")
+    }
+    query.parentId?.let {
+      where.append(" AND parentId = ?")
+      args += it
+    }
+    query.search?.takeIf { it.isNotEmpty() }?.let {
+      where.append(" AND name LIKE ? ESCAPE '\\'")
+      args += "%${escapeLike(it)}%"
+    }
+    return where to args
   }
 
   private fun sortValueOf(node: LocalNodeEntity, sort: FileSort): String =

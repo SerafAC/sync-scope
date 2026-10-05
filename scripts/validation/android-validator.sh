@@ -90,7 +90,10 @@ serial_ready() {
 case "$action" in
   start)
     if owned_running && serial_ready; then exit 0; fi
-    [ ! -e "$state" ] || exit 1
+    [ ! -e "$state" ] || {
+      printf 'Validator state %s already exists; stop that validator first.\n' "$state" >&2
+      exit 1
+    }
     memory_ready || {
       printf '%s\n' "Validator memory preflight failed." >&2
       exit 1
@@ -134,8 +137,10 @@ case "$action" in
     trap cleanup_failed_start EXIT
     trap 'exit 130' HUP INT TERM
 
+    # The emulator outlives one API's whole e2e pass (boot, install, about
+    # 55 minutes of Maestro flows, the staged pairs); 2700 s cut 006's run off.
     setsid flock -n "$exclusive_lock" \
-      timeout --signal=TERM --kill-after=20 2700 \
+      timeout --signal=TERM --kill-after=20 9000 \
       "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
       -gpu swiftshader_indirect -memory 2048 -no-metrics \
       >"$state/emulator.log" 2>&1 &
@@ -152,7 +157,10 @@ case "$action" in
       serial=$(adb_command devices | awk \
         'NR > 1 && $1 ~ /^emulator-/ && $2 == "device" {print $1; exit}')
       attempts=$((attempts + 1))
-      [ "$attempts" -lt 180 ] || exit 1
+      [ "$attempts" -lt 180 ] || {
+        printf '%s\n' "The emulator did not come online within 180 s." >&2
+        exit 1
+      }
       [ -n "$serial" ] || sleep 1
     done
     printf '%s\n' "$serial" >"$serial_file"

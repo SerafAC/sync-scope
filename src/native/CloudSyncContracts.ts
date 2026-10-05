@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 4;
+export const CLOUD_SYNC_CONTRACT_VERSION = 5;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -17,6 +17,21 @@ export const CLOUD_SYNC_CONTRACT_VERSION = 4;
  */
 export const MAX_PAGE_SIZE = 200;
 export const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Port used when a repository is saved with no port (contract version 5). A WebDAV
+ * repository over HTTPS uses WEBDAV_HTTPS. Mirrored by the Kotlin
+ * `RepositoryDefaultPorts` under CloudSyncContractsParityTest.
+ */
+export const REPOSITORY_DEFAULT_PORTS = {
+  FTP: 21,
+  SFTP: 22,
+  WEBDAV: 80,
+  WEBDAV_HTTPS: 443,
+} as const;
+
+/** A deletion plan expires this long after prepareLocalDeletion made it (contract version 5). */
+export const MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000;
 
 export const CloudSyncErrorCode = {
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
@@ -35,7 +50,7 @@ export const CloudSyncErrorCode = {
   SFTP_HOST_KEY_UNVERIFIED: 'SFTP_HOST_KEY_UNVERIFIED',
   SFTP_HOST_KEY_CHANGED: 'SFTP_HOST_KEY_CHANGED',
   HOST_KEY_CHALLENGE_NOT_FOUND: 'HOST_KEY_CHALLENGE_NOT_FOUND',
-  /** No repository has been saved yet; the Connect screen must run first. */
+  /** No repository has been saved yet; set one up in Settings › Repository. */
   REPOSITORY_NOT_CONFIGURED: 'REPOSITORY_NOT_CONFIGURED',
   /** The saved repository's password is missing or was rotated; re-enter it. */
   CREDENTIAL_UNAVAILABLE: 'CREDENTIAL_UNAVAILABLE',
@@ -59,6 +74,16 @@ export const CloudSyncErrorCode = {
   REFRESH_UNAVAILABLE: 'REFRESH_UNAVAILABLE',
   /** getLocalImageHandle could not read or decode the local image (contract version 4). */
   IMAGE_UNAVAILABLE: 'IMAGE_UNAVAILABLE',
+  /** WebDAV over HTTPS: the server's certificate is not trusted by the phone (contract version 5). */
+  TLS_UNTRUSTED: 'TLS_UNTRUSTED',
+  /** A deletion is running, so a scan, a repository save or another deletion must wait (contract version 5). */
+  DELETION_IN_PROGRESS: 'DELETION_IN_PROGRESS',
+  /** prepareLocalDeletion: the results were made with previous server settings (contract version 5). */
+  REPOSITORY_CHANGED: 'REPOSITORY_CHANGED',
+  /** executeLocalDeletion: the plan token is unknown, expired or already used (contract version 5). */
+  PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
+  /** executeLocalDeletion: the snapshot changed since the plan was made (contract version 5). */
+  PLAN_STALE: 'PLAN_STALE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -150,6 +175,43 @@ export const IMAGE_ERROR_TEXT: Readonly<
   },
 };
 
+export type MvpErrorCode =
+  | 'TLS_UNTRUSTED'
+  | 'DELETION_IN_PROGRESS'
+  | 'REPOSITORY_CHANGED'
+  | 'PLAN_NOT_FOUND'
+  | 'PLAN_STALE';
+
+/**
+ * Exact redacted message and recovery action for the repository and deletion
+ * error codes (contract version 5). Mirrored by the Kotlin `CloudSyncErrorCode`
+ * entries and checked by CloudSyncContractsParityTest.
+ */
+export const MVP_ERROR_TEXT: Readonly<
+  Record<MvpErrorCode, {message: string; action: string}>
+> = {
+  TLS_UNTRUSTED: {
+    message: "The server's certificate is not trusted by this phone.",
+    action: 'Use a certificate from a public authority, or connect with SFTP.',
+  },
+  DELETION_IN_PROGRESS: {
+    message: 'Files are being deleted.',
+    action: 'Wait until the deletion finishes.',
+  },
+  REPOSITORY_CHANGED: {
+    message: 'These results were made with your previous server settings.',
+    action: 'Scan again before deleting.',
+  },
+  PLAN_NOT_FOUND: {
+    message: 'This deletion is no longer available.',
+    action: 'Review the selection and tap Delete again.',
+  },
+  PLAN_STALE: {
+    message: 'The results changed since you reviewed this deletion.',
+    action: 'Review the selection and tap Delete again.',
+  },
+};
+
 /**
  * User-facing text of the file issue codes that are not error codes. Mirrored
  * by the Kotlin `enum class FileIssueCode` under the parity test. A remote
@@ -181,7 +243,24 @@ export interface CloudSyncError {
    * message redaction.
    */
   conflictingSource?: {sourceId: string; alias: string} | null;
+  /**
+   * saveRepository rejections (INVALID_QUERY) only: the form field to fix
+   * (contract version 5). The rejected value is never echoed.
+   */
+  field?: RepositoryField | null;
 }
+
+/** The repository form fields an error can name in `CloudSyncError.field`. */
+export const REPOSITORY_FIELDS = [
+  'protocol',
+  'host',
+  'port',
+  'username',
+  'password',
+  'remoteRoot',
+] as const;
+
+export type RepositoryField = (typeof REPOSITORY_FIELDS)[number];
 
 export interface HostKeyChallengeDto {
   challengeId: string;
@@ -195,6 +274,71 @@ export interface HostKeyChallengeDto {
   /** Fingerprint of the key previously trusted for this endpoint (CHANGED only). */
   previousFingerprint: string | null;
 }
+
+export type RepositoryProtocol = 'FTP' | 'SFTP' | 'WEBDAV';
+
+/**
+ * The `config` argument of saveRepository. The password is passed separately
+ * as `transientPassword` and is never part of any DTO.
+ */
+export interface RepositoryConfigInput {
+  protocol: RepositoryProtocol;
+  host: string;
+  /** null → REPOSITORY_DEFAULT_PORTS for the protocol (WebDAV over HTTPS → 443). */
+  port: number | null;
+  username: string;
+  /** Absolute folder path on the server. */
+  remoteRoot: string;
+  /** WebDAV only: connect over HTTPS. Absent means false, so existing callers keep HTTP (contract v5). */
+  webdavHttps?: boolean;
+}
+
+/** The saved repository as getRepositorySummary returns it. Never carries the password. */
+export interface RepositorySummaryDto {
+  protocol: RepositoryProtocol;
+  host: string;
+  port: number;
+  username: string;
+  remoteRoot: string;
+  /** Timestamp precision found by testRepository; null until a test succeeded. */
+  precisionMillis: number | null;
+  /** A stored password is present and readable; the password itself never crosses the bridge. */
+  credentialPresent: boolean;
+  /** SFTP only: the endpoint's host key is trusted. null for FTP and WebDAV. */
+  hostKeyTrusted: boolean | null;
+  /** Bumped on every save; compared with `ActiveSnapshotDto.configRevision` (contract v5). */
+  revision: number;
+  /** WebDAV only: the repository connects over HTTPS (contract v5). */
+  webdavHttps: boolean;
+}
+
+export interface RepositorySummaryOk {
+  contractVersion: number;
+  status: 'ok';
+  repository: RepositorySummaryDto;
+}
+
+export type RepositorySummaryResult = RepositorySummaryOk | OperationError;
+
+/** What testRepository found at the saved repository's remote folder. */
+export interface RepositoryConnectionDto {
+  protocol: RepositoryProtocol;
+  reachable: boolean;
+  /** Direct children of the remote folder. */
+  entryCount: number;
+  precisionMillis: number;
+  precisionBasis: string;
+  /** False when a save landed during the test, so the precision was not written. */
+  precisionPersisted: boolean;
+}
+
+export interface TestRepositoryOk {
+  contractVersion: number;
+  status: 'ok';
+  connection: RepositoryConnectionDto;
+}
+
+export type TestRepositoryResult = TestRepositoryOk | OperationError;
 
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';
 export type LocalNodeKind = 'FILE' | 'DIRECTORY';
@@ -348,6 +492,103 @@ export interface LaunchSourcePickerOk {
 
 export type LaunchSourcePickerResult = LaunchSourcePickerOk | OperationError;
 
+/**
+ * Every FILE row a query would show, for "Select all" (listSelectableEntries,
+ * contract v5). The arrays are parallel and in the same order.
+ */
+export interface SelectableEntriesDto {
+  entryIds: string[];
+  /** Same order as entryIds; -1 = size unknown. */
+  sizes: number[];
+  statuses: FileStatus[];
+  images: boolean[];
+}
+
+export interface ListSelectableEntriesOk {
+  contractVersion: number;
+  status: 'ok';
+  selectable: SelectableEntriesDto;
+}
+
+export type ListSelectableEntriesResult = ListSelectableEntriesOk | OperationError;
+
+/**
+ * `SelectableEntriesDto` as the `listSelectableEntries` wrapper returns it:
+ * the same parallel arrays, with an unknown size (`-1` on the wire) as null.
+ */
+export interface SelectableEntries {
+  entryIds: string[];
+  sizes: Array<number | null>;
+  statuses: FileStatus[];
+  images: boolean[];
+}
+
+export interface SelectableEntriesOk {
+  contractVersion: number;
+  status: 'ok';
+  selectable: SelectableEntries;
+}
+
+export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
+
+/** What prepareLocalDeletion found after the server re-check (contract v5). */
+export interface DeletionPlanDto {
+  planToken: string;
+  /** Backed up, confirmed on the server. `bytes` sums known sizes only. */
+  toDelete: {count: number; bytes: number};
+  /** Not backed up, including files the re-check moved out of toDelete. */
+  unsynced: {count: number; bytes: number};
+  /** Unknown state, never deleted (D006). */
+  refused: {count: number; scanTooOld: number};
+  /** SYNCED rows the re-check moved out of toDelete. */
+  movedByRecheck: number;
+  /** IDs that are not FILE rows of the snapshot. */
+  missing: number;
+  /** Rows in toDelete or unsynced with no size. */
+  unknownSizeCount: number;
+  /** Scan age at the point of decision. */
+  remoteListedAtMillis: number;
+}
+
+export interface PrepareLocalDeletionOk {
+  contractVersion: number;
+  status: 'ok';
+  plan: DeletionPlanDto;
+}
+
+export type PrepareLocalDeletionResult = PrepareLocalDeletionOk | OperationError;
+
+export type DeletionFailureReason =
+  | 'ALREADY_GONE'
+  | 'CHANGED'
+  | 'ACCESS_LOST'
+  | 'FAILED';
+
+export interface DeletionFailureDto {
+  entryId: string;
+  name: string;
+  reason: DeletionFailureReason;
+}
+
+/** What executeLocalDeletion did (contract v5). */
+export interface DeletionResultDto {
+  deleted: number;
+  /** Known sizes of the DELETED files. */
+  freedBytes: number;
+  /** Every attempted file that was not deleted. */
+  failures: DeletionFailureDto[];
+  /** DELETED and ALREADY_GONE: rows no longer in the snapshot. */
+  removedEntryIds: string[];
+}
+
+export interface ExecuteLocalDeletionOk {
+  contractVersion: number;
+  status: 'ok';
+  result: DeletionResultDto;
+}
+
+export type ExecuteLocalDeletionResult = ExecuteLocalDeletionOk | OperationError;
+
 export type ScanMode = 'FULL' | 'LOCAL_REFRESH';
 
 export type ScanPhase =
@@ -409,6 +650,8 @@ export interface ActiveSnapshotDto {
   /** Age anchor for the staleness hint; a LOCAL_REFRESH does not move it (FR-003). */
   remoteListedAtMillis: number;
   precisionMillis: number;
+  /** Repository revision the snapshot was made with (contract v5); compare with `RepositorySummaryDto.revision`. */
+  configRevision: number;
   coverage: 'COMPLETE' | 'INCOMPLETE';
   summary: ScanSummaryDto;
 }

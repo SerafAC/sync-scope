@@ -1,5 +1,11 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react-native';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { getLocalImageHandle } from '../../native/CloudSync';
@@ -37,10 +43,18 @@ function entry(overrides: Partial<FileEntryDto> = {}): FileEntryDto {
   };
 }
 
-function renderTile(e: FileEntryDto, alias: string | undefined) {
+function renderTile(
+  e: FileEntryDto,
+  alias: string | undefined,
+  selection: {
+    selected?: boolean;
+    onPress?: (entry: FileEntryDto) => void;
+    onLongPress?: (entry: FileEntryDto) => void;
+  } = {},
+) {
   return render(
     <PaperProvider>
-      <GalleryTile alias={alias} entry={e} snapshotId="snap-1" />
+      <GalleryTile alias={alias} entry={e} snapshotId="snap-1" {...selection} />
     </PaperProvider>,
   );
 }
@@ -137,5 +151,110 @@ describe('GalleryTile', () => {
     );
 
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('selection (FR-015, FR-017)', () => {
+    it('reports a long-press with its entry', async () => {
+      const onLongPress = jest.fn();
+      const e = entry();
+      renderTile(e, 'Gallery', { onLongPress });
+
+      fireEvent(screen.getByLabelText('sunset.png, Unsynced'), 'longPress');
+
+      expect(onLongPress).toHaveBeenCalledWith(e);
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+    });
+
+    it('reports a tap only when given onPress', async () => {
+      const onPress = jest.fn();
+      const e = entry();
+      const { rerender } = renderTile(e, 'Gallery');
+      fireEvent.press(screen.getByLabelText('sunset.png, Unsynced'));
+      expect(onPress).not.toHaveBeenCalled();
+
+      rerender(
+        <PaperProvider>
+          <GalleryTile
+            alias="Gallery"
+            entry={e}
+            onPress={onPress}
+            snapshotId="snap-1"
+          />
+        </PaperProvider>,
+      );
+      fireEvent.press(screen.getByLabelText('sunset.png, Unsynced'));
+
+      expect(onPress).toHaveBeenCalledWith(e);
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+    });
+
+    it('shows a check mark, the selected state and `, selected` when selected', async () => {
+      renderTile(entry({ nameInOtherSource: true }), 'Gallery', {
+        selected: true,
+      });
+
+      const tile = screen.getByLabelText(
+        'sunset.png, Unsynced, from Gallery, selected',
+      );
+      expect(tile).toBeSelected();
+      expect(screen.getByTestId('gallery-tile-selected')).toBeOnTheScreen();
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+    });
+
+    it('shows no check mark and is not selected otherwise', async () => {
+      renderTile(entry(), 'Gallery');
+
+      expect(screen.getByLabelText('sunset.png, Unsynced')).not.toBeSelected();
+      expect(screen.queryByTestId('gallery-tile-selected')).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+    });
+
+    it('keeps the tile size when selected, so getItemLayout stays valid', async () => {
+      const { rerender } = renderTile(entry(), 'Gallery');
+      const before = StyleSheet.flatten(
+        screen.getByTestId('gallery-tile-e-1').props.style,
+      );
+
+      rerender(
+        <PaperProvider>
+          <GalleryTile
+            alias="Gallery"
+            entry={entry()}
+            selected
+            snapshotId="snap-1"
+          />
+        </PaperProvider>,
+      );
+      const after = StyleSheet.flatten(
+        screen.getByTestId('gallery-tile-e-1').props.style,
+      );
+
+      expect(after.width).toBe(before.width);
+      expect(after.height).toBe(before.height);
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+    });
+
+    it('passes the a11y sweep while selected', async () => {
+      const result = renderTile(entry(), 'Gallery', {
+        selected: true,
+        onPress: jest.fn(),
+        onLongPress: jest.fn(),
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+
+      expect(() => a11ySweep(result)).not.toThrow();
+    });
   });
 });

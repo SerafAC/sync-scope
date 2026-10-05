@@ -5,10 +5,12 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
+import { Dimensions } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { FilesProvider } from '../../files/FilesProvider';
 import { FilterChips } from '../../files/FilterChips';
+import { galleryTileSize } from '../../files/GalleryTile';
 import type { FilesViewProps } from '../../files/FilesViewParts';
 import { getLocalImageHandle, queryFiles } from '../../native/CloudSync';
 import {
@@ -17,7 +19,10 @@ import {
   type QueryFilesResult,
   type StatusCountDto,
 } from '../../native/CloudSyncContracts';
+import { ScanContext, type ScanState } from '../../scan/useScan';
+import { SelectionProvider } from '../../selection/SelectionProvider';
 import { a11ySweep } from '../../test-utils/a11ySweep';
+import { density } from '../../theme/spacing';
 import { GalleryScreen } from '../GalleryScreen';
 
 jest.mock('../../native/CloudSync', () => ({
@@ -74,6 +79,25 @@ const ALIASES = new Map([
   ['s-2', 'GalleryTwin'],
 ]);
 
+function scanState(snapshotId: string | null): ScanState {
+  return {
+    run: null,
+    active:
+      snapshotId == null
+        ? null
+        : ({ snapshotId } as unknown as ScanState['active']),
+    interrupted: null,
+    loading: false,
+    error: null,
+    isRunning: false,
+    isStale: false,
+    scan: jest.fn(),
+    cancel: jest.fn(),
+    refresh: jest.fn(),
+    dismissError: jest.fn(),
+  };
+}
+
 function renderGallery(overrides: Partial<FilesViewProps> = {}) {
   const props: FilesViewProps = {
     snapshotId: 'snap-1',
@@ -85,10 +109,14 @@ function renderGallery(overrides: Partial<FilesViewProps> = {}) {
   };
   const ui = (p: FilesViewProps) => (
     <PaperProvider>
-      <FilesProvider>
-        <FilterChips counts={null} />
-        <GalleryScreen {...p} />
-      </FilesProvider>
+      <ScanContext.Provider value={scanState(p.snapshotId)}>
+        <FilesProvider>
+          <SelectionProvider>
+            <FilterChips counts={null} />
+            <GalleryScreen {...p} />
+          </SelectionProvider>
+        </FilesProvider>
+      </ScanContext.Provider>
     </PaperProvider>
   );
   const result = render(ui(props));
@@ -252,5 +280,87 @@ describe('GalleryScreen', () => {
     await screen.findByLabelText('sunset.png, Synced, from Gallery');
 
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('selection (FR-015, FR-017)', () => {
+    beforeEach(() => {
+      queryFilesMock.mockResolvedValue(
+        page([
+          file('e-1', 'beach.png'),
+          file('e-2', 'sunset.png'),
+          file('e-3', 'harbor.png', { status: 'UNSYNCED' }),
+        ]),
+      );
+    });
+
+    it('does nothing on a tap before anything is selected', async () => {
+      renderGallery();
+      fireEvent.press(await screen.findByLabelText('beach.png, Synced'));
+
+      expect(screen.getByLabelText('beach.png, Synced')).not.toBeSelected();
+      expect(screen.queryByLabelText(/, selected$/)).toBeNull();
+    });
+
+    it('starts the selection on a long-press, then toggles tiles on a tap', async () => {
+      renderGallery();
+      fireEvent(await screen.findByLabelText('beach.png, Synced'), 'longPress');
+
+      expect(
+        await screen.findByLabelText('beach.png, Synced, selected'),
+      ).toBeSelected();
+      expect(screen.getByLabelText('sunset.png, Synced')).not.toBeSelected();
+
+      fireEvent.press(screen.getByLabelText('sunset.png, Synced'));
+      expect(
+        await screen.findByLabelText('sunset.png, Synced, selected'),
+      ).toBeSelected();
+
+      fireEvent.press(screen.getByLabelText('beach.png, Synced, selected'));
+      expect(
+        await screen.findByLabelText('beach.png, Synced'),
+      ).not.toBeSelected();
+      expect(
+        screen.getByLabelText('sunset.png, Synced, selected'),
+      ).toBeSelected();
+    });
+
+    it('leaves selection mode when the last tile is deselected', async () => {
+      renderGallery();
+      fireEvent(await screen.findByLabelText('beach.png, Synced'), 'longPress');
+      fireEvent.press(
+        await screen.findByLabelText('beach.png, Synced, selected'),
+      );
+      await screen.findByLabelText('beach.png, Synced');
+
+      // Not selecting any more: a tap no longer selects.
+      fireEvent.press(screen.getByLabelText('sunset.png, Synced'));
+      expect(screen.queryByLabelText(/, selected$/)).toBeNull();
+    });
+
+    it('keeps the row layout while tiles are selected', async () => {
+      renderGallery();
+      fireEvent(await screen.findByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      const { getItemLayout } = screen.getByTestId('gallery-grid').props as {
+        getItemLayout: (
+          data: unknown,
+          index: number,
+        ) => { length: number; offset: number };
+      };
+      const row =
+        galleryTileSize(Dimensions.get('window').width) + density.tileGap;
+      expect(getItemLayout(null, 2)).toEqual(
+        expect.objectContaining({ length: row, offset: 2 * row }),
+      );
+    });
+
+    it('passes the a11y sweep while selecting', async () => {
+      const result = renderGallery();
+      fireEvent(await screen.findByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      expect(() => a11ySweep(result)).not.toThrow();
+    });
   });
 });

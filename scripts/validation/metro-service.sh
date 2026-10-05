@@ -47,7 +47,9 @@ case "$action" in
     }
     trap cleanup_failed_start EXIT
     trap 'exit 130' HUP INT TERM
-    setsid timeout --signal=TERM --kill-after=10 7200 \
+    # One Metro serves every API in the e2e run (API 31 and API 36, about an
+    # hour each with 006's flows), so the cap covers both passes.
+    setsid timeout --signal=TERM --kill-after=10 14400 \
       pnpm start -- --host "$host" --port "$port" \
       >"$state/metro.log" 2>&1 &
     pid=$!

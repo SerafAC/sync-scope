@@ -13,6 +13,7 @@ function active(overrides: Partial<ActiveSnapshotDto> = {}): ActiveSnapshotDto {
     completedAtMillis: NOW - 60_000,
     remoteListedAtMillis: NOW - 3 * 60 * 60 * 1000,
     precisionMillis: 1000,
+    configRevision: 1,
     coverage: 'COMPLETE',
     summary: {
       synced: 4,

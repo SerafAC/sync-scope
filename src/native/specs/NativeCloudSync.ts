@@ -19,6 +19,8 @@ export type CloudSyncErrorDto = {
   code: string;
   message: string;
   action?: string | null;
+  /** saveRepository rejections only: the offending config key (contract v5). */
+  field?: string | null;
 };
 
 export type FileEntryDto = {
@@ -86,8 +88,9 @@ export interface Spec extends TurboModule {
     pageToken?: string | null,
   ): Promise<FilePageResultDto>;
 
-  /** Operations below are owned by later features. The foundation returns
-   * a typed NOT_IMPLEMENTED envelope for each of them. */
+  /** Operations below resolve an `OperationResultDto` whose payload key
+   * depends on the method; an unbuilt one resolves a typed NOT_IMPLEMENTED
+   * envelope instead of rejecting. */
   getRepositorySummary(): Promise<OperationResultDto>;
   saveRepository(
     config: Object,
@@ -113,11 +116,21 @@ export interface Spec extends TurboModule {
     entryId: string,
     spec: Object,
   ): Promise<OperationResultDto>;
+  /** Every FILE row the query would show, for "Select all" (contract v5). */
+  listSelectableEntries(
+    snapshotId: string,
+    querySpec: QuerySpecInput,
+  ): Promise<OperationResultDto>;
+  /** Re-checks the selection on the server and returns a single-use plan. */
   prepareLocalDeletion(
     snapshotId: string,
     entryIds: Array<string>,
   ): Promise<OperationResultDto>;
-  executeLocalDeletion(planToken: string): Promise<OperationResultDto>;
+  /** Runs a prepared plan; deletes not-backed-up files only with `includeUnsynced` (contract v5). */
+  executeLocalDeletion(
+    planToken: string,
+    includeUnsynced: boolean,
+  ): Promise<OperationResultDto>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('CloudSync');

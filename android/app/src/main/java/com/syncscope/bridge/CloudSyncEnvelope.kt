@@ -3,6 +3,10 @@ package com.syncscope.bridge
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
+import com.syncscope.deletion.DeletionPlanView
+import com.syncscope.deletion.DeletionResultView
+import com.syncscope.deletion.DeletionState
+import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
@@ -109,6 +113,128 @@ class CloudSyncEnvelope(
       )
     }
 
+  /**
+   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for
+   * `listSelectableEntries`: four parallel arrays in the same order; a size of `-1` is unknown.
+   */
+  fun selectable(entries: SelectableEntries): WritableMap {
+    val ids = newArray()
+    val sizes = newArray()
+    val statuses = newArray()
+    val images = newArray()
+    for (i in entries.entryIds.indices) {
+      ids.pushString(entries.entryIds[i])
+      sizes.pushDouble(entries.sizes[i].toDouble())
+      statuses.pushString(entries.statuses[i])
+      images.pushBoolean(entries.images[i])
+    }
+    return ok(
+      "selectable",
+      newMap().apply {
+        putArray("entryIds", ids)
+        putArray("sizes", sizes)
+        putArray("statuses", statuses)
+        putArray("images", images)
+      },
+    )
+  }
+
+  /**
+   * `{contractVersion, status: "ok", plan: DeletionPlanDto}` for `prepareLocalDeletion`
+   * (contracts/cloudsync-mvp.md). Counts and byte totals only: no document URI, name or remote path.
+   */
+  fun deletionPlan(plan: DeletionPlanView): WritableMap =
+    ok(
+      "plan",
+      newMap().apply {
+        putString("planToken", plan.token)
+        putMap("toDelete", totalsMap(plan.toDelete.count, plan.toDelete.bytes))
+        putMap("unsynced", totalsMap(plan.unsynced.count, plan.unsynced.bytes))
+        putMap(
+          "refused",
+          newMap().apply {
+            putDouble("count", plan.refusedCount.toDouble())
+            putDouble("scanTooOld", plan.scanTooOld.toDouble())
+          },
+        )
+        putDouble("movedByRecheck", plan.movedByRecheck.toDouble())
+        putDouble("missing", plan.missing.toDouble())
+        putDouble("unknownSizeCount", plan.unknownSizeCount.toDouble())
+        putDouble("remoteListedAtMillis", plan.remoteListedAtMillis.toDouble())
+      },
+    )
+
+  /**
+   * `{contractVersion, status: "ok", result: DeletionResultDto}` for `executeLocalDeletion`. A failure
+   * carries the entry's ID and display name only, never its document URI.
+   */
+  fun deletionResult(result: DeletionResultView): WritableMap {
+    val failures = newArray()
+    for (failure in result.failures) {
+      failures.pushMap(
+        newMap().apply {
+          putString("entryId", failure.entryId)
+          putString("name", failure.name)
+          putString("reason", failureReason(failure.reason))
+        },
+      )
+    }
+    val removed = newArray()
+    result.removedEntryIds.forEach(removed::pushString)
+    return ok(
+      "result",
+      newMap().apply {
+        putDouble("deleted", result.deleted.toDouble())
+        putDouble("freedBytes", result.freedBytes.toDouble())
+        putArray("failures", failures)
+        putArray("removedEntryIds", removed)
+      },
+    )
+  }
+
+  /** A `prepareLocalDeletion` / `executeLocalDeletion` refusal with the code's contract text. */
+  fun deletionRefused(code: CloudSyncErrorCode): WritableMap =
+    when (code) {
+      CloudSyncErrorCode.SNAPSHOT_NOT_FOUND ->
+        error(code, "That scan result is no longer available.", "Refresh the scan screen.")
+      CloudSyncErrorCode.STALE_GENERATION ->
+        error(code, "These results were replaced by a newer scan.", "Select the files again.")
+      CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED ->
+        error(code, RepositoryOperations.NOT_CONFIGURED_MESSAGE, RepositoryOperations.NOT_CONFIGURED_ACTION)
+      CloudSyncErrorCode.INVALID_QUERY ->
+        error(code, "No files were given to delete.", "Select the files again.", field = "entryIds")
+      else ->
+        if (code.defaultMessage != null) sourceError(code) else error(code, code.name, INTERNAL_ERROR_ACTION)
+    }
+
+  /**
+   * The re-check could not connect, so no plan exists. Host-key codes carry no challenge here: the key is
+   * approved in Settings › Repository, never from the delete dialog. [sensitive] scrubs the configured
+   * host, username and root.
+   */
+  fun deletionRemoteFailure(e: RemoteClientException, sensitive: Collection<String> = emptyList()): WritableMap =
+    if (e.code == CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED || e.code == CloudSyncErrorCode.SFTP_HOST_KEY_CHANGED) {
+      error(e.code, e.message ?: e.code.name, HOST_KEY_DELETION_ACTION, sensitive)
+    } else {
+      remoteFailure(e, sensitive = sensitive)
+    }
+
+  private fun totalsMap(count: Int, bytes: Long): WritableMap =
+    newMap().apply {
+      putDouble("count", count.toDouble())
+      putDouble("bytes", bytes.toDouble())
+    }
+
+  private fun failureReason(state: DeletionState): String =
+    when (state) {
+      DeletionState.ALREADY_GONE,
+      DeletionState.CHANGED,
+      DeletionState.ACCESS_LOST -> state.name
+      DeletionState.DELETED,
+      DeletionState.FAILED,
+      DeletionState.SKIPPED_UNSYNCED -> DeletionState.FAILED.name
+    }
+
   fun notImplemented(method: String): WritableMap =
     error(CloudSyncErrorCode.NOT_IMPLEMENTED, "$method is not available in this build.")
 
@@ -170,6 +296,9 @@ class CloudSyncEnvelope(
 
     /** The recovery action of every INTERNAL_ERROR. */
     const val INTERNAL_ERROR_ACTION = "Retry; if it persists, reconnect the repository."
+
+    /** The action of a host-key failure during the pre-delete re-check (contracts/cloudsync-mvp.md). */
+    const val HOST_KEY_DELETION_ACTION = "Check the server in Settings › Repository."
 
     // Order matters: URLs and user@host swallow their host/path before the generic rules run.
     private val URL = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://\S+""")

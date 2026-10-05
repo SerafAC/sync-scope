@@ -3,9 +3,14 @@ package com.syncscope.persistence
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.syncscope.deletion.DeletionOutcome
+import com.syncscope.deletion.DeletionRow
+import com.syncscope.deletion.DeletionState
+import kotlin.random.Random
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -309,6 +314,29 @@ class SnapshotStoreTest {
   }
 
   @Test
+  fun copyRemoteStateCarriesTheServerDirectoriesOfEachKey() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val from = store.beginRun("run-1", "FULL", 1L, "LISTING_REMOTE", 100L)
+    store.stageSnapshot(stagingSnapshot("snap-1", from.runId, remoteListedAtMillis = 4_000L))
+    store.stageMatchKeys(
+      listOf(
+        RemoteMatchKeyEntity(0, "snap-1", "a.png", 10L, 1_000L, 2L, 2L, directories = "/photos/2024\n/photos/old"),
+        RemoteMatchKeyEntity(0, "snap-1", "b.png", 11L, 1_000L, 3L, 1L, directories = null),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    val to = store.beginRun("run-2", "LOCAL_REFRESH", 1L, "COPYING_REMOTE", 6_000L)
+    store.stageSnapshot(stagingSnapshot("snap-2", to.runId))
+
+    store.copyRemoteState(fromSnapshotId = "snap-1", toSnapshotId = "snap-2")
+
+    assertEquals(
+      mapOf("a.png" to "/photos/2024\n/photos/old", "b.png" to null),
+      store.matchKeys("snap-2").associate { it.name to it.directories },
+    )
+  }
+
+  @Test
   fun ambiguitiesAndCountsAreStagedAndRead() = runBlocking {
     seedRun("run-1", 1L, "snap-1")
     store.stageAmbiguities(emptyList())
@@ -558,6 +586,448 @@ class SnapshotStoreTest {
     assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("snap-2", "s2") } }
     assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("missing", "f3") } }
     assertNull(store.imageEntry("snap-1", "s2"))
+  }
+
+  // --- Feature 006: selectableEntries ("Select all", contracts/cloudsync-mvp.md) ----------------
+
+  @Test
+  fun selectableEntriesInGalleryAreImageFilesUnderEveryFilter() = runBlocking {
+    seedBrowseFixture()
+    val expected =
+      mapOf(
+        FileFilter.ALL to setOf("f3", "f6", "f7", "f8", "g1", "g2"),
+        FileFilter.SYNCED to setOf("f3", "f7", "g1"),
+        FileFilter.UNSYNCED to setOf("f8"),
+        FileFilter.ISSUES_UNKNOWN to setOf("f6", "g2"),
+      )
+    for ((filter, ids) in expected) {
+      val selectable = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, filter = filter))
+      assertEquals("gallery $filter", ids, selectable.entryIds.toSet())
+      assertEquals("gallery $filter", selectable.entryIds.size, ids.size)
+      assertTrue("gallery $filter images only", selectable.images.all { it })
+    }
+    // sourceId narrows the gallery as it narrows queryFiles.
+    val src2 = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, sourceId = "src-2"))
+    assertEquals(setOf("g1", "g2"), src2.entryIds.toSet())
+  }
+
+  @Test
+  fun selectableEntriesInListAreTheDirectFileChildrenOfTheFolderInItsSource() = runBlocking {
+    seedBrowseFixture()
+
+    val inD1 = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1", parentId = "d1"))
+    // d2 is a directory and is never returned; f4 and f5 live below d2, not directly in d1.
+    assertEquals(setOf("f3", "f6"), inD1.entryIds.toSet())
+    assertEquals(mapOf("f3" to "SYNCED", "f6" to "UNKNOWN"), inD1.entryIds.zip(inD1.statuses).toMap())
+
+    val syncedInD1 =
+      store.selectableEntries("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, sourceId = "src-1", parentId = "d1"))
+    assertEquals(listOf("f3"), syncedInD1.entryIds)
+
+    // No parentId: the top level of that one source only; dLegacy and d1 are directories.
+    val top = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"))
+    assertEquals(setOf("f1", "f7", "f8"), top.entryIds.toSet())
+    assertEquals(
+      mapOf("f1" to false, "f7" to true, "f8" to true),
+      top.entryIds.zip(top.images.toList()).toMap(),
+    )
+    val unsyncedTop =
+      store.selectableEntries("snap-1", SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"))
+    assertEquals(setOf("f1", "f8"), unsyncedTop.entryIds.toSet())
+
+    val otherSource = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-2"))
+    assertEquals(setOf("g1", "g2", "g3"), otherSource.entryIds.toSet())
+  }
+
+  @Test
+  fun selectableEntriesInListRequireASource() = runBlocking {
+    seedBrowseFixture()
+    assertThrows(IllegalArgumentException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(parentId = "d1")) }
+    }
+    Unit
+  }
+
+  @Test
+  fun selectableEntriesIgnorePageSizeSortAndSearch() = runBlocking {
+    seedBrowseFixture()
+    val cases =
+      listOf(
+        SnapshotQuery(view = FileView.GALLERY),
+        SnapshotQuery(sourceId = "src-1", parentId = "d1"),
+        SnapshotQuery(sourceId = "src-1"),
+      )
+    for (query in cases) {
+      val plain = store.selectableEntries("snap-1", query)
+      val narrowed =
+        store.selectableEntries("snap-1", query.copy(pageSize = 1, sort = FileSort.TIME_DESC, search = "zzz"))
+      assertTrue("$query is not empty", plain.entryIds.isNotEmpty())
+      assertEquals("$query", plain.entryIds.toSet(), narrowed.entryIds.toSet())
+    }
+  }
+
+  @Test
+  fun selectableEntriesReportAnUnknownSizeAsMinusOne() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        localNode("snap-1", "src-1", "known", "known.png", mimeType = "image/png", sizeBytes = 70L),
+        localNode("snap-1", "src-1", "unknown", "unknown.png", mimeType = "image/png", sizeBytes = null),
+        localNode("snap-1", "src-1", "untyped", "untyped", mimeType = null, sizeBytes = 5L),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val list = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"))
+    assertEquals(3, list.sizes.size)
+    assertEquals(3, list.statuses.size)
+    assertEquals(3, list.images.size)
+    assertEquals(
+      mapOf("known" to 70L, "unknown" to -1L, "untyped" to 5L),
+      list.entryIds.zip(list.sizes.toList()).toMap(),
+    )
+    // A file without a MIME type is not an image.
+    assertEquals(
+      mapOf("known" to true, "unknown" to true, "untyped" to false),
+      list.entryIds.zip(list.images.toList()).toMap(),
+    )
+  }
+
+  @Test
+  fun selectableEntriesOfAStagedOrMissingSnapshotAreNotReadable() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(listOf(localNode("snap-1", "src-1", "s1", "staged.png", mimeType = "image/png")))
+    assertThrows(SnapshotNotFoundException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY)) }
+    }
+    assertThrows(SnapshotNotFoundException::class.java) {
+      runBlocking { store.selectableEntries("missing", SnapshotQuery(view = FileView.GALLERY)) }
+    }
+    Unit
+  }
+
+  // --- deletionRows (data-model "Deletion plan") ---
+
+  @Test
+  fun deletionRowsLoadsOnlyFileRowsInRequestOrder() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+
+    val rows = store.deletionRows("snap-1", listOf("f4", "d1", "ghost", "f3", "f4", "g1"))
+
+    assertEquals(listOf("f4", "f3", "g1"), rows.map { it.entryId })
+    val f4 = nodes.getValue("f4")
+    assertEquals(
+      com.syncscope.deletion.DeletionRow(
+        entryId = "f4",
+        sourceId = f4.sourceId,
+        parentId = f4.parentId,
+        documentUri = f4.documentUri,
+        name = f4.name,
+        sizeBytes = f4.sizeBytes,
+        modifiedUtcMillis = f4.modifiedUtcMillis,
+        status = f4.status,
+      ),
+      rows.first(),
+    )
+    assertEquals("snap-1", store.activeSnapshotId())
+  }
+
+  @Test
+  fun deletionRowsReadsMoreIdsThanOneQueryBinds() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    val count = SnapshotStore.MAX_IDS_PER_QUERY * 2 + 3
+    store.stageLocalNodes((1..count).map { localNode("snap-1", "src-1", "e$it", "f$it.png") })
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val ids = (count downTo 1).map { "e$it" }
+    assertEquals(ids, store.deletionRows("snap-1", ids).map { it.entryId })
+  }
+
+  // --- recordDeletions (data-model "Deletion write rule", research R14) ---
+
+  @Test
+  fun recordDeletionsRemovesOnlyDeletedAndAlreadyGoneRows() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+
+    store.recordDeletions(
+      "snap-1",
+      listOf(
+        outcome(nodes, "f3", DeletionState.DELETED),
+        outcome(nodes, "f4", DeletionState.ALREADY_GONE),
+        outcome(nodes, "f5", DeletionState.CHANGED),
+        outcome(nodes, "f6", DeletionState.ACCESS_LOST),
+        outcome(nodes, "f7", DeletionState.FAILED),
+        outcome(nodes, "f8", DeletionState.SKIPPED_UNSYNCED),
+      ),
+    )
+
+    val remaining = nodesById().keys
+    assertFalse("f3" in remaining)
+    assertFalse("f4" in remaining)
+    assertTrue(remaining.containsAll(listOf("f1", "f5", "f6", "f7", "f8", "g1", "d1", "d2", "dLegacy")))
+    assertDeletionInvariant("snap-1")
+  }
+
+  @Test
+  fun recordDeletionsDecrementsCountsAndEveryAncestorByStatus() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+
+    // f4 (UNSYNCED) sits in d2 inside d1; f6 (UNKNOWN) in d1; f7 (SYNCED) at the top level of src-1.
+    store.recordDeletions(
+      "snap-1",
+      listOf(
+        outcome(nodes, "f4", DeletionState.DELETED),
+        outcome(nodes, "f6", DeletionState.DELETED),
+        outcome(nodes, "f7", DeletionState.ALREADY_GONE),
+      ),
+    )
+
+    val after = nodesById()
+    fun desc(id: String) = after.getValue(id).let { Triple(it.descSynced, it.descUnsynced, it.descUnknown) }
+    assertEquals(Triple(1L, 1L, 0L), desc("d1"))
+    assertEquals(Triple(0L, 1L, 0L), desc("d2"))
+    assertEquals(
+      setOf(
+        Triple("src-1", "SYNCED", 1L),
+        Triple("src-1", "UNSYNCED", 4L),
+        Triple("src-1", "UNKNOWN", 0L),
+        Triple("src-2", "SYNCED", 1L),
+        Triple(null, "SYNCED", 2L),
+        Triple(null, "UNSYNCED", 4L),
+        Triple(null, "UNKNOWN", 0L),
+      ),
+      store.counts("snap-1").map { Triple(it.sourceId, it.status, it.count) }.toSet(),
+    )
+    assertDeletionInvariant("snap-1")
+  }
+
+  @Test
+  fun preVersion3NullCountsStayNull() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+    store.recordDeletions("snap-1", listOf(outcome(nodes, "f9", DeletionState.DELETED)))
+    val legacy = nodesById().getValue("dLegacy")
+    assertNull(legacy.descSynced)
+    assertNull(legacy.descUnsynced)
+    assertNull(legacy.descUnknown)
+    assertFalse("f9" in nodesById())
+  }
+
+  @Test
+  fun recordDeletionsWritesOneOverlayRowPerRemovalWithItsState() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+    store.recordDeletions(
+      "snap-1",
+      listOf(
+        outcome(nodes, "f3", DeletionState.DELETED, at = 7_000L),
+        outcome(nodes, "f4", DeletionState.ALREADY_GONE, at = 7_001L),
+        outcome(nodes, "f5", DeletionState.CHANGED, at = 7_002L),
+        outcome(nodes, "f6", DeletionState.FAILED, at = 7_003L),
+      ),
+    )
+    assertEquals(
+      setOf(Triple("f3", "DELETED", 7_000L), Triple("f4", "ALREADY_GONE", 7_001L)),
+      db.localDeletionOverlayDao().forSnapshot("snap-1").map { Triple(it.localEntryId, it.state, it.atMillis) }.toSet(),
+    )
+    assertEquals(2, db.localDeletionOverlayDao().forSnapshot("snap-1").size)
+  }
+
+  @Test
+  fun aRowAlreadyRemovedIsNotCountedTwice() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+    store.recordDeletions("snap-1", listOf(outcome(nodes, "f3", DeletionState.DELETED)))
+    store.recordDeletions(
+      "snap-1",
+      listOf(outcome(nodes, "f3", DeletionState.ALREADY_GONE), outcome(nodes, "f3", DeletionState.DELETED)),
+    )
+    assertEquals(1, db.localDeletionOverlayDao().forSnapshot("snap-1").size)
+    assertDeletionInvariant("snap-1")
+  }
+
+  @Test
+  fun recordDeletionsRejectsMoreThanOneHundredOutcomes() = runBlocking {
+    seedDeletionFixture()
+    val f3 = outcome(nodesById(), "f3", DeletionState.DELETED)
+    assertEquals(100, SnapshotStore.MAX_DELETIONS_PER_BATCH)
+    assertThrows(IllegalArgumentException::class.java) {
+      runBlocking { store.recordDeletions("snap-1", List(101) { f3 }) }
+    }
+    assertTrue("f3" in nodesById())
+  }
+
+  @Test
+  fun aFailureMidBatchRollsTheWholeBatchBack() = runBlocking {
+    seedDeletionFixture()
+    val nodes = nodesById()
+    val countsBefore = store.counts("snap-1").map { Triple(it.sourceId, it.status, it.count) }.toSet()
+    db.openHelper.writableDatabase.execSQL(
+      "CREATE TRIGGER fail_on_f6 BEFORE INSERT ON local_deletion_overlay WHEN NEW.localEntryId = 'f6' " +
+        "BEGIN SELECT RAISE(ABORT, 'injected'); END"
+    )
+
+    assertThrows(Exception::class.java) {
+      runBlocking {
+        store.recordDeletions(
+          "snap-1",
+          listOf(
+            outcome(nodes, "f3", DeletionState.DELETED),
+            outcome(nodes, "f4", DeletionState.DELETED),
+            outcome(nodes, "f6", DeletionState.DELETED),
+            outcome(nodes, "f7", DeletionState.DELETED),
+          ),
+        )
+      }
+    }
+
+    assertEquals(nodes, nodesById())
+    assertEquals(countsBefore, store.counts("snap-1").map { Triple(it.sourceId, it.status, it.count) }.toSet())
+    assertTrue(db.localDeletionOverlayDao().forSnapshot("snap-1").isEmpty())
+  }
+
+  @Test
+  fun theCountInvariantHoldsAfterRandomBatches() = runBlocking {
+    val random = Random(6)
+    seedRun("run-1", 1L, "snap-1")
+    db.sourceRootDao().upsert(sourceRoot("src-2"))
+    val statuses = listOf("SYNCED", "UNSYNCED", "UNKNOWN")
+    val directories = mutableListOf<LocalNodeEntity>()
+    val files = mutableListOf<LocalNodeEntity>()
+    for (source in listOf("src-1", "src-2")) {
+      val ids = mutableListOf<String?>(null)
+      repeat(12) { i ->
+        val id = "$source-d$i"
+        directories += localNode("snap-1", source, id, "dir$i", kind = "DIRECTORY", parentId = ids.random(random), sizeBytes = null, status = "UNKNOWN")
+        ids += id
+      }
+      repeat(150) { i ->
+        files += localNode("snap-1", source, "$source-f$i", "f$i.jpg", parentId = ids.random(random), status = statuses.random(random))
+      }
+    }
+    // Descendant counts and snapshot_counts computed from the rows, as a fresh scan would write them.
+    val parentOf = (directories + files).associate { it.entryId to it.parentId }
+    fun ancestors(id: String): Sequence<String> = generateSequence(parentOf[id]) { parentOf[it] }
+    val withCounts =
+      directories.map { dir ->
+        val beneath = files.filter { dir.entryId in ancestors(it.entryId) }
+        dir.copy(
+          descSynced = beneath.count { it.status == "SYNCED" }.toLong(),
+          descUnsynced = beneath.count { it.status == "UNSYNCED" }.toLong(),
+          descUnknown = beneath.count { it.status == "UNKNOWN" }.toLong(),
+        )
+      }
+    store.stageLocalNodes(withCounts + files)
+    store.stageCounts(
+      files.groupBy { it.sourceId to it.status }.map { (k, v) -> SnapshotCountsEntity(0, "snap-1", k.first, k.second, v.size.toLong()) } +
+        files.groupBy { it.status }.map { (status, v) -> SnapshotCountsEntity(0, "snap-1", null, status, v.size.toLong()) }
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    assertDeletionInvariant("snap-1")
+
+    val states = DeletionState.entries
+    val pool = files.shuffled(random).toMutableList()
+    while (pool.isNotEmpty()) {
+      val batch = List(minOf(pool.size, random.nextInt(1, 40))) { pool.removeAt(0) }
+      store.recordDeletions("snap-1", batch.map { DeletionOutcome(it.toDeletionRow(), states.random(random), 9_000L) })
+      assertDeletionInvariant("snap-1")
+    }
+  }
+
+  /**
+   * ```
+   * src-1  d1/ Photos (1 SYNCED, 2 UNSYNCED, 1 UNKNOWN beneath)
+   *          f3 a.png    SYNCED
+   *          f6 b.png    UNKNOWN
+   *          d2/ Old (0, 2, 0)
+   *            f4 deep.txt UNSYNCED
+   *            f5 clip.mp4 UNSYNCED
+   *        dLegacy/ (NULL counts)
+   *          f9 legacy.txt UNSYNCED
+   *        f1 top.txt UNSYNCED
+   *        f7 dup.png SYNCED
+   *        f8 Case.png UNSYNCED
+   * src-2  g1 a.png SYNCED
+   * ```
+   */
+  private suspend fun seedDeletionFixture() {
+    seedRun("run-1", 1L, "snap-1")
+    db.sourceRootDao().upsert(sourceRoot("src-2"))
+    fun dir(id: String, parent: String?, s: Long?, u: Long?, k: Long?) =
+      localNode("snap-1", "src-1", id, id, kind = "DIRECTORY", parentId = parent, sizeBytes = null, status = "UNKNOWN")
+        .copy(descSynced = s, descUnsynced = u, descUnknown = k)
+    fun file(src: String, id: String, parent: String?, status: String) =
+      localNode("snap-1", src, id, "$id.png", parentId = parent, status = status)
+    store.stageLocalNodes(
+      listOf(
+        dir("d1", null, 1L, 2L, 1L),
+        dir("d2", "d1", 0L, 2L, 0L),
+        dir("dLegacy", null, null, null, null),
+        file("src-1", "f3", "d1", "SYNCED"),
+        file("src-1", "f6", "d1", "UNKNOWN"),
+        file("src-1", "f4", "d2", "UNSYNCED"),
+        file("src-1", "f5", "d2", "UNSYNCED"),
+        file("src-1", "f9", "dLegacy", "UNSYNCED"),
+        file("src-1", "f1", null, "UNSYNCED"),
+        file("src-1", "f7", null, "SYNCED"),
+        file("src-1", "f8", null, "UNSYNCED"),
+        file("src-2", "g1", null, "SYNCED"),
+      )
+    )
+    store.stageCounts(
+      listOf(
+        SnapshotCountsEntity(0, "snap-1", "src-1", "SYNCED", 2L),
+        SnapshotCountsEntity(0, "snap-1", "src-1", "UNSYNCED", 5L),
+        SnapshotCountsEntity(0, "snap-1", "src-1", "UNKNOWN", 1L),
+        SnapshotCountsEntity(0, "snap-1", "src-2", "SYNCED", 1L),
+        SnapshotCountsEntity(0, "snap-1", null, "SYNCED", 3L),
+        SnapshotCountsEntity(0, "snap-1", null, "UNSYNCED", 5L),
+        SnapshotCountsEntity(0, "snap-1", null, "UNKNOWN", 1L),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+  }
+
+  private suspend fun nodesById(snapshotId: String = "snap-1"): Map<String, LocalNodeEntity> =
+    db.localNodeDao().page(androidx.sqlite.db.SimpleSQLiteQuery("SELECT * FROM local_node WHERE snapshotId = ?", arrayOf(snapshotId)))
+      .associateBy { it.entryId }
+
+  private fun outcome(nodes: Map<String, LocalNodeEntity>, id: String, state: DeletionState, at: Long = 9_000L) =
+    DeletionOutcome(nodes.getValue(id).toDeletionRow(), state, at)
+
+  private fun LocalNodeEntity.toDeletionRow() =
+    DeletionRow(entryId, sourceId, parentId, documentUri, name, sizeBytes, modifiedUtcMillis, status)
+
+  /**
+   * Each directory's three counts equal the `FILE` rows beneath it by status (`NULL` counts stay `NULL`),
+   * and `snapshot_counts` equals a `GROUP BY` over the remaining rows (zero rows may remain).
+   */
+  private suspend fun assertDeletionInvariant(snapshotId: String) {
+    val nodes = nodesById(snapshotId).values
+    val parentOf = nodes.associate { it.entryId to it.parentId }
+    val files = nodes.filter { it.kind == "FILE" }
+    for (dir in nodes.filter { it.kind == "DIRECTORY" }) {
+      if (dir.descSynced == null) continue
+      val beneath = files.filter { file -> generateSequence(file.parentId) { parentOf[it] }.any { it == dir.entryId } }
+      assertEquals(
+        "counts of ${dir.entryId}",
+        Triple(
+          beneath.count { it.status == "SYNCED" }.toLong(),
+          beneath.count { it.status == "UNSYNCED" }.toLong(),
+          beneath.count { it.status == "UNKNOWN" }.toLong(),
+        ),
+        Triple(dir.descSynced, dir.descUnsynced, dir.descUnknown),
+      )
+    }
+    val expected =
+      files.groupBy { it.sourceId to it.status }.mapValues { it.value.size.toLong() } +
+        files.groupBy { null to it.status }.mapValues { it.value.size.toLong() }
+    val actual = store.counts(snapshotId).filter { it.count != 0L }.associate { (it.sourceId to it.status) to it.count }
+    assertEquals(expected, actual)
+    assertTrue("no count goes negative", store.counts(snapshotId).all { it.count >= 0 })
   }
 
   /**

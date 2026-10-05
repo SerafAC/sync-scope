@@ -2,6 +2,14 @@ package com.syncscope.bridge
 
 import com.facebook.react.bridge.JavaOnlyArray
 import com.facebook.react.bridge.JavaOnlyMap
+import com.syncscope.deletion.DeletionPlanView
+import com.syncscope.deletion.DeletionResultView
+import com.syncscope.deletion.DeletionState
+import com.syncscope.deletion.FailureView
+import com.syncscope.deletion.GroupTotals
+import com.syncscope.remote.HostKeyChallenge
+import com.syncscope.remote.RemoteClientException
+import com.syncscope.remote.SftpHostKeyException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -170,5 +178,153 @@ class CloudSyncEnvelopeTest {
     assertEquals("The folder picker is already open.", body.getString("message"))
     assertEquals("Finish or close the picker, then try again.", body.getString("action"))
     assertFalse(body.hasKey("conflictingSource"))
+  }
+
+  @Test
+  fun errorOmitsFieldWhenNull() {
+    val body = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad filter.").getMap("error")!!
+
+    assertFalse(body.hasKey("field"))
+  }
+
+  @Test
+  fun errorCarriesFieldWhenGiven() {
+    val body = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad port.", field = "port").getMap("error")!!
+
+    assertEquals("port", body.getString("field"))
+  }
+
+  @Test
+  fun invalidFieldNamesTheFieldInErrorField() {
+    val body = envelope.invalidField("host", "it is required").getMap("error")!!
+
+    assertEquals("INVALID_QUERY", body.getString("code"))
+    assertEquals("host", body.getString("field"))
+    assertEquals("The repository host is invalid: it is required.", body.getString("message"))
+    assertEquals("Correct the host and save again.", body.getString("action"))
+  }
+
+  @Test
+  fun fieldIsNotRedacted() {
+    val body =
+      envelope
+        .error(CloudSyncErrorCode.INVALID_QUERY, "Bad root.", sensitive = listOf("remoteRoot"), field = "remoteRoot")
+        .getMap("error")!!
+
+    assertEquals("remoteRoot", body.getString("field"))
+  }
+
+  // --- deletion envelopes (contracts/cloudsync-mvp.md, T066) ---
+
+  @Test
+  fun deletionPlanHasExactlyTheContractFields() {
+    val plan =
+      DeletionPlanView(
+        token = "tok",
+        toDelete = GroupTotals(3, 3_000L),
+        unsynced = GroupTotals(2, 20L),
+        refusedCount = 4,
+        scanTooOld = 1,
+        movedByRecheck = 2,
+        missing = 5,
+        unknownSizeCount = 1,
+        remoteListedAtMillis = 1_704_067_200_000L,
+      )
+
+    val result = envelope.deletionPlan(plan)
+
+    assertEquals("ok", result.getString("status"))
+    val dto = result.getMap("plan")!!
+    assertEquals(
+      setOf("planToken", "toDelete", "unsynced", "refused", "movedByRecheck", "missing", "unknownSizeCount", "remoteListedAtMillis"),
+      dto.toHashMap().keys,
+    )
+    assertEquals("tok", dto.getString("planToken"))
+    assertEquals(3.0, dto.getMap("toDelete")!!.getDouble("count"), 0.0)
+    assertEquals(3_000.0, dto.getMap("toDelete")!!.getDouble("bytes"), 0.0)
+    assertEquals(setOf("count", "bytes"), dto.getMap("unsynced")!!.toHashMap().keys)
+    assertEquals(20.0, dto.getMap("unsynced")!!.getDouble("bytes"), 0.0)
+    assertEquals(setOf("count", "scanTooOld"), dto.getMap("refused")!!.toHashMap().keys)
+    assertEquals(4.0, dto.getMap("refused")!!.getDouble("count"), 0.0)
+    assertEquals(1.0, dto.getMap("refused")!!.getDouble("scanTooOld"), 0.0)
+    assertEquals(2.0, dto.getDouble("movedByRecheck"), 0.0)
+    assertEquals(5.0, dto.getDouble("missing"), 0.0)
+    assertEquals(1.0, dto.getDouble("unknownSizeCount"), 0.0)
+    assertEquals(1_704_067_200_000.0, dto.getDouble("remoteListedAtMillis"), 0.0)
+  }
+
+  @Test
+  fun deletionResultCarriesIdsAndNamesButNoUri() {
+    val result =
+      envelope.deletionResult(
+        DeletionResultView(
+          deleted = 2,
+          freedBytes = 300L,
+          failures =
+            listOf(
+              FailureView("e3", "beach.png", DeletionState.ALREADY_GONE),
+              FailureView("e4", "sunset.png", DeletionState.CHANGED),
+              FailureView("e5", "a.png", DeletionState.ACCESS_LOST),
+              FailureView("e6", "b.png", DeletionState.FAILED),
+            ),
+          removedEntryIds = listOf("e1", "e2", "e3"),
+        )
+      )
+
+    val dto = result.getMap("result")!!
+    assertEquals(setOf("deleted", "freedBytes", "failures", "removedEntryIds"), dto.toHashMap().keys)
+    assertEquals(2.0, dto.getDouble("deleted"), 0.0)
+    assertEquals(300.0, dto.getDouble("freedBytes"), 0.0)
+    val failures = dto.getArray("failures")!!
+    assertEquals(4, failures.size())
+    assertEquals(setOf("entryId", "name", "reason"), failures.getMap(0)!!.toHashMap().keys)
+    assertEquals(
+      listOf("ALREADY_GONE", "CHANGED", "ACCESS_LOST", "FAILED"),
+      (0 until failures.size()).map { failures.getMap(it)!!.getString("reason") },
+    )
+    assertEquals("beach.png", failures.getMap(0)!!.getString("name"))
+    val removed = dto.getArray("removedEntryIds")!!
+    assertEquals(listOf("e1", "e2", "e3"), (0 until removed.size()).map { removed.getString(it) })
+    assertFalse(result.toString().contains("content://"))
+  }
+
+  @Test
+  fun deletionRefusalsUseTheirContractText() {
+    for (code in listOf(CloudSyncErrorCode.REPOSITORY_CHANGED, CloudSyncErrorCode.PLAN_NOT_FOUND, CloudSyncErrorCode.PLAN_STALE, CloudSyncErrorCode.SCAN_IN_PROGRESS, CloudSyncErrorCode.DELETION_IN_PROGRESS)) {
+      val body = envelope.deletionRefused(code).getMap("error")!!
+      assertEquals(code.name, body.getString("code"))
+      assertEquals(code.defaultMessage, body.getString("message"))
+      assertEquals(code.defaultAction, body.getString("action"))
+    }
+    assertEquals("entryIds", envelope.deletionRefused(CloudSyncErrorCode.INVALID_QUERY).getMap("error")!!.getString("field"))
+    assertEquals(
+      "Set up your server in Settings › Repository.",
+      envelope.deletionRefused(CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED).getMap("error")!!.getString("action"),
+    )
+    for (code in listOf(CloudSyncErrorCode.SNAPSHOT_NOT_FOUND, CloudSyncErrorCode.STALE_GENERATION)) {
+      assertEquals(code.name, envelope.deletionRefused(code).getMap("error")!!.getString("code"))
+    }
+  }
+
+  @Test
+  fun aHostKeyFailureDuringDeletionSendsToSettingsWithoutAChallenge() {
+    val challenge = HostKeyChallenge("c1", "nas.example.com", 22, "ssh-ed25519", "AAAA", "SHA256:abc", null, 1L)
+    val body =
+      envelope.deletionRemoteFailure(SftpHostKeyException(CloudSyncErrorCode.SFTP_HOST_KEY_UNVERIFIED, challenge)).getMap("error")!!
+
+    assertEquals("SFTP_HOST_KEY_UNVERIFIED", body.getString("code"))
+    assertEquals("Check the server in Settings › Repository.", body.getString("action"))
+    assertFalse(body.hasKey("hostKeyChallenge"))
+  }
+
+  @Test
+  fun aConnectionFailureDuringDeletionKeepsItsCodeAndIsRedacted() {
+    val failure = RemoteClientException(CloudSyncErrorCode.CONNECTION_REFUSED, "No answer from nas.local for alice", "Check the server.")
+    val body = envelope.deletionRemoteFailure(failure, sensitive = listOf("nas.local", "alice")).getMap("error")!!
+
+    assertEquals("CONNECTION_REFUSED", body.getString("code"))
+    assertEquals("Check the server.", body.getString("action"))
+    assertFalse(body.getString("message")!!.contains("nas.local"))
+    assertFalse(body.getString("message")!!.contains("alice"))
   }
 }

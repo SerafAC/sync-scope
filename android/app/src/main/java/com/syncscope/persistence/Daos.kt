@@ -151,8 +151,45 @@ interface LocalNodeDao {
   /** A browse page: each row plus its `nameInOtherSource` probe (`0` for LIST reads). */
   @RawQuery suspend fun rows(query: SupportSQLiteQuery): List<LocalNodeRow>
 
+  /**
+   * "Select all" rows: `SELECT entryId, sizeBytes, status, mimeType LIKE 'image/%' AS isImage`, scoped by
+   * [SnapshotStore]'s shared where-clause builder (contracts/cloudsync-mvp.md "listSelectableEntries").
+   */
+  @RawQuery suspend fun selectable(query: SupportSQLiteQuery): List<SelectableRow>
+
   @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
   suspend fun anyPrecision(snapshotId: String): Long?
+
+  /** One row of [snapshotId] by its entry ID; null when it does not exist (or was removed by a deletion). */
+  @Query("SELECT * FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId")
+  suspend fun byEntry(snapshotId: String, entryId: String): LocalNodeEntity?
+
+  /** The `FILE` rows of [snapshotId] among [entryIds] (at most a few hundred per call). */
+  @Query("SELECT * FROM local_node WHERE snapshotId = :snapshotId AND kind = 'FILE' AND entryId IN (:entryIds)")
+  suspend fun filesByEntry(snapshotId: String, entryIds: List<String>): List<LocalNodeEntity>
+
+  /** The parent entry ID of a row; null for a direct child of its source root or an unknown entry. */
+  @Query("SELECT parentId FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId")
+  suspend fun parentOf(snapshotId: String, entryId: String): String?
+
+  /** Deletion write rule step 1 (data-model): removes one `FILE` row; returns the number removed (0 or 1). */
+  @Query("DELETE FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND kind = 'FILE'")
+  suspend fun deleteFile(snapshotId: String, entryId: String): Int
+
+  /**
+   * Deletion write rule step 3: takes one file of [status] off the descendant count of each directory in
+   * [directoryIds]. Pre-v3 `NULL` counts stay `NULL` (`NULL - 1` is `NULL`).
+   */
+  @Query(
+    """
+    UPDATE local_node SET
+      descSynced = CASE WHEN :status = 'SYNCED' THEN descSynced - 1 ELSE descSynced END,
+      descUnsynced = CASE WHEN :status = 'UNSYNCED' THEN descUnsynced - 1 ELSE descUnsynced END,
+      descUnknown = CASE WHEN :status = 'UNKNOWN' THEN descUnknown - 1 ELSE descUnknown END
+    WHERE snapshotId = :snapshotId AND kind = 'DIRECTORY' AND entryId IN (:directoryIds)
+    """
+  )
+  suspend fun decrementDescendantCounts(snapshotId: String, directoryIds: List<String>, status: String): Int
 
   /** The document behind a `FILE` row, for local image handles; null for a directory or an unknown entry. */
   @Query(
@@ -160,6 +197,9 @@ interface LocalNodeDao {
   )
   suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry?
 }
+
+/** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
+data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isImage: Boolean)
 
 /** The local document of one `FILE` row. Never crosses the bridge. */
 data class ImageEntry(val documentUri: String, val mimeType: String?)
@@ -211,6 +251,16 @@ interface RemoteMatchKeyDao {
   )
   suspend fun candidates(snapshotId: String, name: String, sizeBytes: Long): List<RemoteMatchKeyEntity>
 
+  /** The one key of [snapshotId] with exactly this name, size, precision and bucket (the unique index). */
+  @Query(
+    """
+    SELECT * FROM remote_match_key
+    WHERE snapshotId = :snapshotId AND name = :name AND sizeBytes = :sizeBytes
+      AND precisionMillis = :precisionMillis AND bucket = :bucket
+    """
+  )
+  suspend fun exact(snapshotId: String, name: String, sizeBytes: Long, precisionMillis: Long, bucket: Long): RemoteMatchKeyEntity?
+
   @Query("SELECT precisionMillis FROM remote_match_key WHERE snapshotId = :snapshotId LIMIT 1")
   suspend fun anyPrecision(snapshotId: String): Long?
 
@@ -220,8 +270,8 @@ interface RemoteMatchKeyDao {
   /** LOCAL_REFRESH: copies every match key of [fromSnapshotId] into [toSnapshotId] (new row IDs). */
   @Query(
     """
-    INSERT INTO remote_match_key (snapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount)
-    SELECT :toSnapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount
+    INSERT INTO remote_match_key (snapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount, directories)
+    SELECT :toSnapshotId, name, sizeBytes, precisionMillis, bucket, duplicateCount, directories
       FROM remote_match_key
      WHERE snapshotId = :fromSnapshotId
     """
@@ -262,6 +312,18 @@ interface SnapshotCountsDao {
 
   @Query("SELECT * FROM snapshot_counts WHERE snapshotId = :snapshotId")
   suspend fun forSnapshot(snapshotId: String): List<SnapshotCountsEntity>
+
+  /**
+   * Deletion write rule step 2: takes one file of [status] off the [sourceId] row and off the all-sources
+   * (`sourceId IS NULL`) row.
+   */
+  @Query(
+    """
+    UPDATE snapshot_counts SET count = count - 1
+    WHERE snapshotId = :snapshotId AND status = :status AND (sourceId = :sourceId OR sourceId IS NULL)
+    """
+  )
+  suspend fun decrement(snapshotId: String, sourceId: String, status: String): Int
 }
 
 @Dao

@@ -20,6 +20,8 @@ import type {
   QuerySpec,
   StatusCountDto,
 } from '../../native/CloudSyncContracts';
+import { ScanContext, type ScanState } from '../../scan/useScan';
+import { SelectionProvider } from '../../selection/SelectionProvider';
 import { a11ySweep } from '../../test-utils/a11ySweep';
 import { ListScreen, formatSize } from '../ListScreen';
 
@@ -154,6 +156,25 @@ function fakeTree(
   return Promise.resolve(ok(children(parentId, query.filter), counts));
 }
 
+function scanState(snapshotId: string | null): ScanState {
+  return {
+    run: null,
+    active:
+      snapshotId == null
+        ? null
+        : ({ snapshotId } as unknown as ScanState['active']),
+    interrupted: null,
+    loading: false,
+    error: null,
+    isRunning: false,
+    isStale: false,
+    scan: jest.fn(),
+    cancel: jest.fn(),
+    refresh: jest.fn(),
+    dismissError: jest.fn(),
+  };
+}
+
 function renderList(overrides: Partial<FilesViewProps> = {}) {
   const props: FilesViewProps = {
     snapshotId: 'snap-1',
@@ -165,10 +186,14 @@ function renderList(overrides: Partial<FilesViewProps> = {}) {
   };
   const result = render(
     <PaperProvider theme={MD3LightTheme}>
-      <FilesProvider>
-        <FilterChips counts={null} />
-        <ListScreen {...props} />
-      </FilesProvider>
+      <ScanContext.Provider value={scanState(props.snapshotId)}>
+        <FilesProvider>
+          <SelectionProvider>
+            <FilterChips counts={null} />
+            <ListScreen {...props} />
+          </SelectionProvider>
+        </FilesProvider>
+      </ScanContext.Provider>
     </PaperProvider>,
   );
   return { ...result, props };
@@ -347,5 +372,95 @@ describe('ListScreen', () => {
     fireEvent.press(screen.getByLabelText('Folder Gallery, 6 matching'));
     await screen.findByLabelText('beach.png, Synced');
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('selection (FR-015, FR-017, Story 5 sc. 7)', () => {
+    async function openGallerySource() {
+      const result = renderList();
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+      await screen.findByLabelText('beach.png, Synced');
+      return result;
+    }
+
+    it('does nothing on a file tap before anything is selected', async () => {
+      await openGallerySource();
+      fireEvent.press(screen.getByLabelText('beach.png, Synced'));
+
+      expect(screen.getByLabelText('beach.png, Synced')).not.toBeSelected();
+      expect(screen.queryByTestId('list-row-selected')).toBeNull();
+    });
+
+    it('starts on a long-press and toggles file rows on a tap, with a check mark', async () => {
+      await openGallerySource();
+      fireEvent(screen.getByLabelText('beach.png, Synced'), 'longPress');
+
+      const beach = await screen.findByLabelText('beach.png, Synced, selected');
+      expect(beach).toBeSelected();
+      expect(beach.props.accessible).toBe(true);
+      expect(within(beach).getByTestId('list-row-selected')).toBeOnTheScreen();
+
+      fireEvent.press(screen.getByLabelText('harbor.png, Unsynced'));
+      expect(
+        await screen.findByLabelText('harbor.png, Unsynced, selected'),
+      ).toBeSelected();
+
+      fireEvent.press(screen.getByLabelText('beach.png, Synced, selected'));
+      expect(
+        await screen.findByLabelText('beach.png, Synced'),
+      ).not.toBeSelected();
+      expect(screen.getAllByTestId('list-row-selected')).toHaveLength(1);
+    });
+
+    it('never selects a directory: a long-press does nothing and a tap opens it, keeping the selection', async () => {
+      await openGallerySource();
+      fireEvent(screen.getByLabelText('Folder album, 2 matching'), 'longPress');
+      expect(screen.queryByLabelText(/, selected$/)).toBeNull();
+
+      fireEvent(screen.getByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      fireEvent.press(screen.getByLabelText('Folder album, 2 matching'));
+      expect(
+        await screen.findByLabelText('forest.png, Synced'),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText('Breadcrumb album')).toBeOnTheScreen();
+
+      // Selecting continues in the new folder: a tap toggles.
+      fireEvent.press(screen.getByLabelText('forest.png, Synced'));
+      expect(
+        await screen.findByLabelText('forest.png, Synced, selected'),
+      ).toBeSelected();
+
+      // Back at the source root, beach.png is still selected.
+      fireEvent.press(screen.getByLabelText('Breadcrumb Gallery'));
+      expect(
+        await screen.findByLabelText('beach.png, Synced, selected'),
+      ).toBeSelected();
+    });
+
+    it('opens a source while selecting and keeps the selection', async () => {
+      await openGallerySource();
+      fireEvent(screen.getByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      fireEvent.press(screen.getByLabelText('Breadcrumb All folders'));
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+
+      expect(
+        await screen.findByLabelText('beach.png, Synced, selected'),
+      ).toBeSelected();
+    });
+
+    it('passes the a11y sweep while selecting', async () => {
+      const result = await openGallerySource();
+      fireEvent(screen.getByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      expect(() => a11ySweep(result)).not.toThrow();
+    });
   });
 });

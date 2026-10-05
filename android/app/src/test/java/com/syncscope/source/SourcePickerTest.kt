@@ -23,8 +23,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -45,6 +45,7 @@ class SourcePickerTest {
   private lateinit var picker: SourcePicker
 
   private val camera = treeUri("primary:DCIM/Camera")
+  private val dcim = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:DCIM")
 
   @Before
   fun setUp() {
@@ -72,10 +73,21 @@ class SourcePickerTest {
     assertTrue(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
     assertTrue(flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION != 0)
     assertTrue(flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0)
-    assertNull(intent.extras?.get(DocumentsContract.EXTRA_INITIAL_URI))
     assertEquals(SourcePicker.REQUEST_CODE, requestCode)
 
     picker.onActivityResult(activity, requestCode, Activity.RESULT_CANCELED, null)
+    result.await()
+    Unit
+  }
+
+  @Test
+  fun addingAFolderStartsThePickerInDcim() = runBlocking {
+    val result = launch(null)
+    val (intent, _) = activity.awaitStart()
+
+    @Suppress("DEPRECATION")
+    assertEquals(dcim, intent.extras?.get(DocumentsContract.EXTRA_INITIAL_URI))
+    picker.onActivityResult(activity, SourcePicker.REQUEST_CODE, Activity.RESULT_CANCELED, null)
     result.await()
     Unit
   }
@@ -145,15 +157,24 @@ class SourcePickerTest {
   }
 
   @Test
-  fun aRegrantLaunchStartsAtTheSourcesTreeUri() = runBlocking {
+  fun aRegrantLaunchStartsAtTheSourcesOwnFolder() = runBlocking {
     operations.onPicked(camera, null)
     val sourceId = db.sourceRootDao().all().single().sourceId
 
     val result = launch(sourceId)
     val (intent, _) = activity.awaitStart()
 
+    // DocumentsUI ignores a bare tree URI as EXTRA_INITIAL_URI and opens at the storage root, so
+    // the source's tree is passed as the document URI of its own top folder.
+    val tree = Uri.parse(camera)
     @Suppress("DEPRECATION")
-    assertEquals(Uri.parse(camera), intent.extras?.get(DocumentsContract.EXTRA_INITIAL_URI))
+    assertEquals(
+      DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
+      intent.extras?.get(DocumentsContract.EXTRA_INITIAL_URI),
+    )
+    // The DCIM start applies only when adding: a re-grant never opens at DCIM.
+    @Suppress("DEPRECATION")
+    assertNotEquals(dcim, intent.extras?.get(DocumentsContract.EXTRA_INITIAL_URI))
     picker.onActivityResult(activity, SourcePicker.REQUEST_CODE, Activity.RESULT_OK, Intent().setData(Uri.parse(camera)))
     assertEquals("REGRANTED", withTimeout(TIMEOUT) { result.await() }.getString("outcome"))
   }

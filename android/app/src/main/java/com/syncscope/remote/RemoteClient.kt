@@ -36,6 +36,8 @@ data class RemoteConfig(
   val port: Int,
   val username: String,
   val rootPath: String = "/",
+  /** WebDAV only: connect over HTTPS instead of plain HTTP (research R4). */
+  val webdavHttps: Boolean = false,
 ) {
   /** Values that must be scrubbed from anything that crosses the bridge. */
   val sensitiveValues: List<String>

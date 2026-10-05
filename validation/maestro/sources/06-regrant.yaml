@@ -1,7 +1,8 @@
 # requires: 05-revoked-unavailable
 # US1-6 then US1-5: Re-grant accepts only the same folder. A different folder
 # is rejected and the source stays "Access lost"; the same folder makes it
-# "Available" again with its original alias.
+# "Available" again with its original alias. 006 Story 3 sc. 3: the re-grant
+# picker opens at the source's folder, not at DCIM.
 appId: com.syncscope
 name: sources/06-regrant
 ---
@@ -25,6 +26,13 @@ name: sources/06-regrant
     childOf:
       id: "sources.row"
       index: 0
+# 006 Story 3 sc. 3: a re-grant starts at the source's own folder, never at the
+# DCIM start used when adding. Asserted on the DocumentsUI header ("Files in
+# <folder>" on API 31 and API 36).
+- extendedWaitUntil:
+    visible: "(?i)files in Camera"
+    timeout: 15000
+- assertNotVisible: "(?i)files in DCIM"
 - runFlow:
     file: ../subflows/pick-folder.yaml
     env:
