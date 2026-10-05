@@ -33,11 +33,11 @@
 
 - Platform terms (APK, Android API level, Maestro, debug deep links) appear on purpose: they are the
   product's delivery format and the constitution's proof bar (Principle V), named the same way in specs
-  002–005 and 009. No code structure, library or storage choice is prescribed.
+  002–005 and 010. No code structure, library or storage choice is prescribed.
 - Scope (updated 2026-10-02 by user decision): the read-only loop on the owner's phone plus multi-select
   with a total-size readout in the selection bar's bottom-left corner and safe two-phase local deletion,
-  absorbing former feature 008, plus version derivation (moved from 009 by the 2026-10-02 analysis).
-  Excluded: tree view and preview, including selection there (007), and hidden files and retention (009).
+  absorbing former feature 009, plus version derivation (moved from 010 by the 2026-10-02 analysis).
+  Excluded: tree view and preview, including selection there (008), and hidden files and retention (010).
 - Selection behaviours chosen as informed defaults, not asked: long-press to start, "select all" within
   the current filter and folder, selection kept across view and filter changes and cleared on a new
   snapshot, directories not selectable, unknown sizes counted separately.

@@ -1,6 +1,6 @@
 # Feature Specification: Browsable Tree View and Image Preview
 
-**Feature Branch**: `007-tree-view-image-preview`
+**Feature Branch**: `008-tree-view-image-preview`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S05)
 
@@ -13,8 +13,10 @@
 > verbatim in meaning. It has not been clarified or planned yet: complete it with `/speckit-specify` and
 > `/speckit-clarify` when this feature starts, then `/speckit-plan`.
 
-**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md) and [006-mvp](../006-mvp/spec.md)
-(selection model, selection bar and deletion).
+**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md), [006-mvp](../006-mvp/spec.md)
+(selection model, selection bar and deletion) and
+[007-sort-scroll-remote-folders](../007-sort-scroll-remote-folders/spec.md) (the view-mode drop-down, where
+tree view becomes the third choice, the sort contract and keeping the scroll position on new results).
 
 ## Dependencies
 
@@ -85,7 +87,7 @@ Supporting requirements (primary FR in another feature):
 - R011 (feature 005): the all / synced / unsynced / issues-unknown filter applies consistently in tree
   view.
 - R021 (feature 005): tree view and preview use the Material 3 shell and accessibility labels.
-- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+- R022 (feature 010): `./docs` is updated in the same change as this feature's behaviour.
 
 ## Selection in tree view and preview
 
@@ -96,7 +98,7 @@ completing selection parity across all three views. Directories stay unselectabl
 
 ## Provides
 
-To feature 009 (full loop and release): tree view and preview with selection parity, for the full-loop
+To feature 010 (full loop and release): tree view and preview with selection parity, for the full-loop
 flow's "browse, select" steps.
 
 (`getLocalImageHandle` is no longer provided here: feature 005 implements it, see Dependencies.)

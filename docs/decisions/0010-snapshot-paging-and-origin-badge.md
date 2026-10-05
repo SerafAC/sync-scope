@@ -41,4 +41,4 @@ disambiguate identical-looking tiles.
 - Requirements: R008, R009, R010, R011
 - Features: [005](../../specs/005-gallery-list-filtering/spec.md) (gallery, list view and the refined
   badge rule, [research R5](../../specs/005-gallery-list-filtering/research.md#r5-duplicate-tiles-and-the-origin-badge-clarification-1-fr-001)),
-  specs/007-tree-view-image-preview
+  specs/008-tree-view-image-preview

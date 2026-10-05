@@ -38,4 +38,4 @@ end.
 - Requirements: R005, R020, R021
 - Features: specs/003-local-source-selection, specs/004-scan-engine-matching,
   specs/005-gallery-list-filtering, specs/006-mvp,
-  specs/007-tree-view-image-preview, specs/009-full-loop-release
+  specs/008-tree-view-image-preview, specs/010-full-loop-release

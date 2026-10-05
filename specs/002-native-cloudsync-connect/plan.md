@@ -57,18 +57,18 @@ This feature proves **Contract + Integration**.
   timestamp precision. There are no fixtures and no mocks in the protocol path. The protocol-audit teardown
   is part of the assertion, not a separate check.
 
-API 36 and Maestro end-to-end flows are out of this feature's proof level; they are feature 009's
+API 36 and Maestro end-to-end flows are out of this feature's proof level; they are feature 010's
 integration closure.
 
 ## Integration closure
 
-This is the first feature and consumes nothing. It closes by handing features 003–009:
+This is the first feature and consumes nothing. It closes by handing features 003–010:
 
 - a resolvable `TurboModuleRegistry.get('CloudSync')`, the precondition R019 names for the whole roadmap;
 - a `RemoteClient` listing contract with `precisionMillis` for feature 004's matcher;
 - the `CloudSyncError` code/message/action envelope vocabulary that feature 004 reuses for `issueCode`;
 - a working `SnapshotStore`, `SnapshotQuery` and `PageTokenCodec` that feature 004 populates and features
-  005 and 007 page through.
+  005 and 008 page through.
 
 This was verified by asserting on device that the module resolves and returns contract version 1 from JS,
 and by the full JVM suite being green rather than uncompilable.
@@ -111,8 +111,8 @@ feature was built.
 | II. Build Only What Is Needed (YAGNI) | PASS | Only `getContractVersion` and the five repository and host-key methods this feature owns were implemented; the other 13 spec methods resolve `NOT_IMPLEMENTED`. The full persistence layer was built because the existing test suite pinned it ([D013](../../docs/decisions/0013-full-persistence-layer-in-s01.md)). |
 | III. Single Source of Truth (DRY) | PASS | `CloudSyncContracts.kt` mirrors `src/native/CloudSyncContracts.ts`, and `CloudSyncContractsParityTest` fails the build on drift. Codegen produces the spec base class; it is not hand-written. |
 | IV. Unit Tests for All Code | PASS | Each task shipped JVM tests (`CloudSyncEnvelopeTest`, `CloudSyncModuleTest`, `FtpPrecisionTest`, `TofuHostKeyVerifierTest`, `SftpRemoteClientTest`, `PropfindParserTest`, `RepositoryConfigBoundaryTest`, and the persistence suite). 120 JVM tests pass. |
-| V. End-to-End Coverage | PASS (API 31) | `ProtocolConnectInstrumentedTest` covers FTP, SFTP and WebDAV against live containers, and each acceptance scenario maps to a named test in [spec.md](./spec.md). API 36 and Maestro flows are feature 009's closure (R019, R020). |
-| VI. Versioning + CHANGELOG | PASS with deferral | `CHANGELOG.md` gained an `Unreleased` entry for this feature in merge commit `82188c4`. The `versionName` / `package.json` mismatch predates this feature and is assigned to feature 009. |
+| V. End-to-End Coverage | PASS (API 31) | `ProtocolConnectInstrumentedTest` covers FTP, SFTP and WebDAV against live containers, and each acceptance scenario maps to a named test in [spec.md](./spec.md). API 36 and Maestro flows are feature 010's closure (R019, R020). |
+| VI. Versioning + CHANGELOG | PASS with deferral | `CHANGELOG.md` gained an `Unreleased` entry for this feature in merge commit `82188c4`. The `versionName` / `package.json` mismatch predates this feature and is assigned to feature 010. |
 | VII. `./docs` mandatory | PASS | `docs/README.md` and `docs/architecture.md` were added in the merge commit that brought this feature to `master`. |
 | VIII. README user-facing | N/A | No user-visible UI change. |
 | IX. DEVELOPMENT.md | PASS | Environment gotchas found while building this feature are recorded in `DEVELOPMENT.md`. |
@@ -174,4 +174,4 @@ packages (`bridge`, `credential`, `persistence`, `remote`); JS stays presentatio
 ## Complexity Tracking
 
 No violations introduced by this feature. The pre-existing Principle VI version-source gap is tracked in
-feature 009.
+feature 010.

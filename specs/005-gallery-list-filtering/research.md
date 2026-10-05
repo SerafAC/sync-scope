@@ -121,7 +121,7 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
     to `BitmapFactory` with `inSampleSize`.
   - The result is written as JPEG (quality 85) to `cacheDir/thumbnails/<sha256(entryId|maxEdge)>.jpg`,
     reused when present, and returned as `{ uri: "file://…" }`.
-  - `maxEdgePx` is clamped to 64…2048. The gallery asks for 256; 007's preview will ask for the screen's
+  - `maxEdgePx` is clamped to 64…2048. The gallery asks for 256; 008's preview will ask for the screen's
     long edge.
   - Work runs on `Dispatchers.IO.limitedParallelism(4)`, so a fast fling cannot start hundreds of decodes.
 - **Errors**: a new code `IMAGE_UNAVAILABLE` ("This image could not be read on the device." / "Check that
@@ -170,7 +170,7 @@ considered. Code references are to the tree at commit `44a540a` (feature 004 mer
 ## R10. Filter state shared across views
 
 - **Decision**: a `FilesProvider` around the Files tab holds `{ view: 'GALLERY' | 'LIST', filter }` in React
-  state. Gallery and list (and 007's tree) read the same filter. It is not persisted across restarts (the
+  state. Gallery and list (and 008's tree) read the same filter. It is not persisted across restarts (the
   clarify session left this as low-impact; the default is `ALL`).
 - **Rationale**: FR-003 requires consistency across views, not persistence. In-memory state is the
   simplest way to meet it.

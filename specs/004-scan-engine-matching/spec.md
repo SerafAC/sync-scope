@@ -141,8 +141,8 @@ silently partial snapshot leads directly to deleting files that are not backed u
 
 Supporting requirements (primary FR in another feature):
 
-- R020 (feature 009): the scan loop is proven by a Maestro flow against live containers.
-- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+- R020 (feature 010): the scan loop is proven by a Maestro flow against live containers.
+- R022 (feature 010): `./docs` is updated in the same change as this feature's behaviour.
 
 ### Key Entities
 
@@ -169,7 +169,7 @@ To feature 005 (gallery, list and filtering, M001/S03 → M001/S04):
 - The active-snapshot invariant: only a completed run is ever promoted, and the remote listing's age is
   readable.
 
-To feature 007 (tree view and preview, M001/S03 → M001/S05):
+To feature 008 (tree view and preview, M001/S03 → M001/S05):
 
 - Working `queryTreeChildren(snapshotId, parentId, querySpec, pageToken)` for parent-scoped listing,
   backed by `index_local_node_snapshotId_sourceId_parentId_kind_name`.

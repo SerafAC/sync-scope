@@ -369,7 +369,7 @@ the alternatives rejected. Code references are to the state after feature 005.
   A Gradle task `:app:printVersion` prints `versionName=…` and `versionCode=…`. A script-contract test runs
   it and compares the output with the values it computes from `package.json` (FR-022, the "test MUST
   prove the derivation"). Release-smoke checks the installed APK the same way.
-- **Rationale**: this was moved from 009 FR-004 by the 2026-10-02 analysis (constitution VI). The APK
+- **Rationale**: this was moved from 010 FR-004 by the 2026-10-02 analysis (constitution VI). The APK
   this feature ships is the first one meant for a real phone, and Android shows its version in app info.
   `package.json` stays the single source (Principle III).
 - **Alternatives rejected**:

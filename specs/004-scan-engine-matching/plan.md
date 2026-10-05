@@ -158,7 +158,7 @@ open runs whichever tab is showing.
 
 ## Integration closure
 
-This feature hands feature 005 and feature 007:
+This feature hands feature 005 and feature 008:
 
 - a published `snapshot` whose `local_node` rows all carry `status`, `issueCode`, `parentId` and `kind`,
   with directory statuses rolled up;

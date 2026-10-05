@@ -118,7 +118,7 @@ export const findChildDirectory: FindChildDirectory = async (
  * name from the source root and stops at the deepest level that still
  * exists, or returns to the sources list when the source itself is gone.
  *
- * Feature 007's tree view reuses this stack and breadcrumb.
+ * Feature 008's tree view reuses this stack and breadcrumb.
  */
 export function useListNavigation({
   snapshotId,

@@ -93,10 +93,10 @@ multi-folder selection there is nothing to scan.
 
 Supporting requirements (primary FR in another feature):
 
-- R020 (feature 009): this feature's user-visible claims are proven by a Maestro flow against a real
+- R020 (feature 010): this feature's user-visible claims are proven by a Maestro flow against a real
   emulator; this feature creates `validation/maestro/` and sets the selector and assertion conventions
   later flows follow ([D012](../../docs/decisions/0012-maestro-e2e-proof-bar.md)).
-- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+- R022 (feature 010): `./docs` is updated in the same change as this feature's behaviour.
 
 ### Key Entities
 

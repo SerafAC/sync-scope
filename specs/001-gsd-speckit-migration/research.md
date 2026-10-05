@@ -155,9 +155,9 @@ finding can be re-checked.
   | S02 | `003-local-source-selection` |
   | S03 | `004-scan-engine-matching` |
   | S04 | `005-gallery-list-filtering` |
-  | S05 | `007-tree-view-image-preview` |
-  | S06 | `008-multiselect-local-deletion` |
-  | S07 | `009-full-loop-release` |
+  | S05 | `008-tree-view-image-preview` |
+  | S06 | `009-multiselect-local-deletion` |
+  | S07 | `010-full-loop-release` |
 
   These are created with the Spec Kit sequential numbering already configured
   (`.specify/init-options.json` → `feature_numbering: sequential`).

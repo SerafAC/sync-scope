@@ -166,7 +166,7 @@ nearest ancestor that still exists ([R2](../specs/005-gallery-list-filtering/res
 
 `getLocalImageHandle(snapshotId, entryId, {maxEdgePx})` returns a `file://` URI of a downscaled JPEG in the
 app's cache, `cacheDir/thumbnails/`, named by a hash of the entry ID and the edge. The edge is clamped to
-64…2048 px on both sides of the bridge, gallery tiles ask for 256 px, and feature 007's preview reuses the
+64…2048 px on both sides of the bridge, gallery tiles ask for 256 px, and feature 008's preview reuses the
 method with the screen's long edge. `LocalImageStore` (the `image` package) serves a cached file without
 decoding, and otherwise decodes through `ContentResolver.loadThumbnail` with a `BitmapFactory` fallback, at
 most four decodes at once. It reads local storage only, never opens a remote connection (R026) and never
@@ -261,7 +261,7 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | `src/setup/` | `useSetupChecklist`, the derived "server set up, folder available" state behind the Scan tab's checklist and the Files tab's empty state. |
 | `src/selection/` | Multi-select and deletion (feature 006): `SelectionProvider`, `summary.ts`, `formatBytes.ts`, `SelectionBar` and `DeleteFlow`. |
 | `src/theme/` | The Material 3 shell: Paper and navigation themes, spacing and density, status and filter labels. |
-| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 007 reuses the hooks for the tree view. |
+| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 008 reuses the hooks for the tree view. |
 | `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
 | `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
@@ -323,11 +323,11 @@ Environment prerequisites and known pitfalls are in [DEVELOPMENT.md](../DEVELOPM
 ## Not yet implemented
 
 2 spec methods still resolve a typed `NOT_IMPLEMENTED` envelope: `getSettings` and `setIncludeHidden`, the
-include-hidden-files setting. Scans run with `includeHidden = false` until then. Feature 009 owns them,
+include-hidden-files setting. Scans run with `includeHidden = false` until then. Feature 010 owns them,
 reassigned from 005 ([005 spec, Dependencies](../specs/005-gallery-list-filtering/spec.md#dependencies)).
 
 `prepareLocalDeletion` and `executeLocalDeletion` were delivered by feature 006 (MVP), together with the
 new `listSelectableEntries`.
 
-`getLocalImageHandle` moved from feature 007 to feature 005, which delivers it for the gallery thumbnails;
-007 reuses it for the full preview.
+`getLocalImageHandle` moved from feature 008 to feature 005, which delivers it for the gallery thumbnails;
+008 reuses it for the full preview.

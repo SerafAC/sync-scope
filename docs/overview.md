@@ -36,9 +36,9 @@ like a clean one. See [sync and deletion safety](./sync-and-deletion-safety.md).
 4. **Browse and filter** the results on the **Files** tab in gallery, list or tree view (R008, R009,
    R010), filtered to all, synced, unsynced or issues-unknown (R011), with an image preview from any view
    (R014). Gallery and list view, with the filters, are delivered by feature 005; tree view and preview by
-   feature 007.
+   feature 008.
 5. **Select** files, from any of the three views (R012). A selection bar shows the count and total size.
-   Gallery and list view are delivered by feature 006 (MVP); tree view and preview by feature 007.
+   Gallery and list view are delivered by feature 006 (MVP); tree view and preview by feature 008.
 6. **Delete locally**, after the selected backed-up files are re-checked on the server and an honest
    pre-flight breakdown of what will happen (R012, R013,
    [D020](./decisions/0020-pre-delete-server-recheck.md)). Only files are deleted, never folders and never

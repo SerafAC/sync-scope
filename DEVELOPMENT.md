@@ -638,7 +638,7 @@ symlink. Unit tests also need JDK 21 through the Gradle toolchain (see MEM015 ab
   feature 003, and the API 36 AVD is provisioned as described in
   [Validation emulators](#validation-emulators). The live connect gate still runs on API 31 only
   (`pnpm validation:android:api31`); `pnpm validation:android:api36` exists but is not part of the gate
-  yet. Adding API 36 to the connect gate belongs to feature 009 (`specs/009-full-loop-release`).
+  yet. Adding API 36 to the connect gate belongs to feature 010 (`specs/010-full-loop-release`).
 
 ### An AVD with no SD card image (feature 003)
 

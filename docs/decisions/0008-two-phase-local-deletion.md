@@ -63,5 +63,5 @@ details changed (research R13 and R14):
 ## Related
 
 - Requirements: R012, R013
-- Features: specs/006-mvp (absorbed specs/008-multiselect-local-deletion; research R13, R14)
+- Features: specs/006-mvp (absorbed specs/009-multiselect-local-deletion; research R13, R14)
 - Decisions: [D006](./0006-unknown-status-never-deletable.md), [D020](./0020-pre-delete-server-recheck.md)

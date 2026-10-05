@@ -1,6 +1,6 @@
 # Feature Specification: Full-Loop Integration, Docs and Release APK
 
-**Feature Branch**: `009-full-loop-release`
+**Feature Branch**: `010-full-loop-release`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S07)
 
@@ -17,9 +17,10 @@
 [003-local-source-selection](../003-local-source-selection/spec.md),
 [004-scan-engine-matching](../004-scan-engine-matching/spec.md),
 [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md),
-[006-mvp](../006-mvp/spec.md) and
-[007-tree-view-image-preview](../007-tree-view-image-preview/spec.md). Feature
-[008](../008-multiselect-local-deletion/spec.md) was merged into 006.
+[006-mvp](../006-mvp/spec.md),
+[007-sort-scroll-remote-folders](../007-sort-scroll-remote-folders/spec.md) and
+[008-tree-view-image-preview](../008-tree-view-image-preview/spec.md). Feature
+[009](../009-multiselect-local-deletion/spec.md) was merged into 006.
 
 ## Dependencies (integration closure)
 
@@ -29,9 +30,9 @@ Consumes from all prior features (M001/S01–S06 → M001/S07): the assembled lo
 - persisted local sources with durable SAF grants (feature 003);
 - a completed snapshot with SYNCED, UNSYNCED and UNKNOWN statuses (feature 004);
 - the Connect (repository) screen, first-run guidance and the installable APK build (feature 006);
-- the three browsable views, gallery and list (feature 005) and tree with preview (feature 007);
+- the three browsable views, gallery and list (feature 005) and tree with preview (feature 008);
 - multi-select with the selection size, and two-phase local deletion with per-file outcomes (feature 006,
-  which absorbed feature 008).
+  which absorbed feature 009).
 
 This feature exercises that loop end to end on both API 31 and API 36, and documents it in `./docs` and
 `README.md`.

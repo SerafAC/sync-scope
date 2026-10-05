@@ -380,19 +380,19 @@ Spec Kit points at 003.
   - Depends on 004.
   - Primary requirements R008, R009, R011 and R021. Supporting R020 and R022.
   - Include the demo and the S04→S05 and S04→S06 outputs.
-- [X] T034 [P] [US3] Seed `specs/007-tree-view-image-preview/spec.md` from M001/S05:
+- [X] T034 [P] [US3] Seed `specs/008-tree-view-image-preview/spec.md` from M001/S05:
   - Status `Draft (seeded)`.
   - Depends on 005.
   - Primary requirements R010 and R014. Supporting R011, R021 and R022.
   - Add the open detail from R010's Notes (directories filtered to empty stay visible, dimmed, with a
     count) as a `[NEEDS CLARIFICATION]` item.
   - Include the demo and the S05→S06 outputs.
-- [X] T035 [P] [US3] Seed `specs/008-multiselect-local-deletion/spec.md` from M001/S06:
+- [X] T035 [P] [US3] Seed `specs/009-multiselect-local-deletion/spec.md` from M001/S06:
   - Status `Draft (seeded)`.
   - Depends on 005 and 006.
   - Primary requirements R012 and R013. Supporting R015, R021 and R022.
   - Include the demo and the S06→S07 outputs.
-- [X] T036 [P] [US3] Seed `specs/009-full-loop-release/spec.md` from M001/S07:
+- [X] T036 [P] [US3] Seed `specs/010-full-loop-release/spec.md` from M001/S07:
   - Status `Draft (seeded)`.
   - Depends on 002–007.
   - Primary requirements R019, R020 and R022. Their existing wording already covers API 36; cite them and
@@ -444,7 +444,7 @@ Principles VI–IX.
   - The Spec Kit workflow (specify → clarify → plan → tasks → implement), with `.specify/feature.json` as
     the active-feature pointer.
   - Versioning: the `version` in `package.json` is the single source of truth, and aligning `versionName`
-    is tracked in `specs/009-full-loop-release`.
+    is tracked in `specs/010-full-loop-release`.
   - The release and CHANGELOG procedure.
   - Links to `docs/` for technical depth.
 - [X] T041 [P] [US5] Extend `CHANGELOG.md` under `## [Unreleased]`:
