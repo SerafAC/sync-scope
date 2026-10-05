@@ -107,7 +107,7 @@ describe('useRepository', () => {
     testMock.mockReturnValue(new Promise(resolve => (finishTest = resolve)));
     const {result} = renderHook(() => useRepository());
 
-    let pending: Promise<void> = Promise.resolve();
+    let pending: Promise<boolean> = Promise.resolve(false);
     act(() => {
       pending = result.current.saveAndTest(CONFIG, 'secret');
     });

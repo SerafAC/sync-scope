@@ -34,12 +34,13 @@ export interface UseRepositoryResult {
   /**
    * Saves [config] and then tests the connection. [password] goes straight to
    * the native call and is never kept here; null or empty keeps the stored one
-   * for the same server and account.
+   * for the same server and account. Resolves true when the configuration
+   * was saved, whatever the test then found.
    */
   saveAndTest: (
     config: RepositoryConfigInput,
     password: string | null,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   /** Trusts the prompted SFTP key, then tests again. */
   trust: () => Promise<void>;
   /** Rejects the prompted SFTP key; nothing is trusted. */
@@ -109,16 +110,20 @@ export function useRepository(): UseRepositoryResult {
   );
 
   const saveAndTest = useCallback(
-    (config: RepositoryConfigInput, password: string | null) =>
-      guarded(async () => {
+    async (config: RepositoryConfigInput, password: string | null) => {
+      let stored = false;
+      await guarded(async () => {
         update({kind: 'saving'});
         const saved = await saveRepository(config, password);
         if (saved.status !== 'ok') {
           update({kind: 'failed', error: saved.error});
           return;
         }
+        stored = true;
         await runTest();
-      }),
+      });
+      return stored;
+    },
     [guarded, runTest, update],
   );
 

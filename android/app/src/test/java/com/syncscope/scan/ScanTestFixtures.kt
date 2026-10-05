@@ -198,11 +198,16 @@ class ScanHarness(context: Context) {
     perFilePause = { pauses.incrementAndGet() },
   )
 
-  suspend fun configure(revision: Long = 1L, credentialVersion: Long? = null): RepositoryConfigEntity {
+  suspend fun configure(
+    revision: Long = 1L,
+    credentialVersion: Long? = null,
+    protocol: String = "SFTP",
+    webdavHttps: Boolean = false,
+  ): RepositoryConfigEntity {
     val version = credentialVersion ?: credentials.store("secret-password".toCharArray())
     val row =
       RepositoryConfigEntity(
-        protocol = "SFTP",
+        protocol = protocol,
         host = REMOTE_HOST,
         port = 2222,
         username = "alice",
@@ -210,6 +215,7 @@ class ScanHarness(context: Context) {
         precisionMillis = 0L,
         credentialVersion = version,
         revision = revision,
+        webdavHttps = webdavHttps,
       )
     db.repositoryConfigDao().put(row)
     return row

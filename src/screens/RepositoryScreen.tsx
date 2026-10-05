@@ -244,7 +244,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
     const typed = password;
     setPassword('');
     setDraft(resolved);
-    await saveAndTest(
+    const saved = await saveAndTest(
       {
         protocol: resolved.protocol,
         host: resolved.host.trim(),
@@ -255,8 +255,10 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
       },
       typed === '' ? null : typed,
     );
-    // The saved row is the new baseline for the unsaved-changes check.
-    await loadSummary(false);
+    // The saved row is the new baseline for the unsaved-changes check. Native normalises what it
+    // stores (an empty port becomes the default), so the form takes the row too, or it would stay
+    // dirty; a rejected save keeps the user's edits.
+    await loadSummary(saved);
   };
 
   const fieldError: {field: RepositoryField; error: CloudSyncError} | null =

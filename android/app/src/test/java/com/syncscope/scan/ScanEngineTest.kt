@@ -116,6 +116,16 @@ class ScanEngineTest {
   }
 
   @Test
+  fun webdavHttpsRepositoryIsScannedOverHttps() = runBlocking {
+    h.configure(protocol = "WEBDAV", webdavHttps = true)
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+
+    assertTrue(h.scan() is ScanOutcome.Published)
+    assertTrue("the scan keeps the saved HTTPS setting", h.remote.created.first().connectedTo!!.webdavHttps)
+  }
+
+  @Test
   fun unreadableRemoteSubdirectoryPublishesAnIncompleteSnapshot() = runBlocking {
     h.configure()
     h.addSource("src-1")

@@ -173,7 +173,7 @@ class ScanEngine(
       }
       throw t
     }
-    val remote = RemoteConfig(protocol, config.host, config.port, config.username, config.remoteRoot)
+    val remote = RemoteConfig(protocol, config.host, config.port, config.username, config.remoteRoot, config.webdavHttps)
     return ScanTicket(run, snapshotId, config, remote, sources, refreshFrom)
   }
 

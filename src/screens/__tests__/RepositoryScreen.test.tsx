@@ -491,6 +491,27 @@ describe('RepositoryScreen', () => {
     expect(leave().preventDefault).not.toHaveBeenCalled();
   });
 
+  it('leaves without asking once saved, even when native filled in the default port', async () => {
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(connected(6));
+    const {leave} = await renderScreen(SAVED);
+
+    fireEvent.press(screen.getByLabelText('Protocol WebDAV'));
+    typeInto('Port', '');
+    summaryMock.mockResolvedValue({
+      contractVersion: 5,
+      status: 'ok',
+      repository: {...SAVED, protocol: 'WEBDAV', port: 80, revision: 3},
+    });
+    fireEvent.press(screen.getByLabelText('Save and test'));
+    await screen.findByLabelText('Connected, 6 entries');
+    await waitFor(() =>
+      expect(screen.getByTestId('repository.port').props.value).toBe('80'),
+    );
+
+    expect(leave().preventDefault).not.toHaveBeenCalled();
+  });
+
   it('asks to trust an unknown SFTP key and tests again after trusting', async () => {
     saveMock.mockResolvedValue(OK);
     testMock
