@@ -59,8 +59,9 @@ interface SafAccess {
 
   /**
    * The current size and modified time of [documentUri]; `null` when the document is absent (no row,
-   * no cursor, or [FileNotFoundException]). A [SecurityException] propagates, so a lost grant is never
-   * mistaken for an absent file.
+   * no cursor, or [FileNotFoundException], also when the provider's tree check wraps it in an
+   * [IllegalArgumentException]). A [SecurityException] propagates, so a lost grant is never mistaken
+   * for an absent file.
    */
   fun stat(documentUri: String): DocumentStat?
 
@@ -129,6 +130,11 @@ class ContentResolverSafAccess(
       }
     } catch (_: FileNotFoundException) {
       null
+    } catch (e: IllegalArgumentException) {
+      // Through a tree URI, DocumentsProvider.enforceTree asks ExternalStorageProvider.isChildDocument,
+      // which rethrows a missing file's FileNotFoundException as this exception; only its message
+      // crosses Binder. Any other IllegalArgumentException still propagates.
+      if (e.message?.contains(FileNotFoundException::class.java.name) == true) null else throw e
     }
 
   override fun delete(documentUri: String): DeleteResult =

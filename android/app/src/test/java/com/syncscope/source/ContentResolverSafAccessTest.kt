@@ -121,6 +121,19 @@ class ContentResolverSafAccessTest {
   }
 
   @Test
+  fun statIsNullWhenTheTreeCheckReportsTheDocumentMissing() {
+    // A device file removed after the scan, queried through its tree URI (staged/08-changed).
+    provider.mode = FakeDocumentsProvider.Mode.TREE_NOT_FOUND
+    assertNull(access.stat(documentUri))
+  }
+
+  @Test
+  fun statLetsAnyOtherIllegalArgumentExceptionPropagate() {
+    provider.mode = FakeDocumentsProvider.Mode.BAD_ARGUMENT
+    assertThrows(IllegalArgumentException::class.java) { access.stat(documentUri) }
+  }
+
+  @Test
   fun statLetsASecurityExceptionPropagate() {
     provider.mode = FakeDocumentsProvider.Mode.DENIED
     assertThrows(SecurityException::class.java) { access.stat(documentUri) }
@@ -220,7 +233,7 @@ class ContentResolverSafAccessTest {
 
 /** Stands in for the external storage documents provider; its root query is configurable. */
 class FakeDocumentsProvider : ContentProvider() {
-  enum class Mode { ROW, EMPTY, THROW, NULL, NOT_FOUND, DENIED }
+  enum class Mode { ROW, EMPTY, THROW, NULL, NOT_FOUND, TREE_NOT_FOUND, BAD_ARGUMENT, DENIED }
 
   enum class DeleteMode { OK, DENIED, CRASH }
 
@@ -255,6 +268,15 @@ class FakeDocumentsProvider : ContentProvider() {
       Mode.THROW -> throw IllegalStateException("volume unmounted")
       Mode.NULL -> null
       Mode.NOT_FOUND -> throw FileNotFoundException("Missing file")
+      // What ExternalStorageProvider.isChildDocument throws (through DocumentsProvider.enforceTree) for
+      // a tree document URI whose file is gone: the FileNotFoundException only survives in the message.
+      Mode.TREE_NOT_FOUND ->
+        throw IllegalArgumentException(
+          "Failed to determine if primary:DCIM/Camera/beach.png is child of primary:DCIM/Camera: " +
+            "java.io.FileNotFoundException: Missing file for primary:DCIM/Camera/beach.png at " +
+            "/storage/emulated/0/DCIM/Camera/beach.png",
+        )
+      Mode.BAD_ARGUMENT -> throw IllegalArgumentException("Invalid URI")
       Mode.DENIED -> throw SecurityException("Permission Denial")
     }
   }

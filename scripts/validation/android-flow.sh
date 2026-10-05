@@ -343,7 +343,9 @@ for api in $apis; do
     if [ "$mode" = e2e ]; then
       # The whole workspace (003's sources flows and 004's scan flows, run in
       # order with fresh app state per scan flow) takes well over 10 minutes.
-      timeout --signal=TERM --kill-after=10 2400 \
+      # With 006's mvp/ flows the workspace runs about 55 minutes per API, so
+      # the cap leaves headroom above that (2400 s cut it off at mvp/01).
+      timeout --signal=TERM --kill-after=10 5400 \
         "$maestro_bin" \
         test "$@" "$repo/validation/maestro"
       # Staged pairs: flows that change server or device state mid-scenario.
