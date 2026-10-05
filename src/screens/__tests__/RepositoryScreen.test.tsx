@@ -294,6 +294,53 @@ describe('RepositoryScreen', () => {
     expect(screen.getByLabelText('Password')).toHaveDisplayValue('');
   });
 
+  it('fills the other fields from a URL typed into Host when it loses focus', async () => {
+    await renderScreen(null);
+
+    typeInto('Port', '22');
+    typeInto('Host', 'https://alice@cloud.example.com/remote.php/dav/');
+    fireEvent(screen.getByLabelText('Host'), 'blur');
+
+    expect(screen.getByLabelText('Host')).toHaveDisplayValue(
+      'cloud.example.com',
+    );
+    expect(screen.getByLabelText('Use HTTPS').props.value).toBe(true);
+    // The protocol changed and the URL named no port, so the default applies.
+    expect(screen.getByLabelText('Port')).toHaveDisplayValue('');
+    expect(screen.getByLabelText('Port').props.placeholder).toBe('443');
+    expect(screen.getByLabelText('User name')).toHaveDisplayValue('alice');
+    expect(screen.getByLabelText('Remote folder')).toHaveDisplayValue(
+      '/remote.php/dav',
+    );
+  });
+
+  it('splits a URL in Host on save even if the field never lost focus', async () => {
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(connected(2));
+    await renderScreen(null);
+
+    typeInto('User name', 'alice');
+    typeInto('Password', 'secret');
+    typeInto('Host', 'ftp://nas.local:2121/photos');
+    // The folder comes from the URL, so saving is already allowed.
+    expect(screen.getByLabelText('Save and test')).toBeEnabled();
+    fireEvent.press(screen.getByLabelText('Save and test'));
+
+    expect(await screen.findByLabelText('Connected, 2 entries')).toBeOnTheScreen();
+    expect(saveMock).toHaveBeenCalledWith(
+      {
+        protocol: 'FTP',
+        host: 'nas.local',
+        port: 2121,
+        username: 'alice',
+        remoteRoot: '/photos',
+        webdavHttps: false,
+      },
+      'secret',
+    );
+    expect(screen.getByLabelText('Host')).toHaveDisplayValue('nas.local');
+  });
+
   it('sends no password when one is stored and the field is empty', async () => {
     saveMock.mockResolvedValue(OK);
     testMock.mockResolvedValue(connected(1));

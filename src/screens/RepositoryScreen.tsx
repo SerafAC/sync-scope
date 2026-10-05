@@ -1,5 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AppState, ScrollView, StyleSheet, View} from 'react-native';
+import {
+  AppState,
+  KeyboardAvoidingView,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import {
   ActivityIndicator,
   Button,
@@ -26,6 +32,7 @@ import {
 } from '../native/CloudSyncContracts';
 import type {RootStackParamList} from '../navigation/AppNavigator';
 import {HostKeyDialog} from '../repository/HostKeyDialog';
+import {splitServerAddress} from '../repository/serverAddress';
 import {
   useRepository,
   type RepositoryFormState,
@@ -87,6 +94,25 @@ export function defaultPortFor(
     return REPOSITORY_DEFAULT_PORTS.WEBDAV_HTTPS;
   }
   return REPOSITORY_DEFAULT_PORTS[protocol];
+}
+
+/**
+ * The draft with a server URL typed into Host spread over the other fields: protocol, HTTPS, port,
+ * user name and remote folder, as far as the URL names them. A URL that switches the protocol but
+ * names no port clears the port, so the new protocol's default applies.
+ */
+export function withServerAddress(draft: RepositoryDraft): RepositoryDraft {
+  const parts = splitServerAddress(draft.host);
+  if (parts == null) {
+    return draft;
+  }
+  const protocolChanged =
+    parts.protocol != null && parts.protocol !== draft.protocol;
+  return {
+    ...draft,
+    ...parts,
+    port: parts.port ?? (protocolChanged ? '' : draft.port),
+  };
 }
 
 function sameDraft(a: RepositoryDraft, b: RepositoryDraft): boolean {
@@ -199,11 +225,14 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
     value: RepositoryDraft[K],
   ) => setDraft(current => ({...current, [key]: value}));
 
+  // What Save sends: a URL in Host already split up, even before the field loses focus.
+  const resolved = useMemo(() => withServerAddress(draft), [draft]);
+
   const credentialStored = summary?.credentialPresent === true;
   const missingRequired =
-    draft.host.trim() === '' ||
-    draft.username.trim() === '' ||
-    draft.remoteRoot.trim() === '' ||
+    resolved.host.trim() === '' ||
+    resolved.username.trim() === '' ||
+    resolved.remoteRoot.trim() === '' ||
     (!credentialStored && password === '');
   const saveDisabled = loading || busy || isRunning || missingRequired;
 
@@ -214,14 +243,15 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
   const save = async () => {
     const typed = password;
     setPassword('');
+    setDraft(resolved);
     await saveAndTest(
       {
-        protocol: draft.protocol,
-        host: draft.host.trim(),
-        port: portValue(draft.port),
-        username: draft.username,
-        remoteRoot: draft.remoteRoot.trim(),
-        webdavHttps: draft.protocol === 'WEBDAV' && draft.webdavHttps,
+        protocol: resolved.protocol,
+        host: resolved.host.trim(),
+        port: portValue(resolved.port),
+        username: resolved.username,
+        remoteRoot: resolved.remoteRoot.trim(),
+        webdavHttps: resolved.protocol === 'WEBDAV' && resolved.webdavHttps,
       },
       typed === '' ? null : typed,
     );
@@ -265,157 +295,164 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled">
-        <Text variant="bodyMedium">
-          The server that holds your backup. SyncScope only reads file names,
-          sizes and dates from it and never changes anything there.
-        </Text>
+      {/* Edge-to-edge stops adjustResize from shrinking the window, so this view makes room for the
+          keyboard; the ScrollView then keeps the focused field in sight as it shrinks. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.keyboard}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled">
+          <Text variant="bodyMedium">
+            The server that holds your backup. SyncScope only reads file names,
+            sizes and dates from it and never changes anything there.
+          </Text>
 
-        <View style={styles.field}>
-          <Text variant="labelLarge">Server type</Text>
-          <SegmentedButtons
-            buttons={PROTOCOL_BUTTONS}
-            onValueChange={value => set('protocol', value as RepositoryProtocol)}
-            value={draft.protocol}
-          />
-          {errorFor('protocol')}
-          {unencrypted ? (
-            <Text
-              accessibilityLabel="Unencrypted connection warning"
-              style={themed.warning}
-              variant="bodySmall">
-              {UNENCRYPTED_WARNING}
-            </Text>
-          ) : null}
-        </View>
-
-        {draft.protocol === 'WEBDAV' ? (
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel} variant="bodyLarge">
-              Use HTTPS
-            </Text>
-            <Switch
-              accessibilityLabel="Use HTTPS"
-              onValueChange={value => set('webdavHttps', value)}
-              value={draft.webdavHttps}
+          <View style={styles.field}>
+            <Text variant="labelLarge">Server type</Text>
+            <SegmentedButtons
+              buttons={PROTOCOL_BUTTONS}
+              onValueChange={value => set('protocol', value as RepositoryProtocol)}
+              value={draft.protocol}
             />
-          </View>
-        ) : null}
-
-        <View>
-          <TextInput
-            accessibilityLabel="Host"
-            autoCapitalize="none"
-            autoCorrect={false}
-            error={fieldError?.field === 'host'}
-            label="Host"
-            mode="outlined"
-            onChangeText={value => set('host', value)}
-            testID="repository.host"
-            value={draft.host}
-          />
-          {errorFor('host')}
-        </View>
-        <View>
-          <TextInput
-            accessibilityLabel="Port"
-            error={fieldError?.field === 'port'}
-            keyboardType="number-pad"
-            label="Port"
-            mode="outlined"
-            onChangeText={value => set('port', value)}
-            testID="repository.port"
-            placeholder={String(
-              defaultPortFor(draft.protocol, draft.webdavHttps),
-            )}
-            value={draft.port}
-          />
-          {errorFor('port')}
-        </View>
-        <View>
-          <TextInput
-            accessibilityLabel="User name"
-            autoCapitalize="none"
-            autoCorrect={false}
-            error={fieldError?.field === 'username'}
-            label="User name"
-            mode="outlined"
-            onChangeText={value => set('username', value)}
-            testID="repository.username"
-            value={draft.username}
-          />
-          {errorFor('username')}
-        </View>
-        <View>
-          <TextInput
-            accessibilityLabel="Password"
-            autoCapitalize="none"
-            autoCorrect={false}
-            error={fieldError?.field === 'password'}
-            label="Password"
-            mode="outlined"
-            onChangeText={setPassword}
-            secureTextEntry
-            testID="repository.password"
-            value={password}
-          />
-          {fieldError?.field === 'password' ? (
-            errorFor('password')
-          ) : credentialStored ? (
-            <HelperText type="info" visible>
-              {PASSWORD_STORED_HINT}
-            </HelperText>
-          ) : null}
-        </View>
-        <View>
-          <TextInput
-            accessibilityLabel="Remote folder"
-            autoCapitalize="none"
-            autoCorrect={false}
-            error={fieldError?.field === 'remoteRoot'}
-            label="Remote folder"
-            mode="outlined"
-            onChangeText={value => set('remoteRoot', value)}
-            testID="repository.remoteRoot"
-            placeholder="/photos"
-            value={draft.remoteRoot}
-          />
-          {errorFor('remoteRoot')}
-        </View>
-
-        {isRunning ? (
-          <Text variant="bodyMedium">A scan is running</Text>
-        ) : null}
-        <Button
-          accessibilityLabel="Save and test"
-          disabled={saveDisabled}
-          mode="contained"
-          onPress={save}>
-          Save and test
-        </Button>
-
-        {busy ? (
-          <View style={styles.progress}>
-            <ProgressBar accessibilityLabel="Checking connection" indeterminate />
-            <Text variant="bodyMedium">Connecting to the server…</Text>
-          </View>
-        ) : null}
-        {status != null ? (
-          <View style={styles.status}>
-            <Text
-              accessibilityLabel={status}
-              style={themed.status}
-              variant="titleSmall">
-              {status}
-            </Text>
-            {state.kind === 'failed' && state.error.action ? (
-              <Text variant="bodyMedium">{state.error.action}</Text>
+            {errorFor('protocol')}
+            {unencrypted ? (
+              <Text
+                accessibilityLabel="Unencrypted connection warning"
+                style={themed.warning}
+                variant="bodySmall">
+                {UNENCRYPTED_WARNING}
+              </Text>
             ) : null}
           </View>
-        ) : null}
-      </ScrollView>
+
+          {draft.protocol === 'WEBDAV' ? (
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel} variant="bodyLarge">
+                Use HTTPS
+              </Text>
+              <Switch
+                accessibilityLabel="Use HTTPS"
+                onValueChange={value => set('webdavHttps', value)}
+                value={draft.webdavHttps}
+              />
+            </View>
+          ) : null}
+
+          <View>
+            <TextInput
+              accessibilityLabel="Host"
+              autoCapitalize="none"
+              autoCorrect={false}
+              error={fieldError?.field === 'host'}
+              keyboardType="url"
+              label="Host"
+              mode="outlined"
+              onBlur={() => setDraft(withServerAddress)}
+              onChangeText={value => set('host', value)}
+              placeholder="nas.local or https://nas.local/dav"
+              testID="repository.host"
+              value={draft.host}
+            />
+            {errorFor('host')}
+          </View>
+          <View>
+            <TextInput
+              accessibilityLabel="Port"
+              error={fieldError?.field === 'port'}
+              keyboardType="number-pad"
+              label="Port"
+              mode="outlined"
+              onChangeText={value => set('port', value)}
+              testID="repository.port"
+              placeholder={String(
+                defaultPortFor(draft.protocol, draft.webdavHttps),
+              )}
+              value={draft.port}
+            />
+            {errorFor('port')}
+          </View>
+          <View>
+            <TextInput
+              accessibilityLabel="User name"
+              autoCapitalize="none"
+              autoCorrect={false}
+              error={fieldError?.field === 'username'}
+              label="User name"
+              mode="outlined"
+              onChangeText={value => set('username', value)}
+              testID="repository.username"
+              value={draft.username}
+            />
+            {errorFor('username')}
+          </View>
+          <View>
+            <TextInput
+              accessibilityLabel="Password"
+              autoCapitalize="none"
+              autoCorrect={false}
+              error={fieldError?.field === 'password'}
+              label="Password"
+              mode="outlined"
+              onChangeText={setPassword}
+              secureTextEntry
+              testID="repository.password"
+              value={password}
+            />
+            {fieldError?.field === 'password' ? (
+              errorFor('password')
+            ) : credentialStored ? (
+              <HelperText type="info" visible>
+                {PASSWORD_STORED_HINT}
+              </HelperText>
+            ) : null}
+          </View>
+          <View>
+            <TextInput
+              accessibilityLabel="Remote folder"
+              autoCapitalize="none"
+              autoCorrect={false}
+              error={fieldError?.field === 'remoteRoot'}
+              label="Remote folder"
+              mode="outlined"
+              onChangeText={value => set('remoteRoot', value)}
+              testID="repository.remoteRoot"
+              placeholder="/photos"
+              value={draft.remoteRoot}
+            />
+            {errorFor('remoteRoot')}
+          </View>
+
+          {isRunning ? (
+            <Text variant="bodyMedium">A scan is running</Text>
+          ) : null}
+          <Button
+            accessibilityLabel="Save and test"
+            disabled={saveDisabled}
+            mode="contained"
+            onPress={save}>
+            Save and test
+          </Button>
+
+          {busy ? (
+            <View style={styles.progress}>
+              <ProgressBar accessibilityLabel="Checking connection" indeterminate />
+              <Text variant="bodyMedium">Connecting to the server…</Text>
+            </View>
+          ) : null}
+          {status != null ? (
+            <View style={styles.status}>
+              <Text
+                accessibilityLabel={status}
+                style={themed.status}
+                variant="titleSmall">
+                {status}
+              </Text>
+              {state.kind === 'failed' && state.error.action ? (
+                <Text variant="bodyMedium">{state.error.action}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <HostKeyDialog
         challenge={state.kind === 'hostKeyPrompt' ? state.challenge : null}
@@ -465,6 +502,9 @@ const styles = StyleSheet.create({
   },
   field: {
     gap: spacing.sm,
+  },
+  keyboard: {
+    flex: 1,
   },
   loading: {
     margin: spacing.xl,
