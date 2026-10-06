@@ -32,6 +32,9 @@ import org.robolectric.annotation.Config
  * slowest is `SIZE_DESC`, whose `COALESCE` key sorts in a temporary B-tree), a later page ≈ 5–90 ms, one
  * folder's files ≈ 30–55 ms. Staging 50 000 rows with the two new indexes ≈ 750 ms; no insert budget
  * existed before 007, so [INSERT_BUDGET_MILLIS] is set at about four times that.
+ *
+ * Scroll index (research R4, measured 2026-10-07) over 50 000 files with an anchor: name sorts ≈ 65–90 ms, time and
+ * size sorts ≈ 90–120 ms, against [SCROLL_INDEX_BUDGET_MILLIS].
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -183,6 +186,59 @@ class SnapshotQueryPerformanceTest {
     assertTrue("select all in a folder took ${folderMillis}ms", folderMillis < SELECT_ALL_BUDGET_MILLIS)
   }
 
+  /**
+   * Feature 007 (research R4): the scroll index of 50 000 files, in gallery and in one folder (`kind = FILE`), with an
+   * anchor, stays within [SCROLL_INDEX_BUDGET_MILLIS] under each of the six sorts.
+   */
+  @Test
+  fun theScrollIndexOverFiftyThousandFilesStaysWithinBudget() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val run = store.beginRun("run-1", "FULL", 1L, "CONNECTING", 1_000L)
+    store.stageSnapshot(stagingSnapshot(SNAPSHOT, run.runId))
+    store.stageLocalNodes(listOf(directory("src-1", "dir", "Camera", null)))
+    val stems = listOf("IMG", "dsc", "Éte", "2024", "_x", "photo", "Zoo", "beach", "kitten", "macro")
+    val files = ArrayList<LocalNodeEntity>(5_000)
+    for (i in 0 until SELECT_ALL_ROWS) {
+      files +=
+        localNode(
+          SNAPSHOT,
+          "src-1",
+          "f$i",
+          "${stems[(i * 7) % stems.size]}_$i.jpg",
+          parentId = "dir",
+          mimeType = "image/jpeg",
+          // Sizes 0–20 MB and times over ten years in a scrambled order; 1 % of each unknown.
+          sizeBytes = if (i % 100 == 3) null else (i * 7_919L) % 20_000_000L,
+          modifiedUtcMillis = if (i % 100 == 5) null else 1_300_000_000_000L + (i * 104_729L % SELECT_ALL_ROWS) * 6_307_200L,
+        )
+      if (files.size == 5_000) {
+        store.stageLocalNodes(files)
+        files.clear()
+      }
+    }
+    store.stageLocalNodes(files)
+    store.publish("run-1", run.generation, 1L, "COMPLETED", 5_000L)
+
+    val timings = mutableListOf<String>()
+    for (sort in FileSort.entries) {
+      val anchor = ScrollAnchor(if (sort == FileSort.NAME_ASC || sort == FileSort.NAME_DESC) null else 5_000_000.0, "1photo_25000.jpg")
+      val gallery = SnapshotQuery(view = FileView.GALLERY, sort = sort)
+      val galleryMillis =
+        medianMillis {
+          val index = store.scrollIndex(SNAPSHOT, gallery, anchor)
+          assertEquals(SELECT_ALL_ROWS, index.totalCount)
+          assertNotNull(index.anchorIndex)
+        }
+      val folder = SnapshotQuery(sourceId = "src-1", parentId = "dir", sort = sort, kind = FileKind.FILE)
+      val folderMillis = medianMillis { assertEquals(SELECT_ALL_ROWS, store.scrollIndex(SNAPSHOT, folder, anchor).totalCount) }
+
+      timings += "$sort gallery=${galleryMillis}ms folder=${folderMillis}ms"
+      assertTrue("scroll index in gallery under $sort took ${galleryMillis}ms", galleryMillis < SCROLL_INDEX_BUDGET_MILLIS)
+      assertTrue("scroll index in a folder under $sort took ${folderMillis}ms", folderMillis < SCROLL_INDEX_BUDGET_MILLIS)
+    }
+    println("SnapshotQueryPerformanceTest: scrollIndex " + timings.joinToString("; "))
+  }
+
   private suspend fun medianMillis(read: suspend () -> Unit): Long {
     read() // warm-up
     val samples =
@@ -264,5 +320,7 @@ class SnapshotQueryPerformanceTest {
     const val SELECT_ALL_ROWS = 50_000
     const val SELECT_ALL_BUDGET_MILLIS = 1_000L
     const val INSERT_BUDGET_MILLIS = 3_000L
+    /** Research R4: `getScrollIndex` for 50 000 files. */
+    const val SCROLL_INDEX_BUDGET_MILLIS = 150L
   }
 }

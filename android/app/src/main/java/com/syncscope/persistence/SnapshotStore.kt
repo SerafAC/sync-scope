@@ -5,6 +5,10 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import com.syncscope.deletion.DeletionOutcome
 import com.syncscope.deletion.DeletionRow
 import com.syncscope.deletion.DeletionSnapshots
+import com.syncscope.bridge.ScrollUnit
+import com.syncscope.scan.ScrollBand
+import com.syncscope.scan.ScrollBands
+import java.time.ZoneId
 
 /** One row of a browse page, mirroring `FileEntryDto` on the JS side. */
 data class FileEntry(
@@ -42,6 +46,34 @@ data class FilePage(
   val entries: List<FileEntry>,
   val nextPageToken: String?,
   val counts: List<StatusCount>?,
+)
+
+/**
+ * The first visible file of a view (research R8): its primary sort value (a number for size and time sorts,
+ * null when unknown; the name or null for name sorts, whose key is [sortName]) and its `sortName`.
+ */
+data class ScrollAnchor(val sortValue: Any?, val sortName: String)
+
+/**
+ * One band of a [ScrollIndex], mirroring `ScrollBandDto` on the JS side: its place among the files, a page token
+ * whose next read starts at its first row (null for the first band), and one lower bound, or [unknown].
+ */
+data class ScrollIndexBand(
+  val startIndex: Int,
+  val count: Int,
+  val startToken: String?,
+  val letter: String? = null,
+  val startMillis: Long? = null,
+  val lowerBytes: Long? = null,
+  val unknown: Boolean = false,
+)
+
+/** The scroll index of a query's files, mirroring `ScrollIndexDto` on the JS side (research R4). */
+data class ScrollIndex(
+  val unit: ScrollUnit,
+  val totalCount: Int,
+  val bands: List<ScrollIndexBand>,
+  val anchorIndex: Int?,
 )
 
 /**
@@ -508,6 +540,139 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
   }
 
   /**
+   * The scroll index of [query]'s `FILE` rows (research R4, contracts/cloudsync-polish.md "getScrollIndex"): their
+   * bands in the sort's order, cut by [ScrollBands] (letters for name sorts, years, months or days in [zone] for
+   * time sorts, sizes for size sorts), with a final `unknown` band for files without a size or time. The scope is
+   * the rows' own ([scopeOf]); a LIST query without a `parentId` is the top level, as `queryTreeChildren` reads it.
+   * `pageSize` is ignored.
+   *
+   * Each band's `startToken` is an ordinary page token (D010) for this snapshot and query whose cursor sits just
+   * before the band's lower bound, so a read from it starts at the band's first row. Bands split on values, so the
+   * cursor needs no row: ascending it is `(first value, "", "")`, descending `(first value + 1, "", "")`, and for
+   * letters the letter's `sortName` prefix (or the next prefix, descending).
+   *
+   * [anchor] gives `anchorIndex`: the number of rows sorting before `(sortValue, sortName)`, clamped to the last row,
+   * so a gone file gives its neighbour's index (research R8). A sort value of the wrong type gives null.
+   *
+   * Throws [SnapshotNotFoundException] for a missing or staged snapshot and [StaleGenerationException] for a
+   * published one that is no longer active: its bands would place rows of a result the views have left.
+   */
+  suspend fun scrollIndex(
+    snapshotId: String,
+    query: SnapshotQuery,
+    anchor: ScrollAnchor? = null,
+    zone: ZoneId = ZoneId.systemDefault(),
+  ): ScrollIndex {
+    val snapshot = db.snapshotDao().byId(snapshotId)
+    if (snapshot == null || !snapshot.publishable) {
+      throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
+    }
+    if (db.activeSnapshotDao().get()?.snapshotId != snapshotId) {
+      throw StaleGenerationException("snapshot '$snapshotId' was replaced by a newer scan")
+    }
+    val topLevelOnly = query.view == FileView.LIST && query.parentId == null
+    val fingerprint = if (topLevelOnly) query.fingerprint() + "|root" else query.fingerprint()
+    val (where, args) = scopeOf(snapshotId, query, topLevelOnly)
+    where.append(" AND kind = 'FILE'")
+    val key = sortKeyOf(query.sort)
+    val dao = db.localNodeDao()
+
+    fun token(sortKey: String, sortName: String) = PageTokenCodec.encode(snapshotId, fingerprint, sortKey, sortName, "")
+
+    // Bands in the sort's order, each with the cursor that reads it from its first row.
+    val unit: ScrollUnit
+    val placed = ArrayList<Pair<ScrollIndexBand, String>>()
+    val column = key.column
+    if (column == null) {
+      // The letter of a sortName, as SortName.letterOf reads it: `#` for prefix `0`, else the letter after `1`.
+      val sql =
+        "SELECT CASE WHEN substr(sortName, 1, 1) = '1' THEN substr(sortName, 2, 1) ELSE '#' END AS letter," +
+          " COUNT(*) AS count FROM local_node WHERE $where GROUP BY letter"
+      val counts = dao.letterCounts(SimpleSQLiteQuery(sql, args.toTypedArray())).associate { it.letter to it.count }
+      val bands = ScrollBands.letters(counts).let { if (key.ascending) it else it.reversed() }
+      unit = ScrollUnit.LETTER
+      for (band in bands) {
+        val prefix = if (band.letter == HASH_LETTER) HASH_PREFIX else LETTER_PREFIX + band.letter
+        val cursor = if (key.ascending) prefix else prefix.dropLast(1) + (prefix.last() + 1)
+        placed += ScrollIndexBand(0, band.count, null, letter = band.letter) to token("", cursor)
+      }
+    } else {
+      val sql = "SELECT $column AS value FROM local_node WHERE $where"
+      val values = dao.sortValues(SimpleSQLiteQuery(sql, args.toTypedArray()))
+      val known = LongArray(values.count { it.value != null })
+      var at = 0
+      for (row in values) row.value?.let { known[at++] = it }
+      known.sort()
+      val unknownCount = values.size - known.size
+      val bands: List<ScrollBand>
+      if (query.sort == FileSort.SIZE_ASC || query.sort == FileSort.SIZE_DESC) {
+        unit = ScrollUnit.SIZE
+        bands = ScrollBands.sizes(known)
+      } else {
+        val dates = ScrollBands.dates(known, zone)
+        unit = dates.unit
+        bands = dates.bands
+      }
+      // The smallest and largest value of each band, from the sorted values it was cut from.
+      var offset = 0
+      val ranged =
+        bands.map { band ->
+          val range = known[offset] to known[offset + band.count - 1]
+          offset += band.count
+          band to range
+        }
+      for ((band, range) in if (key.ascending) ranged else ranged.reversed()) {
+        val cursor = if (key.ascending) range.first else range.second + 1
+        placed +=
+          ScrollIndexBand(0, band.count, null, startMillis = band.startMillis, lowerBytes = band.lowerBytes) to
+            token(cursor.toString(), "")
+      }
+      if (unknownCount > 0) {
+        val cursor = if (key.ascending) key.sentinel else key.sentinel + 1
+        placed += ScrollIndexBand(0, unknownCount, null, unknown = true) to token(cursor.toString(), "")
+      }
+    }
+
+    var startIndex = 0
+    val bands =
+      placed.mapIndexed { i, (band, startToken) ->
+        band.copy(startIndex = startIndex, startToken = if (i == 0) null else startToken).also { startIndex += band.count }
+      }
+    val totalCount = startIndex
+    val anchorIndex =
+      anchor?.takeIf { totalCount > 0 }?.let { anchorRank(it, key, where, args) }?.coerceAtMost(totalCount - 1L)?.toInt()
+    return ScrollIndex(unit = unit, totalCount = totalCount, bands = bands, anchorIndex = anchorIndex)
+  }
+
+  /**
+   * The number of rows in the scope `where`/`args` that sort before [anchor] under [key]; null when its sort value
+   * has the wrong type (a number for a name sort, anything but a finite number or null for a size or time sort).
+   */
+  private suspend fun anchorRank(anchor: ScrollAnchor, key: SortKey, where: CharSequence, args: List<Any?>): Long? {
+    val before = if (key.ascending) "<" else ">"
+    val rankArgs = args.toMutableList()
+    val condition =
+      if (key.expression == null) {
+        if (anchor.sortValue != null && anchor.sortValue !is String) return null
+        rankArgs += anchor.sortName
+        "sortName $before ?"
+      } else {
+        val value =
+          when (val raw = anchor.sortValue) {
+            null -> key.sentinel
+            is Number -> raw.toDouble().takeIf { it.isFinite() }?.toLong() ?: return null
+            else -> return null
+          }
+        rankArgs += value
+        rankArgs += value
+        rankArgs += anchor.sortName
+        "(${key.expression} $before ? OR (${key.expression} = ? AND sortName $before ?))"
+      }
+    val sql = "SELECT COUNT(*) AS count FROM local_node WHERE $where AND $condition"
+    return db.localNodeDao().rowCount(SimpleSQLiteQuery(sql, rankArgs.toTypedArray())).count
+  }
+
+  /**
    * The local document of [entryId] in a published snapshot, for `getLocalImageHandle`: its
    * `documentUri` and `mimeType`, or null when the entry is unknown or is a `DIRECTORY`. Throws
    * [SnapshotNotFoundException] when the snapshot is missing or still staged.
@@ -534,6 +699,10 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     private const val KIND_FILE = "FILE"
     /** Room's name for `Index(snapshotId, name, sizeBytes)` on `local_node` (schema 3.json). */
     private const val NAME_INDEX = "index_local_node_snapshotId_name_sizeBytes"
+    /** `sortName` prefixes (research R2, `SortName`): `0` starts the `#` band, `1` a letter band. */
+    private const val HASH_LETTER = "#"
+    private const val HASH_PREFIX = "0"
+    private const val LETTER_PREFIX = "1"
   }
 
   /**
@@ -629,13 +798,18 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
  * both directions (research R1).
  */
 internal class SortKey(
-  val expression: String?,
+  /** The stored column of a size or time sort; null for name sorts. */
+  val column: String?,
   val ascending: Boolean,
-  private val column: ((LocalNodeEntity) -> Long?)?,
-  private val sentinel: Long,
+  private val read: ((LocalNodeEntity) -> Long?)?,
+  /** The key of a row whose value is unknown: past every known value in the sort's direction. */
+  val sentinel: Long,
 ) {
+  /** `COALESCE(column, sentinel)`; null for name sorts, whose key is `sortName`. */
+  val expression: String? = column?.let { "COALESCE($it, $sentinel)" }
+
   /** The cursor value of [node] under this key; name sorts carry their key in the cursor's `sortName`. */
-  fun valueOf(node: LocalNodeEntity): String = column?.let { (it(node) ?: sentinel).toString() } ?: ""
+  fun valueOf(node: LocalNodeEntity): String = read?.let { (it(node) ?: sentinel).toString() } ?: ""
 }
 
 /** The only place sort keys are defined (Principle III); the page read and the scroll index both use it. */
@@ -655,9 +829,9 @@ internal fun sortKeyOf(sort: FileSort): SortKey {
     FileSort.NAME_ASC,
     FileSort.NAME_DESC -> SortKey(null, ascending, null, sentinel)
     FileSort.TIME_ASC,
-    FileSort.TIME_DESC -> SortKey("COALESCE(modifiedUtcMillis, $sentinel)", ascending, { it.modifiedUtcMillis }, sentinel)
+    FileSort.TIME_DESC -> SortKey("modifiedUtcMillis", ascending, { it.modifiedUtcMillis }, sentinel)
     FileSort.SIZE_ASC,
-    FileSort.SIZE_DESC -> SortKey("COALESCE(sizeBytes, $sentinel)", ascending, { it.sizeBytes }, sentinel)
+    FileSort.SIZE_DESC -> SortKey("sizeBytes", ascending, { it.sizeBytes }, sentinel)
   }
 }
 

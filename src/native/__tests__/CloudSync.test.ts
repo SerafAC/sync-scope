@@ -9,6 +9,7 @@ import {
   getLocalImageHandle,
   getRepositorySummary,
   getScanState,
+  getScrollIndex,
   launchSourcePicker,
   listSelectableEntries,
   listSources,
@@ -932,6 +933,248 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
   });
 });
 
+describe('CloudSync getScrollIndex wrapper (contract v6)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const query = {
+    filter: 'ALL',
+    view: 'GALLERY',
+    sort: 'SIZE_DESC',
+    pageSize: 60,
+  } as const;
+  const sizeIndex = {
+    unit: 'SIZE',
+    totalCount: 6,
+    bands: [
+      {
+        startIndex: 0,
+        count: 2,
+        startToken: null,
+        letter: null,
+        startMillis: null,
+        lowerBytes: 1_000_000,
+        unknown: false,
+      },
+      {
+        startIndex: 2,
+        count: 3,
+        startToken: 't-1',
+        letter: null,
+        startMillis: null,
+        lowerBytes: 100_000,
+        unknown: false,
+      },
+      {
+        startIndex: 5,
+        count: 1,
+        startToken: 't-2',
+        letter: null,
+        startMillis: null,
+        lowerBytes: null,
+        unknown: true,
+      },
+    ],
+    anchorIndex: 3,
+  };
+
+  function nativeReturning(scrollIndex: unknown): jest.Mock {
+    const native = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: v, status: 'ok', scrollIndex });
+    mockNative({ getScrollIndex: native });
+    return native;
+  }
+
+  it('passes the snapshot, query and anchor through and returns the index', async () => {
+    const native = nativeReturning({ ...sizeIndex, stray: 'ignored' });
+
+    const result = await getScrollIndex('snap-1', query, {
+      sortValue: 250_000,
+      sortName: '1photo.jpg',
+    });
+
+    expect(native).toHaveBeenCalledWith('snap-1', query, {
+      sortValue: 250_000,
+      sortName: '1photo.jpg',
+    });
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      scrollIndex: sizeIndex,
+    });
+  });
+
+  it('sends a null anchor when none is given and reads optional fields as null', async () => {
+    const native = nativeReturning({
+      unit: 'LETTER',
+      totalCount: 3,
+      bands: [
+        { startIndex: 0, count: 1, startToken: null, letter: '#' },
+        { startIndex: 1, count: 2, startToken: 't', letter: 'a' },
+      ],
+    });
+
+    const result = await getScrollIndex('snap-1', query);
+
+    expect(native).toHaveBeenCalledWith('snap-1', query, null);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      scrollIndex: {
+        unit: 'LETTER',
+        totalCount: 3,
+        anchorIndex: null,
+        bands: [
+          {
+            startIndex: 0,
+            count: 1,
+            startToken: null,
+            letter: '#',
+            startMillis: null,
+            lowerBytes: null,
+            unknown: false,
+          },
+          {
+            startIndex: 1,
+            count: 2,
+            startToken: 't',
+            letter: 'a',
+            startMillis: null,
+            lowerBytes: null,
+            unknown: false,
+          },
+        ],
+      },
+    });
+  });
+
+  it('accepts an empty result', async () => {
+    nativeReturning({
+      unit: 'DAY',
+      totalCount: 0,
+      bands: [],
+      anchorIndex: null,
+    });
+
+    const result = await getScrollIndex('snap-1', query);
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.scrollIndex.bands).toEqual([]);
+    }
+  });
+
+  it('normalises STALE_GENERATION and SNAPSHOT_NOT_FOUND error envelopes', async () => {
+    for (const code of ['STALE_GENERATION', 'SNAPSHOT_NOT_FOUND']) {
+      mockNative({
+        getScrollIndex: jest.fn().mockResolvedValue({
+          contractVersion: v,
+          status: 'error',
+          error: { code, message: 'Gone.', action: 'Reload the list.' },
+        }),
+      });
+
+      const result = await getScrollIndex('snap-1', query);
+
+      expect(result).toEqual({
+        contractVersion: v,
+        status: 'error',
+        error: {
+          code,
+          message: 'Gone.',
+          action: 'Reload the list.',
+          conflictingSource: null,
+        },
+      });
+    }
+  });
+
+  const [first, second, unknown] = sizeIndex.bands;
+  it.each([
+    ['an unknown unit', { ...sizeIndex, unit: 'WEEK' }],
+    ['a missing bands array', { ...sizeIndex, bands: undefined }],
+    ['counts that do not add up', { ...sizeIndex, totalCount: 7 }],
+    [
+      'a start index that is not the sum before it',
+      { ...sizeIndex, bands: [first, { ...second, startIndex: 3 }, unknown] },
+    ],
+    [
+      'an empty band',
+      {
+        ...sizeIndex,
+        totalCount: 4,
+        bands: [first, { ...second, count: 0 }, { ...unknown, startIndex: 2 }],
+      },
+    ],
+    [
+      'a known band without its bound',
+      {
+        ...sizeIndex,
+        bands: [first, { ...second, lowerBytes: null }, unknown],
+      },
+    ],
+    [
+      'an unknown band before the last',
+      {
+        ...sizeIndex,
+        bands: [
+          { ...unknown, startIndex: 0, count: 2 },
+          second,
+          { ...first, startIndex: 5, count: 1 },
+        ],
+      },
+    ],
+    [
+      'a non-string token',
+      { ...sizeIndex, bands: [first, { ...second, startToken: 5 }, unknown] },
+    ],
+    ['an anchor index past the end', { ...sizeIndex, anchorIndex: 6 }],
+    ['a negative anchor index', { ...sizeIndex, anchorIndex: -1 }],
+    ['no scrollIndex payload', undefined],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, scrollIndex) => {
+    nativeReturning(scrollIndex);
+
+    const result = await getScrollIndex('snap-1', query);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+      expect(result.contractVersion).toBe(v);
+    }
+  });
+
+  it('turns a rejected native call into INTERNAL_ERROR instead of throwing', async () => {
+    mockNative({
+      getScrollIndex: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const result = await getScrollIndex('snap-1', query);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+    }
+  });
+
+  it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+
+    const result = await getScrollIndex('snap-1', query);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
+    }
+  });
+
+  it('is part of the CloudSync object', () => {
+    expect(CloudSync.getScrollIndex).toBe(getScrollIndex);
+  });
+});
+
 describe('CloudSync repository wrappers (contract v5)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -1311,13 +1554,11 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     };
 
     it('sends the draft, the typed password and the path, and returns the listing', async () => {
-      const browse = jest
-        .fn()
-        .mockResolvedValue({
-          contractVersion: 6,
-          status: 'ok',
-          remoteFolders: listing,
-        });
+      const browse = jest.fn().mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: listing,
+      });
       mockNative({ browseRemoteFolders: browse });
 
       const result = await browseRemoteFolders(
@@ -1419,13 +1660,11 @@ describe('CloudSync repository wrappers (contract v5)', () => {
       ];
       for (const remoteFolders of malformed) {
         mockNative({
-          browseRemoteFolders: jest
-            .fn()
-            .mockResolvedValue({
-              contractVersion: 6,
-              status: 'ok',
-              remoteFolders,
-            }),
+          browseRemoteFolders: jest.fn().mockResolvedValue({
+            contractVersion: 6,
+            status: 'ok',
+            remoteFolders,
+          }),
         });
         const result = await browseRemoteFolders(draft, 'p', null);
         expect(result.status === 'error' && result.error.code).toBe(

@@ -42,6 +42,11 @@ import {
   type ScanMode,
   type ScanRunDto,
   type ScanStateResult,
+  type ScrollAnchor,
+  type ScrollBandDto,
+  type ScrollIndexDto,
+  type ScrollIndexResult,
+  type ScrollUnit,
   type SelectableEntries,
   type SelectableEntriesResult,
   type SourceDto,
@@ -156,6 +161,7 @@ type NativeEnvelope = {
   result?: unknown;
   preferences?: unknown;
   remoteFolders?: unknown;
+  scrollIndex?: unknown;
 };
 
 type NativeErrorShape = {
@@ -498,6 +504,146 @@ export async function listSelectableEntries(
     status: 'ok',
     selectable,
   };
+}
+
+/**
+ * The scrollbar bands of the files [querySpec] shows in the active snapshot
+ * [snapshotId] (contract v6, research R4), with `anchorIndex` when an [anchor]
+ * is given. Native ignores `pageSize`; each band's `startToken` pages the same
+ * query from that band's first row. A malformed index (an unknown unit, counts
+ * that do not add up, a band without its unit's bound) is INTERNAL_ERROR.
+ */
+export async function getScrollIndex(
+  snapshotId: string,
+  querySpec: QuerySpec,
+  anchor?: ScrollAnchor | null,
+): Promise<ScrollIndexResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    native =>
+      native.getScrollIndex(
+        snapshotId,
+        querySpec,
+        anchor == null
+          ? null
+          : { sortValue: anchor.sortValue, sortName: anchor.sortName },
+      ),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const scrollIndex = scrollIndexOf(result.scrollIndex);
+  if (scrollIndex == null) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    scrollIndex,
+  };
+}
+
+const SCROLL_UNITS: readonly unknown[] = [
+  'LETTER',
+  'YEAR',
+  'MONTH',
+  'DAY',
+  'SIZE',
+] satisfies ScrollUnit[];
+
+function isOptionalNumber(value: unknown): value is number | null | undefined {
+  return value == null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function scrollBandOf(value: unknown, unit: ScrollUnit): ScrollBandDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const b = value as Record<string, unknown>;
+  if (
+    !isCount(b.startIndex) ||
+    !isCount(b.count) ||
+    b.count === 0 ||
+    (b.startToken != null && typeof b.startToken !== 'string') ||
+    (b.letter != null && typeof b.letter !== 'string') ||
+    !isOptionalNumber(b.startMillis) ||
+    !isOptionalNumber(b.lowerBytes) ||
+    (b.unknown != null && typeof b.unknown !== 'boolean')
+  ) {
+    return null;
+  }
+  const band: ScrollBandDto = {
+    startIndex: b.startIndex,
+    count: b.count,
+    startToken: typeof b.startToken === 'string' ? b.startToken : null,
+    letter: typeof b.letter === 'string' ? b.letter : null,
+    startMillis: b.startMillis ?? null,
+    lowerBytes: b.lowerBytes ?? null,
+    unknown: b.unknown === true,
+  };
+  if (band.unknown) {
+    return band;
+  }
+  // Every known band carries the bound of the index's unit.
+  const bound =
+    unit === 'LETTER'
+      ? band.letter
+      : unit === 'SIZE'
+      ? band.lowerBytes
+      : band.startMillis;
+  return bound == null ? null : band;
+}
+
+/**
+ * A `ScrollIndexDto`, or null when it is malformed: the bands must be in order
+ * (each `startIndex` the sum of the counts before it), add up to `totalCount`,
+ * and only the last may be `unknown`; `anchorIndex` is null or a row index.
+ */
+function scrollIndexOf(value: unknown): ScrollIndexDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const r = value as Record<string, unknown>;
+  if (
+    !SCROLL_UNITS.includes(r.unit) ||
+    !isCount(r.totalCount) ||
+    !Array.isArray(r.bands)
+  ) {
+    return null;
+  }
+  const unit = r.unit as ScrollUnit;
+  const bands: ScrollBandDto[] = [];
+  let next = 0;
+  for (const raw of r.bands) {
+    const band = scrollBandOf(raw, unit);
+    if (
+      band == null ||
+      band.startIndex !== next ||
+      bands.some(earlier => earlier.unknown)
+    ) {
+      return null;
+    }
+    bands.push(band);
+    next += band.count;
+  }
+  if (next !== r.totalCount) {
+    return null;
+  }
+  const anchorIndex = r.anchorIndex ?? null;
+  if (
+    anchorIndex != null &&
+    (!isCount(anchorIndex) || anchorIndex >= r.totalCount)
+  ) {
+    return null;
+  }
+  return { unit, totalCount: r.totalCount, bands, anchorIndex };
 }
 
 const FILE_STATUSES: readonly unknown[] = [
@@ -1066,6 +1212,7 @@ export const CloudSync = {
   getScanState,
   getLocalImageHandle,
   listSelectableEntries,
+  getScrollIndex,
   prepareLocalDeletion,
   executeLocalDeletion,
   getRepositorySummary,

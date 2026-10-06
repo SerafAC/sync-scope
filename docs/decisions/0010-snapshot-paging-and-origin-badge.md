@@ -24,6 +24,16 @@ same name exists in another source folder of the snapshot; size and modified tim
 same-named files within one source folder are not duplicates. The badge shows that tile's source alias,
 never the remote path. The paging contract above is unchanged.
 
+**Scroll index, added by feature 007** ([research R4](../../specs/007-sort-scroll-remote-folders/research.md#r4-the-scroll-index-one-native-read-per-result)):
+a view can also ask `getScrollIndex` for the bands of its result (letters, years, months, days or sizes,
+with an unknown band last), so the scrollbar can jump to rows that are not loaded yet. Each band carries
+a `startToken`: an ordinary page token, bound to the same snapshot and query, whose cursor sits just before
+the band's lower bound, so `queryFiles` or `queryTreeChildren` read from it starts at the band's first row.
+The first band's token is null. The index is computed on each call and never stored; it answers only for
+the active snapshot (`STALE_GENERATION` otherwise). The token contract is unchanged: tokens stay opaque,
+bound to the snapshot and query, and clamped to 200 rows. Feature 007 also gave the token a format version
+and the cursor a `sortName` (research R1), so tokens from contract 5 fail as `PAGE_TOKEN_MISMATCH`.
+
 ## Rationale
 
 Thousands of files across three views need one consistent read, and page tokens rejected on snapshot, query
@@ -39,6 +49,7 @@ disambiguate identical-looking tiles.
 ## Related
 
 - Requirements: R008, R009, R010, R011
-- Features: [005](../../specs/005-gallery-list-filtering/spec.md) (gallery, list view and the refined
+- Features: [007](../../specs/007-sort-scroll-remote-folders/spec.md) (the scroll index and band start
+  tokens), [005](../../specs/005-gallery-list-filtering/spec.md) (gallery, list view and the refined
   badge rule, [research R5](../../specs/005-gallery-list-filtering/research.md#r5-duplicate-tiles-and-the-origin-badge-clarification-1-fr-001)),
   specs/008-tree-view-image-preview

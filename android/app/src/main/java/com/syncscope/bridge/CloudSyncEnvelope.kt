@@ -7,6 +7,7 @@ import com.syncscope.deletion.DeletionPlanView
 import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
 import com.syncscope.persistence.FileEntry
+import com.syncscope.persistence.ScrollIndex
 import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
@@ -186,6 +187,34 @@ class CloudSyncEnvelope(
       putNullableNumber("matchingFileCount", entry.matchingFileCount)
       putString("sortName", entry.sortName)
     }
+
+  /**
+   * `ScrollIndexDto` (contracts/cloudsync-polish.md "getScrollIndex"): `unit`, `totalCount`, `bands` and
+   * `anchorIndex` (null without an anchor). Each `ScrollBandDto` carries `startIndex`, `count`, `startToken` (null for
+   * the first band), `letter`, `startMillis` and `lowerBytes` (the one of the unit, the others null) and `unknown`.
+   */
+  fun scrollIndex(index: ScrollIndex): WritableMap {
+    val bands = newArray()
+    for (band in index.bands) {
+      bands.pushMap(
+        newMap().apply {
+          putDouble("startIndex", band.startIndex.toDouble())
+          putDouble("count", band.count.toDouble())
+          putNullableString("startToken", band.startToken)
+          putNullableString("letter", band.letter)
+          putNullableNumber("startMillis", band.startMillis)
+          putNullableNumber("lowerBytes", band.lowerBytes)
+          putBoolean("unknown", band.unknown)
+        }
+      )
+    }
+    return newMap().apply {
+      putString("unit", index.unit.name)
+      putDouble("totalCount", index.totalCount.toDouble())
+      putArray("bands", bands)
+      putNullableNumber("anchorIndex", index.anchorIndex?.toLong())
+    }
+  }
 
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)

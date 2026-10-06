@@ -56,12 +56,12 @@ import kotlinx.coroutines.launch
  * [ScanOperations] over one [ScanCoordinator] running on this module's scope; a
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
  * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
- * dispatcher caps concurrent decodes at four. `listSelectableEntries` delegates to [ScanOperations].
+ * dispatcher caps concurrent decodes at four. `listSelectableEntries` and `getScrollIndex` delegate to
+ * [ScanOperations].
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
- * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
- * `setIncludeHidden`, and the contract v6 `getScrollIndex`) resolve a typed
- * NOT_IMPLEMENTED envelope. `getBrowsePreferences` and `setBrowsePreferences` delegate to [BrowsePreferences].
+ * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings` and
+ * `setIncludeHidden`) resolve a typed NOT_IMPLEMENTED envelope. `getBrowsePreferences` and `setBrowsePreferences` delegate to [BrowsePreferences].
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -280,9 +280,8 @@ class CloudSyncModule(
       }
     }
 
-  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055).
   override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
-    notImplemented("getScrollIndex", promise)
+    runOperation("getScrollIndex", promise) { scans.scrollIndex(snapshotId, querySpec, anchor) }
 
   override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
     runOperation("browseRemoteFolders", promise) { repositories.browse(config, transientPassword, path) }

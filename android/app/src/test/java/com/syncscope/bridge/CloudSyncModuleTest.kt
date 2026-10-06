@@ -88,9 +88,6 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
-        // Contract v6 scroll index, wired by T055.
-        { module.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
-        { module.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
       )
 
     for (call in calls) {
@@ -267,6 +264,8 @@ class CloudSyncModuleTest {
           "getScanState" to { scans.getScanState(it) },
           "getLocalImageHandle" to { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) },
           "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
+          "getScrollIndex" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
+          "getScrollIndex(anchor)" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
@@ -290,6 +289,12 @@ class CloudSyncModuleTest {
           .getMap("error")!!
           .getString("code"),
       )
+      for (anchor in listOf(null, JavaOnlyMap.of("sortValue", 5.0, "sortName", "1a"))) {
+        assertEquals(
+          "SNAPSHOT_NOT_FOUND",
+          resolve { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY"), anchor, it) }.getMap("error")!!.getString("code"),
+        )
+      }
       val state = resolve { scans.getScanState(it) }
       assertEquals("ok", state.getString("status"))
       assertTrue(state.isNull("run"))

@@ -157,6 +157,18 @@ interface LocalNodeDao {
    */
   @RawQuery suspend fun selectable(query: SupportSQLiteQuery): List<SelectableRow>
 
+  /**
+   * Scroll index, name sorts (research R4): `SELECT <letter> AS letter, COUNT(*) AS count … GROUP BY letter`, scoped by
+   * [SnapshotStore]'s shared where-clause builder.
+   */
+  @RawQuery suspend fun letterCounts(query: SupportSQLiteQuery): List<LetterCount>
+
+  /** Scroll index, size and time sorts: `SELECT <column> AS value …`, one row per file, null when unknown. */
+  @RawQuery suspend fun sortValues(query: SupportSQLiteQuery): List<SortValue>
+
+  /** Scroll index anchor: `SELECT COUNT(*) AS count …` of the rows sorting before the anchor. */
+  @RawQuery suspend fun rowCount(query: SupportSQLiteQuery): RowCount
+
   @Query("SELECT precisionMillis FROM local_node WHERE snapshotId = :snapshotId LIMIT 1")
   suspend fun anyPrecision(snapshotId: String): Long?
 
@@ -203,6 +215,15 @@ data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: 
 
 /** The local document of one `FILE` row. Never crosses the bridge. */
 data class ImageEntry(val documentUri: String, val mimeType: String?)
+
+/** Scroll index: `FILE` rows per letter band (`#` or `a`…`z`). */
+data class LetterCount(val letter: String, val count: Int)
+
+/** Scroll index: one file's size or modified time, null when unknown. */
+data class SortValue(val value: Long?)
+
+/** A row count. */
+data class RowCount(val count: Long)
 
 /** Row projection for grouped status totals. */
 data class StatusCount(val status: String, val count: Long)

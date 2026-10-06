@@ -13,11 +13,13 @@ import com.syncscope.persistence.FileView
 import com.syncscope.persistence.PageTokenMismatchException
 import com.syncscope.persistence.RemoteAmbiguityEntity
 import com.syncscope.persistence.RepositoryConfigDao
+import com.syncscope.persistence.ScrollAnchor
 import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.persistence.SnapshotNotFoundException
 import com.syncscope.persistence.SnapshotQuery
 import com.syncscope.persistence.SnapshotStore
 import com.syncscope.persistence.SourceRootDao
+import com.syncscope.persistence.StaleGenerationException
 import com.syncscope.scan.FileStatus
 import com.syncscope.scan.ScanCoordinator
 import com.syncscope.scan.ScanEngine
@@ -29,7 +31,7 @@ import com.syncscope.scan.ScanRunView
 
 /**
  * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle /
- * listSelectableEntries,
+ * listSelectableEntries / getScrollIndex,
  * resolved as envelopes (contracts/cloudsync-scan.md and cloudsync-browse.md "Behaviour"). No
  * `documentId`, `documentUri`, path or host ever goes into a result: rows are mapped field by field,
  * image handles are cache files named by a hash, and run errors were redacted when they were stored.
@@ -125,6 +127,54 @@ class ScanOperations(
         return snapshotNotFound()
       }
     return envelope.selectable(entries)
+  }
+
+  /**
+   * `ScrollIndexResult` (contracts/cloudsync-polish.md "getScrollIndex"): the bands of the files [querySpec] shows, in
+   * its sort's order, with a start token per band (D010). The query is validated as `queryFiles` does; `pageToken`
+   * and `pageSize` are ignored. A LIST query without a `parentId` covers the top level, as `queryTreeChildren` does.
+   * [anchor] is `{sortValue, sortName}`; one without a string `sortName` is `INVALID_QUERY` (`anchor`), and a
+   * `sortValue` of the wrong type for the sort gives a null `anchorIndex`. A missing or staged snapshot is
+   * `SNAPSHOT_NOT_FOUND`, a published one that was replaced is `STALE_GENERATION`.
+   */
+  suspend fun scrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?): WritableMap {
+    val query =
+      when (val parsed = parseQuery(querySpec)) {
+        is ParsedQuery.Invalid -> return invalidQuery(parsed.field)
+        is ParsedQuery.Valid -> parsed.query
+      }
+    val scrollAnchor =
+      if (anchor == null) null
+      else {
+        val sortName = stringField(anchor, "sortName") ?: return invalidQuery("anchor")
+        ScrollAnchor(sortValue = anchorValue(anchor), sortName = sortName)
+      }
+    val index =
+      try {
+        store().scrollIndex(snapshotId, query, scrollAnchor)
+      } catch (_: SnapshotNotFoundException) {
+        return snapshotNotFound()
+      } catch (_: StaleGenerationException) {
+        return envelope.error(
+          CloudSyncErrorCode.STALE_GENERATION,
+          "These results were replaced by a newer scan.",
+          "Reload the list.",
+        )
+      }
+    return envelope.ok("scrollIndex", envelope.scrollIndex(index))
+  }
+
+  /** The anchor's `sortValue` as the store reads it: a number, a string, null, or a boolean (always the wrong type). */
+  private fun anchorValue(anchor: ReadableMap): Any? {
+    if (!anchor.hasKey("sortValue")) return null
+    return when (anchor.getType("sortValue")) {
+      ReadableType.Number -> anchor.getDouble("sortValue")
+      ReadableType.String -> anchor.getString("sortValue")
+      ReadableType.Boolean -> anchor.getBoolean("sortValue")
+      ReadableType.Null -> null
+      // A map or an array is never a sort value; anything that is not a string, number or null gives no index.
+      else -> false
+    }
   }
 
   private fun invalidQuery(field: String): WritableMap =

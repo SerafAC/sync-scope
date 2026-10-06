@@ -263,26 +263,26 @@ band's first file in each sort, and narrow sizes give at least 5 labels.
 
 ### Native: bands and the scroll index
 
-- [ ] T050 [P] [US2] Write `KTEST/scan/ScrollBandsTest.kt` (failing) for a pure `ScrollBands` object (research R5, R6):
+- [X] T050 [P] [US2] Write `KTEST/scan/ScrollBandsTest.kt` (failing) for a pure `ScrollBands` object (research R5, R6):
   - **Letters**: one band per non-empty letter, `#` first.
   - **Dates** (fixed `ZoneId` in the test): years when they give ≥ 5 non-empty bands, else months when they do, else days; ten years of files → year bands; three weeks → day bands; all on one day → one band; empty periods skipped; each band's `startMillis` is the local start of its period.
   - **Sizes**: wide range (`p95 / p5 ≥ 10`) uses 1-2-5 boundaries from `p5` to the max (50 KB–2 GB → `100 KB`, `1 MB`, `10 MB`… among them); narrow range uses step `nice((p95 − p5) / 10)` (3–5 MB → steps of 0.2 MB, ≥ 5 bands, SC-008); values below `p5` join the first band and above the last step a top band, so a few huge outliers get one band of their own; empty bands dropped; a band over half the files is split once with the narrow rule when there are ≥ 8 distinct sizes; more than `SCROLL_BANDS_MAX` bands are merged pairwise to ≤ 15; with ≥ 8 distinct sizes there are 5–15 bands and none holds over half the files unless over half share one size (FR-007a); all equal sizes → one band; `lowerBytes` strictly increase (labels never repeat).
-- [ ] T051 [US2] Create `KT/scan/ScrollBands.kt` to make T050 pass, using `SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX` from `KT/bridge/CloudSyncContracts.kt`. The one place band rules live (Principle III).
-- [ ] T052 [P] [US2] Write `KTEST/persistence/ScrollIndexTest.kt` (failing) for `SnapshotStore.scrollIndex(snapshotId, query, anchor?)`:
+- [X] T051 [US2] Create `KT/scan/ScrollBands.kt` to make T050 pass, using `SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX` from `KT/bridge/CloudSyncContracts.kt`. The one place band rules live (Principle III).
+- [X] T052 [P] [US2] Write `KTEST/persistence/ScrollIndexTest.kt` (failing) for `SnapshotStore.scrollIndex(snapshotId, query, anchor?)`:
   - `unit` follows the sort (`LETTER` for name, `YEAR`/`MONTH`/`DAY` for date, `SIZE` for size); bands follow the sort's direction; the `unknown: true` band is last;
   - band counts add up to `totalCount` (`FILE` rows only); each `startIndex` is the sum of the counts before it; no empty band;
   - the first band's `startToken` is `null`; paging from any band's `startToken` returns that band's first row first;
   - scope equals the rows' scope (`scopeOf`): filter, view, source, parent and `kind`;
   - `anchorIndex` = the number of rows sorting before the anchor `(sortValue, sortName)`, clamped to `totalCount − 1`; a gone anchor gives its neighbour's index (Story 4 sc. 2); a wrong-typed `sortValue` gives `null`;
   - `SNAPSHOT_NOT_FOUND` and `STALE_GENERATION` as for paged reads.
-- [ ] T053 [US2] Implement T052 in `KT/persistence/SnapshotStore.kt` and `KT/persistence/Daos.kt`: one indexed read of the sort column within `scopeOf` (a `GROUP BY` letter of `sortName` for names; the sorted values for sizes and dates), bands from `ScrollBands`, and each `startToken` minted with `PageTokenCodec` at a cursor just before the band's lower bound (D010 unchanged).
-- [ ] T054 [US2] Extend `KTEST/persistence/SnapshotQueryPerformanceTest.kt`: `scrollIndex` under 150 ms on 50 k rows for each sort (research R4).
-- [ ] T055 [US2] Wire `getScrollIndex` in `KT/bridge/ScanOperations.kt`, `KT/bridge/CloudSyncEnvelope.kt` (payload key `scrollIndex`, the band DTO) and `KT/bridge/CloudSyncModule.kt`; `pageToken` and `pageSize` are ignored. Tests in `KTEST/bridge/ScanOperationsTest.kt` and `KTEST/bridge/CloudSyncModuleTest.kt`. Amend D010 in `docs/decisions/0010-snapshot-paging-and-origin-badge.md` with the scroll index and band start tokens (token contract unchanged).
+- [X] T053 [US2] Implement T052 in `KT/persistence/SnapshotStore.kt` and `KT/persistence/Daos.kt`: one indexed read of the sort column within `scopeOf` (a `GROUP BY` letter of `sortName` for names; the sorted values for sizes and dates), bands from `ScrollBands`, and each `startToken` minted with `PageTokenCodec` at a cursor just before the band's lower bound (D010 unchanged).
+- [X] T054 [US2] Extend `KTEST/persistence/SnapshotQueryPerformanceTest.kt`: `scrollIndex` under 150 ms on 50 k rows for each sort (research R4).
+- [X] T055 [US2] Wire `getScrollIndex` in `KT/bridge/ScanOperations.kt`, `KT/bridge/CloudSyncEnvelope.kt` (payload key `scrollIndex`, the band DTO) and `KT/bridge/CloudSyncModule.kt`; `pageToken` and `pageSize` are ignored. Tests in `KTEST/bridge/ScanOperationsTest.kt` and `KTEST/bridge/CloudSyncModuleTest.kt`. Amend D010 in `docs/decisions/0010-snapshot-paging-and-origin-badge.md` with the scroll index and band start tokens (token contract unchanged).
 
 ### JS
 
-- [ ] T056 [P] [US2] `src/native/CloudSync.ts`: `getScrollIndex(snapshotId, querySpec, anchor?)` with DTO guards. Tests in `src/native/__tests__/CloudSync.test.ts`.
-- [ ] T057 [P] [US2] Create `src/files/bandLabel.ts`: `LETTER` → `#` or the upper-case letter; `YEAR` → `YYYY`; `MONTH` → `MM.YYYY`; `DAY` → `DD.MM.YYYY`, all in the device's local time from `startMillis`; `SIZE` → `formatBytes(lowerBytes)` from `src/selection/formatBytes.ts`; the unknown band → `Unknown`. Tests in `src/files/__tests__/bandLabel.test.ts`.
+- [X] T056 [P] [US2] `src/native/CloudSync.ts`: `getScrollIndex(snapshotId, querySpec, anchor?)` with DTO guards. Tests in `src/native/__tests__/CloudSync.test.ts`.
+- [X] T057 [P] [US2] Create `src/files/bandLabel.ts`: `LETTER` → `#` or the upper-case letter; `YEAR` → `YYYY`; `MONTH` → `MM.YYYY`; `DAY` → `DD.MM.YYYY`, all in the device's local time from `startMillis`; `SIZE` → `formatBytes(lowerBytes)` from `src/selection/formatBytes.ts`; the unknown band → `Unknown`. Tests in `src/files/__tests__/bandLabel.test.ts`.
 - [ ] T058 [US2] Write the failing segment tests in `src/files/__tests__/usePagedQuery.test.tsx` (every existing test stays and must pass unchanged, research R7):
   - page 1 and the index are requested together; before the index arrives the hook behaves as today;
   - with the index, the result has its full length at once: loaded rows plus placeholders up to each band's `count`;
