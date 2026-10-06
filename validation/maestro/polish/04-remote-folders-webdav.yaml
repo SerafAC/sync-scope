@@ -1,0 +1,287 @@
+# Story 3 sc. 1-4 and 8-10, FR-009-FR-012, SC-004 (WebDAV,
+# contracts/maestro-polish.md › Acceptance scenario mapping): the repository
+# form holds a list of remote folders. Set up through the UI: folder 1 "/x",
+# "Add another folder", folder 2 scan/clean/b; then a server URL with the path
+# scan/clean/a typed into Host fills folder 1 only (sc. 8). Save: "Connected"
+# with one line per folder (sc. 2). Settings › Repository lists both (sc. 10).
+# A scan of TwoFolders (a/ and b/ copies plus two files only scan/clean/b
+# holds) reports every file Synced (sc. 4). Deleting b-only-deleted.jpg, which
+# only the second folder backs up, passes the server re-check (D020, sc. 9).
+# Removing scan/clean/b and rescanning leaves b-only-kept.jpg Unsynced; the
+# reusable.jpg copies stay Synced through scan/clean/a (matching ignores
+# directories, D003). Finally scan/clean/a/x as a second folder is refused,
+# naming scan/clean/a (sc. 3).
+# Self-contained: starts from clearState. Deletes TwoFolders/b/b-only-deleted.jpg
+# from the device (device-fixtures.sh re-creates it on the next run).
+appId: com.syncscope
+name: polish/04-remote-folders-webdav
+---
+- evalScript: "${output.root = WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT}"
+- evalScript: "${output.folderA = output.root + '/scan/clean/a'}"
+- evalScript: "${output.folderB = output.root + '/scan/clean/b'}"
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 60000
+
+# 1. A new form: one folder field, no remove action, "Add another folder"
+#    (sc. 1).
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Set up repository"
+    timeout: 30000
+- tapOn: "Set up repository"
+- extendedWaitUntil:
+    visible: "Protocol WebDAV"
+    timeout: 30000
+- tapOn: "Protocol WebDAV"
+- scrollUntilVisible:
+    element: "Add another folder"
+    direction: DOWN
+- assertVisible:
+    id: "repository.remoteRoots.0"
+- assertNotVisible:
+    id: "repository.remoteRoots.1"
+- assertNotVisible: "Remove remote folder 1"
+
+# 2. Folder 1 "/x", then a second folder (sc. 1).
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "/x"
+- scrollUntilVisible:
+    element: "Add another folder"
+    direction: DOWN
+- tapOn: "Add another folder"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.1"
+      TEXT: "${output.folderB}"
+- assertVisible: "Remove remote folder 1"
+- assertVisible: "Remove remote folder 2"
+
+# 3. A server URL with a path typed into Host fills folder 1 only (sc. 8). The
+#    URL is split when Host loses focus, here when User name is filled; it
+#    also sets the port and turns Use HTTPS off (http://).
+- scrollUntilVisible:
+    element:
+      id: "repository.host"
+    direction: UP
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "${'http://' + WEBDAV_HOST + ':' + WEBDAV_PORT + output.folderA}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${WEBDAV_USER}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${WEBDAV_PASSWORD}"
+- scrollUntilVisible:
+    element:
+      id: "repository.host"
+    direction: UP
+- assertVisible:
+    id: "repository.host"
+    text: "${WEBDAV_HOST}"
+- assertVisible:
+    id: "repository.port"
+    text: "${WEBDAV_PORT}"
+- assertNotVisible:
+    text: "Use HTTPS"
+    checked: true
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.1"
+    direction: DOWN
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.folderA}"
+- assertVisible:
+    id: "repository.remoteRoots.1"
+    text: "${output.folderB}"
+
+# 4. Save: "Connected" with one line per folder (sc. 2).
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+- scrollUntilVisible:
+    element: "(Connected|Connection failed: .+)"
+    direction: DOWN
+    timeout: 60000
+- assertVisible: "Connected"
+- scrollUntilVisible:
+    element: "${output.folderB}: [0-9]+ entries"
+    direction: DOWN
+    timeout: 15000
+- assertVisible: "${output.folderA}: [0-9]+ entries"
+- assertNotVisible: ".+: could not be read"
+
+# 5. Settings › Repository lists both folders, in order (sc. 10).
+- back
+- extendedWaitUntil:
+    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    timeout: 15000
+- assertVisible: "Folder ${output.folderA}"
+- assertVisible:
+    text: "Folder ${output.folderB}"
+    below: "Folder ${output.folderA}"
+
+# 6. A scan of TwoFolders: every file is backed up in one of the folders
+#    (sc. 4).
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "TwoFolders"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- assertVisible: "Synced: 4"
+- assertVisible: "Unsynced: 0"
+- assertVisible: "Files that could not be checked: 0"
+- assertNotVisible: "Could not read .+"
+
+# 7. Delete a file only scan/clean/b backs up: the server re-check finds it in
+#    the second folder (D020, sc. 9).
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- tapOn: "Folder TwoFolders.*"
+- extendedWaitUntil:
+    visible: "Breadcrumb TwoFolders"
+    timeout: 15000
+- tapOn: "Folder b.*"
+- extendedWaitUntil:
+    visible: "b-only-deleted.jpg, Synced"
+    timeout: 15000
+- assertVisible: "b-only-kept.jpg, Synced"
+- longPressOn: "b-only-deleted.jpg, Synced"
+- extendedWaitUntil:
+    visible: "b-only-deleted.jpg, Synced, selected"
+    timeout: 15000
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "Delete 1 backed-up files, .+"
+    timeout: 60000
+- assertNotVisible: "Not backed up .+"
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Deleted 1 files, freed .+"
+    timeout: 60000
+- assertNotVisible: "Could not delete .+"
+- tapOn: "Done"
+- extendedWaitUntil:
+    notVisible: "b-only-deleted.jpg, .+"
+    timeout: 15000
+- assertVisible: "b-only-kept.jpg, Synced"
+
+# 8. Remove scan/clean/b, save, rescan from scratch: the file only it backed
+#    up is now Unsynced (Story 3 Independent Test).
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Edit repository"
+    timeout: 15000
+- tapOn: "Edit repository"
+- scrollUntilVisible:
+    element: "Remove remote folder 2"
+    direction: DOWN
+- tapOn: "Remove remote folder 2"
+- assertNotVisible:
+    id: "repository.remoteRoots.1"
+- assertNotVisible: "Remove remote folder 1"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+- scrollUntilVisible:
+    element: "(Connected|Connection failed: .+)"
+    direction: DOWN
+    timeout: 60000
+- assertVisible: "Connected"
+- scrollUntilVisible:
+    element: "${output.folderA}: [0-9]+ entries"
+    direction: DOWN
+    timeout: 15000
+- assertNotVisible: "${output.folderB}: .+"
+- back
+- extendedWaitUntil:
+    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    timeout: 15000
+- assertVisible: "Folder ${output.folderA}"
+- assertNotVisible: "Folder ${output.folderB}"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- assertVisible: "Synced: 2"
+- assertVisible: "Unsynced: 1"
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    when:
+      visible: "Folder TwoFolders.*"
+    commands:
+      - tapOn: "Folder TwoFolders.*"
+- runFlow:
+    when:
+      visible: "Folder b.*"
+    commands:
+      - tapOn: "Folder b.*"
+- extendedWaitUntil:
+    visible: "b-only-kept.jpg, Unsynced"
+    timeout: 15000
+- assertVisible: "reusable.jpg, Synced"
+
+# 9. A folder inside another is refused, naming the folder it overlaps
+#    (sc. 3).
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Edit repository"
+    timeout: 15000
+- tapOn: "Edit repository"
+- scrollUntilVisible:
+    element: "Add another folder"
+    direction: DOWN
+- tapOn: "Add another folder"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.1"
+      TEXT: "${output.folderA + '/x'}"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+- scrollUntilVisible:
+    element: "This folder is the same as, inside or around ${output.folderA}\\."
+    direction: UP
+    timeout: 60000
+- assertNotVisible: "Connected"
+- assertVisible:
+    id: "repository.remoteRoots.1"
+    text: "${output.folderA}/x"
+# Leave without saving: the saved repository keeps scan/clean/a alone.
+- back
+- extendedWaitUntil:
+    visible: "Discard changes"
+    timeout: 15000
+- tapOn: "Discard changes"
+- extendedWaitUntil:
+    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    timeout: 15000
+- assertVisible: "Folder ${output.folderA}"
+- assertNotVisible: "Folder ${output.folderA}/x"

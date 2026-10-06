@@ -128,6 +128,46 @@ class FtpRemoteClientTest {
   }
 
   @Test
+  fun aRefusedDirectoryListedAsItselfIsUnreadable() {
+    // vsftpd lists a 0700 folder whose parent it can read as the parent's line for that folder.
+    val fake =
+      FakeFtp(
+        listings = mapOf("/scan/partial/restricted" to arrayOf(dir("restricted"))),
+        refusedCwd = setOf("/scan/partial/restricted"),
+      )
+
+    val error =
+      assertThrows(RemoteClientException::class.java) { runBlocking { connected(fake).list("/scan/partial/restricted") } }
+
+    assertEquals(CloudSyncErrorCode.DIRECTORY_UNREADABLE, error.code)
+    assertEquals(listOf("PWD", "CWD /scan/partial/restricted"), fake.commands)
+  }
+
+  @Test
+  fun aReadableFolderHoldingOneFolderOfItsOwnNameKeepsIt() {
+    val fake = FakeFtp(listings = mapOf("/photos" to arrayOf(dir("photos"))))
+
+    val entries = runBlocking { connected(fake).list("/photos") }
+
+    assertEquals(listOf("photos"), entries.map { it.name })
+    assertEquals(listOf("PWD", "CWD /photos", "CWD /"), fake.commands)
+  }
+
+  @Test
+  fun oneEntryWithAnotherNameOrAFileIsNeverProbed() {
+    val fake =
+      FakeFtp(
+        listings = mapOf("/d" to arrayOf(dir("other")), "/e" to arrayOf(file("e"))),
+        refusedCwd = setOf("/d", "/e"),
+      )
+
+    runBlocking { connected(fake).list("/d") }
+    runBlocking { connected(fake).list("/e") }
+
+    assertTrue(fake.commands.isEmpty())
+  }
+
+  @Test
   fun nonEmptyListingIsNeverProbed() {
     val fake = FakeFtp(listings = mapOf("/d" to arrayOf(file("exact.txt"))))
 

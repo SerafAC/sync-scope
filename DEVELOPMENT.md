@@ -222,8 +222,9 @@ validation/maestro/
 - **Repository form** (feature 006): its buttons and status are selected by accessibility label, as in the
   Files tab (`specs/006-mvp/contracts/maestro-mvp.md`, Selectors). Its text fields are tapped by `testID`
   (`repository.host`, `repository.port`, `repository.username`, `repository.password`,
-  `repository.remoteRoot`): a prefilled field's floating label also matches its name, and a tap on that
-  label does not focus the input. Hide the keyboard and scroll to each field before tapping it, as
+  `repository.remoteRoots.<n>`, one per remote folder from `0`, feature 007): a prefilled field's floating
+  label also matches its name, and a tap on that label does not focus the input. A passed test shows
+  `Connected` and one `<folder>: <n> entries` line per folder. Hide the keyboard and scroll to each field before tapping it, as
   `subflows/setup-repository.yaml` does; the keyboard covers the lower fields.
 - **System UI** (the folder picker, permission dialogs): select by visible text, and only inside
   `subflows/`. Differences between Android versions are handled there with `runFlow: when:` branches,

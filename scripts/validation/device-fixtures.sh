@@ -23,8 +23,9 @@
 # tree is removed and re-created on each run.
 #
 # Feature 007 (contracts/maestro-polish.md › Fixtures) adds
-# SyncScopeE2E/TwoFolders, a copy of Scan/a and Scan/b (the device side of the
-# remote scan/clean/a and scan/clean/b folders); SyncScopeE2E/Scroll and
+# SyncScopeE2E/TwoFolders, a copy of Scan/a and Scan/b plus the two b-only-*
+# files (the device side of the remote scan/clean/a and scan/clean/b folders);
+# SyncScopeE2E/Scroll and
 # SyncScopeE2E/Narrow, generated from the scroll_* and narrow_* functions of
 # scroll-manifest.sh (padded PNGs, so every file is still a valid image); and
 # DCIM/Big, 10,000 empty .jpg files for the picker spike and flow 08. Scroll
@@ -122,6 +123,14 @@ seed_scan_file only-here.txt 'only in restricted'
 # with their mtimes, so the tree is defined once (seed_scan_file).
 two_folders=/sdcard/SyncScopeE2E/TwoFolders
 adb_shell "rm -rf $two_folders && mkdir -p $two_folders && cp -Rp $scan/a $scan/b $two_folders/"
+# The two files only the remote scan/clean/b holds (fixture-seed.sh): the
+# second remote folder alone backs them up.
+seed_two_folders_file() {
+  adb_shell "printf '$2\\n' > $two_folders/$1"
+  adb_shell "touch -d @1704067200 $two_folders/$1"
+}
+seed_two_folders_file b/b-only-deleted.jpg 'only in folder b, deleted by flow 04'
+seed_two_folders_file b/b-only-kept.jpg 'only in folder b, kept by flow 04'
 
 # Bulk source: one adb shell loop, no per-file fork. Adding 1000 or 100000 and
 # stripping the leading 1 zero-pads the directory and file numbers.

@@ -24,8 +24,10 @@ name: mvp/01-setup-sftp
 - assertVisible: "Reject server key"
 - assertNotVisible: "Server key changed warning"
 - tapOn: "Trust server key"
-- extendedWaitUntil:
-    visible: "Connected, [0-9]+ entries"
+# The status sits under Save and test, below the fold since feature 007.
+- scrollUntilVisible:
+    element: "Connected"
+    direction: DOWN
     timeout: 60000
 - assertNotVisible: "Unencrypted connection warning"
 - back

@@ -27,7 +27,7 @@ name: mvp/01-setup-ftp
       USER: "${FTP_USER}"
       PASSWORD: "${FTP_PASSWORD}"
       ROOT: "${output.ftpRoot}"
-- assertVisible: "Connected, [0-9]+ entries"
+- assertVisible: "Connected"
 - scrollUntilVisible:
     element: "Unencrypted connection warning"
     direction: UP
@@ -42,8 +42,11 @@ name: mvp/01-setup-ftp
 
 # Every field comes back prefilled; the password does not.
 - tapOn: "Edit repository"
+# The form is taller than the screen since feature 007 (a Browse button per
+# folder, Add another folder), so Save and test starts below the fold.
 - extendedWaitUntil:
-    visible: "Save and test"
+    visible:
+      id: "repository.host"
     timeout: 15000
 - assertVisible:
     text: "${FTP_HOST}"
@@ -51,11 +54,19 @@ name: mvp/01-setup-ftp
     text: "${FTP_PORT}"
 - assertVisible:
     text: "${FTP_USER}"
-- assertVisible:
-    text: "${output.ftpRoot}"
 - assertVisible: "A password is stored. Leave empty to keep it."
 # A typed secure password is dumped as bullets; none means the field is empty.
 - assertNotVisible: "•+"
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.ftpRoot}"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
 - back
 - extendedWaitUntil:
     visible: "Repository FTP ${FTP_HOST}"

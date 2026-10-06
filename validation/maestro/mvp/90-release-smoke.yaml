@@ -23,7 +23,7 @@ name: mvp/90-release-smoke
       USER: "${SFTP_USER}"
       PASSWORD: "${SFTP_PASSWORD}"
       ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
-- assertVisible: "Connected, [0-9]+ entries"
+- assertVisible: "Connected"
 - back
 - extendedWaitUntil:
     visible: "Repository SFTP ${SFTP_HOST}"

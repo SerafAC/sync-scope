@@ -8,6 +8,9 @@
 #   PASSWORD  the per-run container password; throwaway, hex only, so it is
 #             URL-safe as it is
 #   ROOT      the remote root, for example /srv/fixtures/scan/clean
+#   ROOT_2    optional: a second remote folder, sent as a second `root`
+#             parameter (feature 007, contract version 6); omitted, the
+#             repository has ROOT as its only folder
 #   EXPECT    optional: the status line to wait for; "Repository configured"
 #             unless a flow configures a failure on purpose
 #   SCAN_DELAY_MS
@@ -22,7 +25,8 @@ appId: com.syncscope
 ---
 - evalScript: "${output.configureExpect = typeof EXPECT !== 'undefined' && EXPECT ? EXPECT : 'Repository configured'}"
 - evalScript: "${output.scanDelayQuery = typeof SCAN_DELAY_MS !== 'undefined' && SCAN_DELAY_MS ? '&scanDelayMs=' + SCAN_DELAY_MS : ''}"
-- openLink: "syncscope-debug://configure-repository?protocol=${PROTOCOL}&host=10.0.2.2&port=${PORT}&username=${USER}&password=${PASSWORD}&root=${ROOT}${output.scanDelayQuery}"
+- evalScript: "${output.secondRootQuery = typeof ROOT_2 !== 'undefined' && ROOT_2 ? '&root=' + ROOT_2 : ''}"
+- openLink: "syncscope-debug://configure-repository?protocol=${PROTOCOL}&host=10.0.2.2&port=${PORT}&username=${USER}&password=${PASSWORD}&root=${ROOT}${output.secondRootQuery}${output.scanDelayQuery}"
 - extendedWaitUntil:
     visible: "${output.configureExpect}"
     timeout: 60000

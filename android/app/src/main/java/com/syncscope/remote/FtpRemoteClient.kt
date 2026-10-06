@@ -75,7 +75,7 @@ class FtpRemoteClient(
       val client = session()
       guarded(client) {
         val entries = fetchListing(client, directory).mapNotNull(FtpListing::toEntry)
-        if (entries.isEmpty()) probeReadable(client, directory)
+        if (entries.isEmpty() || FtpListing.couldBeSelfEntry(directory, entries)) probeReadable(client, directory)
         entries
       }
     }
@@ -284,6 +284,19 @@ internal object FtpListing {
    */
   fun listConfig(systemType: String): FTPClientConfig =
     FTPClientConfig(systemType).apply { serverTimeZoneId = LIST_TIME_ZONE }
+
+  /**
+   * Whether [entries] may be the directory itself rather than its contents. vsftpd answers LIST on a
+   * `0700` directory whose parent it can read by listing the parent filtered to that name, so the
+   * listing holds one directory entry named like the folder (seen in the feature 007 e2e run: LIST
+   * `/scan/partial/restricted` returned `restricted`). Only a CWD probe tells that apart from a
+   * readable folder that really holds one folder of its own name.
+   */
+  fun couldBeSelfEntry(directory: String, entries: List<RemoteEntry>): Boolean {
+    val entry = entries.singleOrNull() ?: return false
+    val name = directory.trimEnd('/').substringAfterLast('/')
+    return entry.type == RemoteEntryType.DIRECTORY && name.isNotEmpty() && entry.name == name
+  }
 
   /** Symlinks are OTHER even though a server may resolve them; they are never followed. */
   fun classify(file: FTPFile): RemoteEntryType =

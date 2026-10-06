@@ -212,7 +212,7 @@ browser; a scan matches against all of them and completes honestly when some can
 
 ### End-to-end
 
-- [ ] T046 [US3] Update the existing repository subflows for the new field selector (`MAESTRO/subflows/setup-repository.yaml` and any flow typing the remote folder) to `repository.remoteRoots.0`, then create:
+- [X] T046 [US3] Update the existing repository subflows for the new field selector (`MAESTRO/subflows/setup-repository.yaml` and any flow typing the remote folder) to `repository.remoteRoots.0`, then create:
   - `MAESTRO/polish/04-remote-folders-webdav.yaml` per the mapping row (two folders; the server URL with path `/scan/clean/a` typed into Host fills folder 1 only (sc. 8); Connected with a line per folder; `TwoFolders` all Synced; Settings › Repository lists both; deleting a file that exists only under `b` passes the server check (D020, sc. 9); remove `/scan/clean/b` → `b`'s remaining files Unsynced; `/scan/clean/a/x` → overlap error naming `/scan/clean/a`);
   - `MAESTRO/polish/05-remote-folder-unread-ftp.yaml` (seam with roots `/scan/clean/a` and `/scan/partial/restricted`: scan completes, `Could not read /scan/partial/restricted`, Unsynced count 0; then the seam sets roots `/scan/partial/restricted` and `/gallery-partial/restricted`: `Scan failed`, and Files still shows the previous result (sc. 6));
   - `MAESTRO/polish/06-remote-browse-sftp.yaml` (host-key dialog → Trust → lists `/`; `scan` › `clean` › `Use this folder` fills `/scan/clean`; wrong password → login error, field still editable);

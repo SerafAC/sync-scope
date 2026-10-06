@@ -152,6 +152,8 @@ const SCAN_FIXTURES = new Map([
   ['scan/clean/exact.txt', 'exact metadata fixture\n'],
   ['scan/clean/a/reusable.jpg', 'reusable duplicate payload\n'],
   ['scan/clean/b/reusable.jpg', 'reusable duplicate payload\n'],
+  ['scan/clean/b/b-only-deleted.jpg', 'only in folder b, deleted by flow 04\n'],
+  ['scan/clean/b/b-only-kept.jpg', 'only in folder b, kept by flow 04\n'],
   ['scan/clean/é-decomposed.txt', 'decomposed unicode metadata\n'],
   ['scan/clean/size-mismatch.txt', 'intentionally different size\n'],
   ['scan/partial/readable/exact.txt', 'exact metadata fixture\n'],
@@ -1389,7 +1391,11 @@ test('device fixture script seeds TwoFolders as copies of scan/clean/a and scan/
   assert.equal(seeded.status, 0, seeded.stderr);
   const commands = calls.join('\n');
 
-  // The device Scan/a and Scan/b match the remote folders by name, bytes and mtime.
+  const two = '/sdcard/SyncScopeE2E/TwoFolders';
+  // The device Scan/a and Scan/b match the remote folders by name, bytes and
+  // mtime; the b-only-* files (feature 007, flow polish/04) are seeded into
+  // TwoFolders/b only, so the Scan source and its flows are unchanged.
+  const bOnly = [];
   for (const folder of ['a', 'b']) {
     const names = await readdir(join(remote, 'scan/clean', folder));
     assert.ok(names.length > 0);
@@ -1397,7 +1403,11 @@ test('device fixture script seeds TwoFolders as copies of scan/clean/a and scan/
       const file = join(remote, 'scan/clean', folder, name);
       const bytes = await readFile(file, 'utf8');
       const mtime = Math.floor((await lstat(file)).mtimeMs / 1000);
-      const device = `${DEVICE_SCAN}/${folder}/${name}`;
+      const only = name.startsWith('b-only-');
+      if (only) {
+        bOnly.push(name);
+      }
+      const device = `${only ? two : DEVICE_SCAN}/${folder}/${name}`;
       assert.ok(
         commands.includes(`printf '${bytes.replace(/\n$/, '\\n')}' > ${device}`),
         `${device} must hold the bytes of scan/clean/${folder}/${name}`,
@@ -1406,7 +1416,15 @@ test('device fixture script seeds TwoFolders as copies of scan/clean/a and scan/
     }
   }
 
-  const two = '/sdcard/SyncScopeE2E/TwoFolders';
+  assert.deepEqual(
+    bOnly.sort(),
+    ['b-only-deleted.jpg', 'b-only-kept.jpg'],
+    'scan/clean/b holds two files no other remote folder has',
+  );
+  assert.ok(
+    !commands.includes(`${DEVICE_SCAN}/b/b-only-`),
+    'the Scan source never holds the b-only files',
+  );
   const copy = calls.findIndex(call => call.includes(two));
   assert.ok(copy !== -1, 'TwoFolders must be seeded');
   assert.match(
@@ -1421,6 +1439,10 @@ test('device fixture script seeds TwoFolders as copies of scan/clean/a and scan/
     -1,
   );
   assert.ok(lastScan < copy, 'TwoFolders is copied after the Scan files are seeded');
+  for (const name of bOnly) {
+    const seeded = calls.findIndex(call => call.includes(`${two}/b/${name}`));
+    assert.ok(seeded > copy, `${name} is added to TwoFolders/b after the copy`);
+  }
 });
 
 test('device fixture script creates DCIM/Big with one adb shell loop', async t => {

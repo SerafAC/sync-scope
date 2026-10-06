@@ -50,3 +50,6 @@ executionOrder:
     - mvp/91-release-update
     - polish/01-sort
     - polish/02-sort-persists
+    - polish/04-remote-folders-webdav
+    - polish/05-remote-folder-unread-ftp
+    - polish/06-remote-browse-sftp

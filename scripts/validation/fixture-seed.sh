@@ -69,6 +69,11 @@ printf '%s\n' 'reusable duplicate payload' >"$root/scan/clean/a/reusable.jpg"
 cp "$root/scan/clean/a/reusable.jpg" "$root/scan/clean/b/reusable.jpg"
 printf '%s\n' 'decomposed unicode metadata' >"$root/scan/clean/é-decomposed.txt"
 printf '%s\n' 'intentionally different size' >"$root/scan/clean/size-mismatch.txt"
+# Feature 007 (flow polish/04): two files only under scan/clean/b, so a file
+# can be backed up in the second remote folder alone. Only the device
+# TwoFolders source holds copies; Scan does not, so the scan flows' counts stay.
+printf '%s\n' 'only in folder b, deleted by flow 04' >"$root/scan/clean/b/b-only-deleted.jpg"
+printf '%s\n' 'only in folder b, kept by flow 04' >"$root/scan/clean/b/b-only-kept.jpg"
 printf '%s\n' 'exact metadata fixture' >"$root/scan/partial/readable/exact.txt"
 printf '%s\n' 'only in restricted' >"$root/scan/partial/restricted/only-here.txt"
 
@@ -109,6 +114,8 @@ touch -d '@1704067200.000000000' \
   "$root/scan/clean/exact.txt" \
   "$root/scan/clean/a/reusable.jpg" \
   "$root/scan/clean/b/reusable.jpg" \
+  "$root/scan/clean/b/b-only-deleted.jpg" \
+  "$root/scan/clean/b/b-only-kept.jpg" \
   "$root/scan/clean/é-decomposed.txt" \
   "$root/scan/clean/size-mismatch.txt" \
   "$root/scan/partial/readable/exact.txt" \

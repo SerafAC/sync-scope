@@ -31,7 +31,7 @@ name: mvp/02-setup-errors
     timeout: 15000
 - assertVisible: "Connection failed: The FTP server rejected the username or password."
 - assertVisible: "Check the credentials and try again."
-- assertNotVisible: "Connected, [0-9]+ entries"
+- assertNotVisible: "Connected"
 - scrollUntilVisible:
     element: "Host"
     direction: UP
@@ -53,7 +53,7 @@ name: mvp/02-setup-errors
       PASSWORD: "${FTP_PASSWORD}"
       ROOT: "${output.ftpRoot}"
       START: "form"
-- assertVisible: "Connected, [0-9]+ entries"
+- assertVisible: "Connected"
 - assertNotVisible: "Connection failed: .+"
 
 # An unsaved edit asks before leaving.

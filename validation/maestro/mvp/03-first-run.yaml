@@ -55,7 +55,7 @@ name: mvp/03-first-run
       PASSWORD: "${WEBDAV_PASSWORD}"
       ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
       HTTPS: "false"
-- assertVisible: "Connected, [0-9]+ entries"
+- assertVisible: "Connected"
 - back
 
 # Back on the Scan tab, re-read on focus: only the folder is still missing.

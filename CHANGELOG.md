@@ -92,6 +92,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
   [`specs/001-gsd-speckit-migration/migration-map.md`](./specs/001-gsd-speckit-migration/migration-map.md)
   for where each GSD artifact went.
 
+### Fixed
+
+- FTP: a remote folder the server account cannot open is reported as unreadable even when vsftpd lists it
+  as a single entry of its own name, instead of being walked into as a subfolder (found by the feature
+  007 flow `polish/05-remote-folder-unread-ftp`).
+
 ### Removed
 
 - GSD workflow tooling and state: `.gsd/`, the GSD MCP servers in `.mcp.json`, `.bg-shell/` and the
