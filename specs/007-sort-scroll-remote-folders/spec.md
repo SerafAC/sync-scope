@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-05
 
-**Status**: Draft
+**Status**: Planned (clarified, plan and tasks written)
 
 **Input**: User description: "Please add another spec, before all unfinished (starting and including 007).
 Features: Sort by drop-down, by size, date, name, both asc and desc. Drop-down should be on the left side
@@ -42,8 +42,8 @@ way next:
 
 **In scope**: a sort drop-down and a view-mode drop-down side by side above gallery and list view; sort
 by name, date and size in both directions; a scrollbar whose thumb shows where the user is in the active
-sort (month, letter or a size band fitted to the files shown) and jumps there when dragged; several
-remote folders in one
+sort (a date or size band fitted to the files shown, or a letter) and jumps there when dragged; several remote
+folders, each typed or picked with a server folder browser, in one
 repository; renaming Settings › Folders to Settings › Device folders; keeping the scroll position when
 new results arrive; adding device folders that hold many files; the app's own launcher icon.
 
@@ -53,11 +53,9 @@ new results arrive; adding device folders that hold many files; the app's own la
   [008-tree-view-image-preview](../008-tree-view-image-preview/spec.md).
 - Hidden files, snapshot retention, the API 36 full loop and the final docs pass —
   [010-full-loop-release](../010-full-loop-release/spec.md).
-- A browser for the server's folders. Remote folders are typed as paths, as the single remote folder is
-  today.
 - Mapping a device folder to a particular remote folder, and more than one server (R024 stays out of
   scope: every device file is still compared against every remote folder of the one server).
-- Remembering the sort across app restarts (the filter is not remembered either, feature 005 R10).
+- Remembering the filter across app restarts (feature 005 R10 stands; sort and view mode are remembered).
 
 ## Clarifications
 
@@ -72,6 +70,20 @@ new results arrive; adding device folders that hold many files; the app's own la
 - Change (user decision): "for scroll size bands make them dynamic, so values will be dependent on the
   content and not squeeze everything into one bucket if all files e.g. 3-5mb" → User Story 2 scenario 5,
   FR-007a, SC-008.
+- Q: How should the user choose each server folder: by typing its path, or by browsing the server's
+  folders? → A: Both: a typed path field plus a "Browse" button that opens a server folder browser.
+- Q: When one of several server folders cannot be read during a scan, should the whole scan fail or
+  finish with an honest partial result? → A: Finish. Files matched in a readable folder are backed up;
+  every other file is "unknown" with a reason naming the unread folder, and the result shows a warning.
+- Q: Should the date labels on the scrollbar adapt to the files shown, as size bands do, instead of
+  always being months? → A: Yes. Years (`YYYY`), months (`MM.YYYY`) or days (`DD.MM.YYYY`), picked from
+  the span of the files shown: the coarsest unit that gives at least 5 bands where the dates allow.
+- Q: If the empty-folder problem is in Android's own folder picker and the app cannot avoid it, what
+  should the app offer? → A: Keep it simple. Where possible, show a loading indicator while a folder
+  loads and, when the user goes back, cancel loading the folder they left. Where that is not possible,
+  show a hint instead. No complex solution such as an in-app device folder browser.
+- Q: Should the chosen sort and view mode be remembered when the app is closed and reopened? → A: Yes,
+  each view's sort and the last view mode are remembered across restarts; the filter still resets.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -100,11 +112,13 @@ view and checks the first rows against the fixtures' known order.
    reorder; subfolders stay above the files, sorted by name, whatever the sort.
 5. **Given** a sort and a filter, **When** the user changes either, **Then** the other is kept.
 6. **Given** a sort in gallery view, **When** the user switches to list view and back, **Then** each view
-   still shows the sort it had; gallery starts as "Date (newest first)" and list as "Name (A–Z)", as
-   today.
-7. **Given** the view-mode drop-down, **When** the user picks the other view, **Then** the view switches
+   still shows the sort it had; on first run gallery starts as "Date (newest first)" and list as "Name
+   (A–Z)", as today.
+7. **Given** a chosen sort and view mode, **When** the app is closed and reopened, **Then** the Files tab
+   opens in the same view mode with each view's sort as left, and the filter back at All.
+8. **Given** the view-mode drop-down, **When** the user picks the other view, **Then** the view switches
    exactly as the old switch did, keeping each view's folder and scroll position.
-8. **Given** files of unknown size or date, **When** the user sorts by that attribute, **Then** they come
+9. **Given** files of unknown size or date, **When** the user sorts by that attribute, **Then** they come
    last in both directions.
 
 ---
@@ -112,7 +126,8 @@ view and checks the first rows against the fixtures' known order.
 ### User Story 2 - Jump through long results with a smart scrollbar (Priority: P2)
 
 While the user scrolls a long gallery or list, a scrollbar appears on the right edge. Its thumb carries a
-label for where the user is in the current sort: a month (`10.2026`) when sorted by date, a letter when
+label for where the user is in the current sort: a year, month or day (`10.2026`) when sorted by date, a
+letter when
 sorted by name, a size band when sorted by size. Dragging the thumb shows the label for the position
 under the finger and, on release, the view is at the first file of that band.
 
@@ -124,11 +139,13 @@ drag the thumb to a label and check that the first visible file belongs to that 
 
 **Acceptance Scenarios**:
 
-1. **Given** a view longer than about three screens, **When** the user scrolls, **Then** a scrollbar with
-   a draggable thumb appears on the right edge and fades out shortly after scrolling stops; shorter views
-   show none.
-2. **Given** the date sort, **When** the user drags the thumb, **Then** the label shows the month and
-   year of the position as `MM.YYYY`.
+1. **Given** a view longer than three screens (viewport heights), **When** the user scrolls, **Then** a
+   scrollbar with a draggable thumb appears on the right edge and fades out about 1.5 seconds after
+   scrolling stops; shorter views show none.
+2. **Given** the date sort, **When** the user drags the thumb, **Then** the label shows the date band of
+   the position. The band size follows the files shown: years (`2024`) for files spread over many years,
+   months (`10.2026`) in the usual case, and days (`14.10.2026`) when the files cover only a few weeks,
+   so they spread over several bands instead of one.
 3. **Given** the name sort, **When** the user drags the thumb, **Then** the label shows the first letter
    (A–Z, with `#` for names starting with a digit or symbol, and accented letters under their base
    letter).
@@ -171,17 +188,27 @@ see its files reported as not backed up.
    saves, **Then** the form refuses it and names the folder it overlaps, as device folders already do.
 4. **Given** a saved repository with several folders, **When** a scan runs, **Then** each device file is
    reported as backed up when a matching file exists in any of the folders (same rules as today, D003).
-5. **Given** one of the folders cannot be read during a scan, **When** the scan finishes, **Then** the
-   scan fails as a whole and names that folder, as it does today for the single remote folder; no partial
-   result replaces the current one.
-6. **Given** a repository saved before this feature, **When** the app is updated, **Then** its one remote
+5. **Given** one of several folders cannot be read during a scan, **When** the scan finishes, **Then**
+   the result becomes active with a warning naming that folder; files matched in a readable folder are
+   backed up, and every other file is "unknown" (never deletable) with a reason naming the unread
+   folder, never "not backed up".
+6. **Given** none of the folders can be read, **When** the scan runs, **Then** it fails as a whole, as it
+   does today for the single remote folder, and the current results stay.
+7. **Given** a repository saved before this feature, **When** the app is updated, **Then** its one remote
    folder is shown as the only entry of the list and scans behave exactly as before.
-7. **Given** a server URL with a path typed into Host (feature 006), **When** the address is split up,
+8. **Given** a server URL with a path typed into Host (feature 006), **When** the address is split up,
    **Then** the path fills the first remote folder and leaves the others alone.
-8. **Given** several remote folders, **When** a deletion is prepared, **Then** the server re-check (D020)
+9. **Given** several remote folders, **When** a deletion is prepared, **Then** the server re-check (D020)
    finds a file's copy in whichever folder it was matched in.
-9. **Given** the Repository section in Settings, **When** the repository has several folders, **Then** it
+10. **Given** the Repository section in Settings, **When** the repository has several folders, **Then** it
    lists all of them.
+11. **Given** a remote folder field, **When** the user taps its "Browse" button, **Then** a server folder
+    browser opens at that field's path (or the server's top folder when the field is empty or the path
+    does not exist), shows only folders, lets the user go into a folder and back up with a breadcrumb,
+    and "Use this folder" fills the field with the current path.
+12. **Given** the server cannot be reached, the login fails or an SFTP key is not yet trusted, **When** the
+    user taps "Browse", **Then** the browser shows the same cause and next step as the connection test,
+    and the typed path stays usable.
 
 ---
 
@@ -228,10 +255,13 @@ through the app, and see it listed as available and scanned.
    appear, and the user can add it.
 2. **Given** the picker is showing that folder, **When** the user navigates to other folders and back,
    **Then** each folder shows its contents rather than an empty screen.
-3. **Given** the cause lies in the Android picker itself and cannot be avoided by how the app opens it,
-   **When** the user wants to add such a folder, **Then** the app offers a way that works (for example
-   starting the picker one level up so the folder can be chosen without opening it) and says so before
-   the picker opens.
+3. **Given** a large folder is still loading, **When** the user waits, **Then** a loading indicator shows
+   instead of an empty screen, where the app can make that happen.
+4. **Given** a large folder is still loading, **When** the user goes back, **Then** loading that folder is
+   cancelled and the folder the user returned to shows promptly, where the app can make that happen.
+5. **Given** neither a fix nor scenarios 3 and 4 are within the app's control, **When** the user taps Add
+   a folder, **Then** a hint before the picker opens says to select a large folder from its parent folder
+   without opening it.
 
 ---
 
@@ -291,11 +321,18 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   whatever is loaded and whatever the sort.
 - **Date of a file**: the date is the file's last-modified time on the device, the same one used for
   matching; the gallery's current "newest first" is that same order.
+- **Date bands for unusual sets**: all files on one day give one band; files spread over decades give
+  year bands even if some years are empty (empty years are skipped, as all empty bands are).
 - **Size bands for unusual sets**: when all files have the same size there is one band; when a few huge
   files sit far above the rest, they get a band of their own at the top rather than stretching every
   band. Band labels are always round values (steps of 1, 2 or 5 at a suitable scale, or finer steps such
   as 0.2 when the range is narrow) and never repeat.
 - **Empty bands**: bands with no files are not shown and cannot be landed on.
+- **Unknown values on the scrollbar**: files with an unknown date or size (Story 1 sc. 9) form one last
+  band labelled "Unknown" in that sort.
+- **Name order right after the update**: results scanned before this feature keep their old name order
+  for accented initials (for example `É` under `#`) until the first refresh or scan after the update,
+  which recomputes every row; the app-open refresh normally does this on the first launch.
 - **Scrollbar during paging**: the thumb's position reflects the whole result, not only the loaded pages.
 - **New results while dragging**: the drag ends, the notice shows, and the view keeps the position the
   drag reached.
@@ -304,8 +341,21 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
 - **Removing the last remote folder**: not possible; the remove action is hidden on the only folder.
 - **Removing a remote folder**: takes effect at the next scan; the current results are unchanged until
   then, and the freshness notice already tells the user when results are old.
-- **SFTP host key**: asked once per server, not per folder.
-- **Picker on a removable card**: the many-files fix applies to every volume the picker offers.
+- **Unread folder and deletion**: files that became "unknown" because a folder was not read are never
+  deletable (D006); backed-up files from the readable folders are deletable after the usual re-check
+  (D020). The warning stays on the result until a scan reads every folder.
+- **A folder unreadable in the middle of its listing**: treated like an unread folder, so no file is
+  called "not backed up" on the strength of a half-read listing.
+- **SFTP host key**: asked once per server, not per folder, and also before the folder browser lists
+  anything.
+- **Browsing with unsaved details**: the browser connects with the details currently in the form,
+  including a password typed but not yet saved, and saves nothing.
+- **Browsing a large server folder**: folders appear as they are listed; a folder with thousands of
+  files still shows its subfolders, and the browser never downloads file content (R026).
+- **Picking an overlapping folder in the browser**: the browser lets the user pick it; the form then
+  refuses it on save, naming the folder it overlaps, as for a typed path.
+- **Picker on a removable card**: the many-files fix (or the hint) applies to every volume the picker
+  offers; the R15 spike checks a second volume when the emulator offers one.
 
 ## Requirements *(mandatory)*
 
@@ -315,31 +365,43 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   view-mode drop-down immediately to its right, replacing the current gallery / list switch.
 - **FR-002**: The sort drop-down MUST offer name, date (last modified) and size, each ascending and
   descending, and MUST show the current choice.
-- **FR-003**: Each view MUST keep its own sort for the session, starting at date newest first for gallery
+- **FR-003**: Each view MUST keep its own sort, and the app MUST remember each view's sort and the last
+  view mode across app restarts, starting on first run at date newest first for gallery
   and name A–Z for list; sort, filter, view, folder and selection MUST be independent of each other.
 - **FR-004**: In list view, subfolders MUST stay above files, ordered by name, under every sort.
 - **FR-005**: Every sort MUST be total and stable (ties broken by name, then path), and files with an
   unknown value for the sort key MUST come last in both directions.
 - **FR-006**: Gallery and list view MUST show a scrollbar on the right edge when the result is longer than
-  about three screens, with a draggable thumb that jumps to the matching position of the whole result,
+  three screens (viewport heights), with a draggable thumb that jumps to the matching position of the whole result,
   including rows not loaded yet.
-- **FR-007**: While dragging, the thumb MUST show the band of the position under it: `MM.YYYY` for the
+- **FR-007**: While dragging, the thumb MUST show the band of the position under it: a date band for the
   date sort, a letter A–Z or `#` for the name sort, and a size band for the size sort. Only bands that
-  contain files under the current filter are reachable.
+  contain files under the current filter are reachable. Files with an unknown value for the sort key form
+  one last band labelled "Unknown".
 - **FR-007a**: Size bands MUST be derived from the sizes of the files being shown (current view, folder
   and filter), with round boundaries. They MUST spread the files so that, whenever the files have at least
   8 distinct sizes, there are between 5 and 15 bands and no band holds more than half of the files unless
   more than half the files share one size.
+- **FR-007b**: Date bands MUST be whole years (`YYYY`), months (`MM.YYYY`) or days (`DD.MM.YYYY`), one
+  unit for the whole scrollbar, chosen from the dates of the files being shown (current view, folder and
+  filter): the coarsest unit that gives at least 5 non-empty bands, or days when no unit does. Only one
+  label shows at a time, so a finer unit with many bands (for example 36 months) is acceptable.
 - **FR-008**: The scrollbar MUST be usable with TalkBack: it announces the current band and offers
   previous / next band actions.
 - **FR-009**: The repository MUST hold one or more remote folders. The form MUST let the user add and
   remove folders, MUST require at least one, and MUST refuse a folder that is the same as, inside or
   around another one, naming that folder.
+- **FR-009a**: Each remote folder field MUST offer a "Browse" action that opens a folder-only browser of
+  the server, using the details in the form (saved or not), with descend, a breadcrumb back up, and "Use
+  this folder" to fill the field. Connection, login and host-key problems MUST be shown as the connection
+  test shows them. Browsing MUST only list folders and never read or change file content.
 - **FR-010**: Saving the repository MUST test every remote folder and report each folder's outcome (entry
   count, or what is wrong and what to do).
 - **FR-011**: A scan MUST list every remote folder and match each device file against all of them with
-  the existing matching rules (D003, D019). If any remote folder cannot be read, the scan MUST fail and
-  name the folder; no partial result may become active.
+  the existing matching rules (D003, D019). If some but not all remote folders cannot be read, the scan
+  MUST still complete: files matched in a readable folder are backed up, every other file MUST be
+  "unknown" with a reason naming the unread folder (never "not backed up"), and the result MUST carry a
+  warning naming it. If no remote folder can be read, the scan MUST fail and the current result stays.
 - **FR-012**: The pre-delete server re-check (D020) MUST work with several remote folders.
 - **FR-013**: A repository saved before this feature MUST keep working unchanged, with its remote folder
   as the only entry.
@@ -347,9 +409,11 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   visible file at the top, or the position where it would be in the current sort when it is gone, and
   MUST still show the "Results updated" notice. This applies to the hidden view too.
 - **FR-015**: The user MUST be able to add a device folder holding at least 10,000 files through Add a
-  folder, and the picker MUST not show an empty screen for a folder that has contents. If the cause is in
-  the Android picker and cannot be avoided, the app MUST offer a working alternative and explain it
-  before the picker opens.
+  folder. Where the app can influence it, the picker MUST show a loading indicator rather than an empty
+  screen while a folder loads, and going back MUST cancel loading the folder left behind. Where the
+  app cannot, it MUST show a hint before the picker opens: select a large folder from its parent without
+  opening it. The fix MUST stay simple: no in-app device folder browser and no replacement for Android's
+  picker.
 - **FR-016**: The Settings section for local folders MUST be named "Device folders", and every
   user-visible reference to it MUST use that name.
 - **FR-017**: Every new control MUST have an accessibility label following the project's convention, and
@@ -360,53 +424,62 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
 
 ### Key Entities
 
-- **Sort**: one of six choices (name, date, size × ascending, descending), held per view for the session.
+- **Sort**: one of six choices (name, date, size × ascending, descending), held per view and remembered across
+  restarts, together with the last view mode.
   Applies to the files of the current view, folder and filter.
-- **Scroll band**: a labelled range of the current sort (a month, a letter or a size band) with the
+- **Scroll band**: a labelled range of the current sort (a date band, a letter or a size band) with the
   position of its first file in the current result. Derived from the snapshot, never stored. Size bands
   are worked out from the shown files each time the result, filter or folder changes.
 - **App icon**: the owner's source image and the icon set produced from it.
 - **Repository** (changed): the one server, now with a list of one or more remote folders instead of
   exactly one. Everything else is unchanged.
-- **Remote folder**: a path on the server whose files take part in matching. Folders in one repository
-  never overlap.
+- **Remote folder**: a path on the server whose files take part in matching, typed or picked with the
+  server folder browser. Folders in one repository never overlap.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: For each of the six sorts, the order shown in gallery and list view equals the fixtures'
-  expected order, proven by tests and a Maestro flow on API 31.
+  expected order, proven by tests and a Maestro flow on API 31 and API 36.
 - **SC-002**: The largest file of a scan can be reached in two taps from the Files tab.
 - **SC-003**: On a result of at least 5,000 files, dragging the scrollbar to any band shows that band's
   first file within 1 second on the API 31 emulator.
 - **SC-004**: With backups split across two remote folders on the live test containers, every fixture
   file present in either folder is reported as backed up, and none from a removed folder is.
+- **SC-004a**: With one of two remote folders made unreadable on the live test containers, the scan
+  completes, zero files are reported as not backed up, and the warning names the unread folder.
 - **SC-005**: After new results arrive, the file that was first on screen is still first on screen in
   100% of the test runs where it exists in both results.
 - **SC-006**: A folder of 10,000 files can be added as a device folder on the API 31 emulator.
 - **SC-007**: Zero user-visible strings say "Settings › Folders" or head a section "Folders".
 - **SC-008**: On a fixture where every file is 3–5 MB, the size sort offers at least 5 bands, and on the
-  standard fixtures no band holds more than half of the files.
+  standard fixtures no band holds more than half of the files. On a fixture whose files span three weeks,
+  the date sort shows day bands; on one spanning ten years, year bands.
 - **SC-009**: No default React Native icon remains in the app; the installed APK shows the SyncScope icon
   in the launcher, recent apps and app settings on API 31.
 
 ## Assumptions
 
-- Dates are local last-modified times, shown as month and year in the device's time zone.
+- Dates are local last-modified times, banded in the device's time zone; the label formats follow the
+  `MM.YYYY` style the user asked for.
 - Size bands are dynamic (user decision, 2026-10-05). The exact method (for example quantiles of the
   sizes snapped to round values) is chosen in planning, within FR-007a.
 - The owner provides the icon's source image when User Story 7 is built: ideally a square image of at
   least 1024 × 1024 px, with a transparent background or a separate background colour. Until then the
   story waits; the rest of the feature does not depend on it.
 - The empty-picker bug is assumed to come from how the app opens the Android picker (its starting folder
-  or flags) or from the picker's own handling of very large folders; planning finds the cause first and
-  chooses between a fix and the fallback in FR-015.
-- Remote folders are typed as paths, as today; a server folder browser is a possible later feature.
+  or flags) or from the picker's own handling of very large folders. The picker's screen belongs to
+  Android, so a loading indicator and cancel-on-back may only be possible if the cause is on the app's
+  side; planning finds the cause first and otherwise falls back to the hint (FR-015).
+- Remote folders are typed as paths or picked with the server folder browser (clarification
+  2026-10-05); both fill the same field.
 - Several remote folders change the v1 scope statement "one remote root for all selected folders"
   (`docs/scope.md`, overview glossary); those docs are updated with this feature. R024 (several servers,
   per-folder mapping) stays out of scope.
-- API 31 is this feature's proof level, as in features 002–006; API 36 is proven in feature 010.
+- The end-to-end flows of this feature pass on API 31 and API 36 emulators, as the 006 flows do
+  (`pnpm e2e:android`, D012). The API 36 *full loop* (setup, scan and delete in one flow) stays in
+  feature 010.
 
 ## Provides
 
