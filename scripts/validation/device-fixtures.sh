@@ -22,6 +22,15 @@
 # deletion flows. Those flows delete or change device files, so every gallery
 # tree is removed and re-created on each run.
 #
+# Feature 007 (contracts/maestro-polish.md › Fixtures) adds
+# SyncScopeE2E/TwoFolders, a copy of Scan/a and Scan/b (the device side of the
+# remote scan/clean/a and scan/clean/b folders); SyncScopeE2E/Scroll and
+# SyncScopeE2E/Narrow, generated from the scroll_* and narrow_* functions of
+# scroll-manifest.sh (padded PNGs, so every file is still a valid image); and
+# DCIM/Big, 10,000 empty .jpg files for the picker spike and flow 08. Scroll
+# and Big are slow to create, so they are kept when their file count is
+# already complete (once per emulator boot); the others are re-created.
+#
 # Targets the device in ANDROID_SERIAL. Idempotent: directories use mkdir -p,
 # fixture files are overwritten and the bulk and gallery trees are regenerated
 # from scratch.
@@ -32,6 +41,7 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$here/android-sdk.sh"
 . "$here/fixture-images.sh"
+. "$here/scroll-manifest.sh"
 android_sdk_resolve
 
 serial=${ANDROID_SERIAL:-}
@@ -107,6 +117,12 @@ seed_scan_file size-mismatch.txt 'local size differs'
 seed_scan_file local-only.txt 'only on the device'
 seed_scan_file only-here.txt 'only in restricted'
 
+# TwoFolders (feature 007): the two remote folders scan/clean/a and
+# scan/clean/b as one device source. Copies the Scan/a and Scan/b files above
+# with their mtimes, so the tree is defined once (seed_scan_file).
+two_folders=/sdcard/SyncScopeE2E/TwoFolders
+adb_shell "rm -rf $two_folders && mkdir -p $two_folders && cp -Rp $scan/a $scan/b $two_folders/"
+
 # Bulk source: one adb shell loop, no per-file fork. Adding 1000 or 100000 and
 # stripping the leading 1 zero-pads the directory and file numbers.
 bulk=/sdcard/SyncScopeE2E/Bulk
@@ -152,5 +168,62 @@ push_png "$PNG_TWIN" "$twin/sunset.png"
 # and stripping the leading 1 zero-pads the file numbers to g0000…g9999.
 gallery_bulk=/sdcard/SyncScopeE2E/GalleryBulk
 adb_shell "rm -rf $gallery_bulk && mkdir -p $gallery_bulk && i=0 && while [ \$i -lt $gallery_bulk_files ]; do f=\$((i + 10000)); cp $gallery/harbor.png $gallery_bulk/g\${f#1}.png; i=\$((i + 1)); done && touch -d @1704067200 $gallery_bulk/*.png" 600
+
+# file_count <dir>: the number of entries in <dir> on the device (0 when it
+# does not exist).
+file_count() {
+  adb_shell "ls $1 2>/dev/null | wc -l" | tr -d '\r '
+}
+
+# seed_generated <dir> <scroll|narrow> <count>: re-creates <dir> with the
+# <count> files the manifest functions describe. One script is written on the
+# host and run by one adb shell: each file is the base PNG, padded with zero
+# bytes to its size (truncate) and given its mtime.
+generated_base=/data/local/tmp/syncscope-generated-base.png
+script_tmp=$(mktemp)
+trap 'rm -f "$png_tmp" "$script_tmp"' EXIT
+seed_generated() {
+  dir=$1
+  kind=$2
+  count=$3
+  generated_script=/data/local/tmp/syncscope-$kind.sh
+  {
+    printf 'set -e\n'
+    printf "rm -rf '%s'\n" "$dir"
+    printf "mkdir -p '%s'\n" "$dir"
+    i=0
+    while [ "$i" -lt "$count" ]; do
+      "_$kind" "$i"
+      printf "cp %s '%s/%s'; truncate -s %s '%s/%s'; touch -d @%s '%s/%s'\n" \
+        "$generated_base" "$dir" "$_name" "$_size" "$dir" "$_name" \
+        "$_mtime" "$dir" "$_name"
+      i=$((i + 1))
+    done
+    printf 'rm -f %s %s\n' "$generated_base" "$generated_script"
+  } >"$script_tmp"
+  write_png "$PNG_SUNSET" "$png_tmp"
+  timeout --signal=TERM --kill-after=10 60 \
+    "$ANDROID_HOME/platform-tools/adb" -s "$serial" push "$png_tmp" "$generated_base" >/dev/null
+  timeout --signal=TERM --kill-after=10 60 \
+    "$ANDROID_HOME/platform-tools/adb" -s "$serial" push "$script_tmp" "$generated_script" >/dev/null
+  adb_shell "sh $generated_script" 900
+}
+
+scroll=/sdcard/SyncScopeE2E/Scroll
+if [ "$(file_count "$scroll")" = "$SCROLL_COUNT" ]; then
+  printf '%s\n' "Keeping $scroll ($SCROLL_COUNT files)."
+else
+  seed_generated "$scroll" scroll "$SCROLL_COUNT"
+fi
+seed_generated /sdcard/SyncScopeE2E/Narrow narrow "$NARROW_COUNT"
+
+# DCIM/Big: 10,000 empty files in one adb shell loop (the picker spike, R15).
+big=/sdcard/DCIM/Big
+big_files=10000
+if [ "$(file_count "$big")" = "$big_files" ]; then
+  printf '%s\n' "Keeping $big ($big_files files)."
+else
+  adb_shell "rm -rf $big && mkdir -p $big && for i in \$(seq 1 $big_files); do : > $big/IMG_\$i.jpg; done" 600
+fi
 
 printf '%s\n' "Seeded SyncScopeE2E fixtures on primary storage and /storage/$uuid."

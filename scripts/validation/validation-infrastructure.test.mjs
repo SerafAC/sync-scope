@@ -728,10 +728,21 @@ test('resolves the SDK before any script dereferences ANDROID_HOME', async () =>
   }
 });
 
-async function fakeAdbSdk(t, publicVolumes) {
+// fileCounts maps a device directory to the entry count the fake reports for
+// `ls <dir> 2>/dev/null | wc -l` (feature 007: Scroll and Big are kept when
+// complete). Unlisted directories report nothing, as if they did not exist.
+async function fakeAdbSdk(t, publicVolumes, fileCounts = {}) {
   const {home, sdk} = await fakeSdk(t);
   const log = join(home, 'adb.log');
   const pushed = join(home, 'pushed');
+  const counts = Object.entries(fileCounts)
+    .map(
+      ([dir, count]) => `  *"ls ${dir} 2>/dev/null | wc -l"*)
+    printf '%s\\r\\n' '${count}'
+    ;;
+`,
+    )
+    .join('');
   await writeFile(
     join(sdk, 'platform-tools/adb'),
     `#!/bin/sh
@@ -740,7 +751,7 @@ case "$*" in
   *"sm list-volumes public"*)
     printf '%b' '${publicVolumes}'
     ;;
-esac
+${counts}esac
 if [ "$3" = push ]; then
   mkdir -p '${pushed}'
   cp "$4" "${pushed}/$(printf '%s' "$5" | tr / _)"
@@ -816,10 +827,11 @@ const DEVICE_SCAN_FILES = new Map([
   ['only-here.txt', 'only in restricted'],
 ]);
 
-async function seededDeviceCommands(t, extraEnv = {}) {
+async function seededDeviceCommands(t, extraEnv = {}, fileCounts = {}) {
   const {sdk, log, pushed} = await fakeAdbSdk(
     t,
     'public:179,1 mounted 1A2B-3C4D\\n',
+    fileCounts,
   );
   const env = {
     ...process.env,
@@ -903,6 +915,15 @@ const DEVICE_GALLERY = '/sdcard/SyncScopeE2E/Gallery';
 const DEVICE_GALLERY_TWIN = '/sdcard/SyncScopeE2E/GalleryTwin';
 const DEVICE_GALLERY_BULK = '/sdcard/SyncScopeE2E/GalleryBulk';
 
+const DEVICE_GALLERY_TREES = [
+  'Gallery',
+  'Delete',
+  'Recheck',
+  'Offline',
+  'Select',
+  'Changed',
+].map(name => `/sdcard/SyncScopeE2E/${name}`);
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
@@ -929,7 +950,13 @@ test('device fixture script seeds the gallery sources from the shared PNGs', asy
     assert.ok(commands.includes(`mkdir -p ${dir}`), `${dir} must be created`);
   }
 
-  const pushes = calls.filter(call => / push /.test(call));
+  const pushes = calls.filter(
+    call =>
+      / push /.test(call) &&
+      [...DEVICE_GALLERY_TREES, DEVICE_GALLERY_TWIN].some(tree =>
+        call.includes(`${tree}/`),
+      ),
+  );
   const pushedBytes = async path =>
     readFile(join(pushed, path.replace(/\//g, '_')));
   // Synced: byte-identical to the remote gallery/ copies.
@@ -989,15 +1016,6 @@ test('device fixture script seeds the gallery sources from the shared PNGs', asy
   }
   assert.doesNotMatch(commands, />>/);
 });
-
-const DEVICE_GALLERY_TREES = [
-  'Gallery',
-  'Delete',
-  'Recheck',
-  'Offline',
-  'Select',
-  'Changed',
-].map(name => `/sdcard/SyncScopeE2E/${name}`);
 
 test('device fixture script seeds every feature 006 source as a fresh copy of the gallery tree', async t => {
   const remote = await seedRemoteFixtures(t);
@@ -1129,6 +1147,320 @@ test('device fixture script requires ANDROID_SERIAL', async t => {
 
   assert.notEqual(seeded.status, 0);
   assert.match(seeded.stderr, /ANDROID_SERIAL/);
+});
+
+// Feature 007 (contracts/maestro-polish.md › Fixtures): the generated Scroll
+// and Narrow sources, TwoFolders and DCIM/Big.
+const SCROLL_MANIFEST = new URL('scroll-manifest.sh', import.meta.url);
+const SCROLL_COUNT = 5000;
+const NARROW_COUNT = 200;
+
+// Every file the manifest functions describe, read through the sourced
+// functions themselves (one sh call, no subshell per file).
+function manifestFiles() {
+  const dump = spawnSync(
+    'sh',
+    [
+      '-c',
+      `. "$1"
+i=0; while [ $i -lt ${SCROLL_COUNT} ]; do printf 'scroll\t'; scroll_name $i; scroll_size $i; scroll_mtime $i; i=$((i + 1)); done
+i=0; while [ $i -lt ${NARROW_COUNT} ]; do printf 'narrow\t'; narrow_name $i; narrow_size $i; narrow_mtime $i; i=$((i + 1)); done`,
+      'sh',
+      SCROLL_MANIFEST.pathname,
+    ],
+    {encoding: 'utf8'},
+  );
+  assert.equal(dump.status, 0, dump.stderr);
+  const lines = dump.stdout.trimEnd().split('\n');
+  const files = {scroll: [], narrow: []};
+  for (let at = 0; at < lines.length; at += 3) {
+    const [kind, name] = lines[at].split('\t');
+    files[kind].push({
+      name,
+      size: Number(lines[at + 1]),
+      mtime: Number(lines[at + 2]),
+    });
+  }
+  return files;
+}
+
+// Research R2, recomputed independently of the shell script.
+function sortName(name) {
+  const folded = name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+  return (/^[a-z]/.test(folded) ? '1' : '0') + folded;
+}
+
+function compareText(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function utcMonth(seconds) {
+  const date = new Date(seconds * 1000);
+  return `${String(date.getUTCMonth() + 1).padStart(2, '0')}.${date.getUTCFullYear()}`;
+}
+
+function printedManifest() {
+  const printed = spawnSync(SCROLL_MANIFEST.pathname, ['print'], {
+    encoding: 'utf8',
+  });
+  assert.equal(printed.status, 0, printed.stderr);
+  const values = new Map();
+  for (const line of printed.stdout.trimEnd().split('\n')) {
+    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
+    assert.ok(match, `print outputs KEY=value lines, not ${line}`);
+    values.set(match[1], match[2]);
+  }
+  return values;
+}
+
+test('scroll manifest follows the validation script contract', async () => {
+  const mode = (await lstat(SCROLL_MANIFEST)).mode;
+  const source = await readFile(SCROLL_MANIFEST, 'utf8');
+
+  assert.ok(mode & 0o111, 'scroll-manifest.sh must be executable');
+  assert.match(source, /^#!\/bin\/sh$/m);
+  assert.match(source, /^set -eu$/m);
+  for (const fn of [
+    'scroll_name',
+    'scroll_size',
+    'scroll_mtime',
+    'narrow_name',
+    'narrow_size',
+    'narrow_mtime',
+  ]) {
+    assert.match(source, new RegExp(`^${fn}\\(\\) \\{`, 'm'), `${fn} must be defined`);
+  }
+  assert.doesNotMatch(source, /\$RANDOM|\/dev\/u?random|date \+/, 'no randomness or clock');
+  assert.doesNotMatch(
+    source,
+    /img-\d{4}|narrow-\d{3}|\b\d{3,}\.png/,
+    'print computes the expected names; it never contains a literal file name',
+  );
+
+  const bad = spawnSync(SCROLL_MANIFEST.pathname, ['bogus'], {encoding: 'utf8'});
+  assert.equal(bad.status, 64);
+  const outOfRange = spawnSync(
+    'sh',
+    ['-c', '. "$1"; scroll_name 5000', 'sh', SCROLL_MANIFEST.pathname],
+    {encoding: 'utf8'},
+  );
+  assert.notEqual(outOfRange.status, 0);
+});
+
+test('scroll manifest describes the Scroll source (SC-003)', () => {
+  const {scroll} = manifestFiles();
+  assert.equal(scroll.length, SCROLL_COUNT);
+  assert.equal(new Set(scroll.map(f => f.name)).size, SCROLL_COUNT, 'names are unique');
+  assert.equal(
+    new Set(scroll.map(f => sortName(f.name))).size,
+    SCROLL_COUNT,
+    'sort names are unique, so every sort has one first file',
+  );
+  assert.ok(scroll.every(f => f.name.endsWith('.png')));
+
+  const sizes = scroll.map(f => f.size);
+  assert.equal(Math.min(...sizes), 2000, 'sizes start at 2 KB');
+  assert.equal(Math.max(...sizes), 4000000, 'sizes reach 4 MB');
+
+  const months = [...new Set(scroll.map(f => utcMonth(f.mtime)))];
+  assert.equal(months.length, 30, 'mtimes span 30 calendar months');
+  const ordinal = m => Number(m.slice(3)) * 12 + Number(m.slice(0, 2));
+  const ordinals = months.map(ordinal).sort((a, b) => a - b);
+  assert.equal(ordinals.at(-1) - ordinals[0], 29, 'the 30 months are consecutive');
+  for (const {mtime} of scroll) {
+    const day = new Date(mtime * 1000).getUTCDate();
+    assert.ok(day >= 2 && day <= 27, 'no file near a month boundary (time-zone safe)');
+  }
+
+  const initials = scroll.map(f => [...f.name][0]);
+  const letters = new Set(
+    initials.map(c => sortName(c)).filter(k => k[0] === '1').map(k => k[1]),
+  );
+  assert.equal(letters.size, 26, 'every letter a–z starts a name');
+  assert.ok(
+    initials.some(c => sortName(c)[0] === '0' && /\d/.test(c)),
+    'a digit starts a name (# band)',
+  );
+  assert.ok(
+    initials.some(c => c.normalize('NFKD').length > 1 && c === c.toUpperCase()),
+    'an accented capital initial such as É',
+  );
+  assert.ok(initials.some(c => /[A-Z]/.test(c)), 'upper-case initials');
+  assert.ok(initials.some(c => /[a-z]/.test(c)), 'lower-case initials');
+});
+
+test('scroll manifest describes the Narrow source', () => {
+  const {narrow} = manifestFiles();
+  assert.equal(narrow.length, NARROW_COUNT);
+  assert.equal(new Set(narrow.map(f => f.name)).size, NARROW_COUNT);
+  for (const {size} of narrow) {
+    assert.ok(size >= 3000000 && size <= 5000000, `${size} is within 3–5 MB`);
+  }
+  assert.ok(new Set(narrow.map(f => f.size)).size >= 8, 'at least 8 distinct sizes');
+  const mtimes = narrow.map(f => f.mtime);
+  assert.ok(
+    Math.max(...mtimes) - Math.min(...mtimes) < 21 * 86400,
+    'all mtimes fall within 21 days',
+  );
+});
+
+test('scroll manifest prints the expected first files, recomputed independently', () => {
+  const values = printedManifest();
+  const {scroll, narrow} = manifestFiles();
+
+  const byName = [...scroll].sort((a, b) => compareText(sortName(a.name), sortName(b.name)));
+  const byTime = [...scroll].sort((a, b) => a.mtime - b.mtime);
+  const bySize = [...scroll].sort((a, b) => a.size - b.size);
+  const largest = [...scroll, ...narrow].sort((a, b) => b.size - a.size)[0];
+  const timeDesc = [...byTime].reverse();
+  const bandMonth = utcMonth(timeDesc[Math.floor((SCROLL_COUNT * 3) / 4)].mtime);
+
+  const expected = {
+    FIRST_NAME_ASC: byName[0].name,
+    FIRST_NAME_DESC: byName.at(-1).name,
+    FIRST_TIME_DESC: byTime.at(-1).name,
+    FIRST_TIME_ASC: byTime[0].name,
+    FIRST_SIZE_DESC: bySize.at(-1).name,
+    FIRST_SIZE_ASC: bySize[0].name,
+    LARGEST_NAME: largest.name,
+    BAND_MONTH_LABEL: bandMonth,
+    BAND_MONTH_FIRST: timeDesc.find(f => utcMonth(f.mtime) === bandMonth).name,
+    BAND_LETTER_M_FIRST: byName.find(f => sortName(f.name).startsWith('1m')).name,
+  };
+  for (const [key, value] of Object.entries(expected)) {
+    assert.equal(values.get(key), value, key);
+  }
+  assert.match(values.get('BAND_MONTH_LABEL'), /^\d{2}\.\d{4}$/, 'MONTH labels read MM.YYYY');
+  assert.match(values.get('BAND_LETTER_M_FIRST'), /^[mM]/);
+  assert.notEqual(
+    values.get('FIRST_SIZE_ASC'),
+    values.get('FIRST_TIME_ASC'),
+    'the sorts have different first files',
+  );
+});
+
+// One pushed device script per generated source: each manifest file is the
+// base PNG, padded to its size and given its mtime.
+async function assertGeneratedSource(pushed, calls, kind, dir, files) {
+  const script = await readFile(
+    join(pushed, `/data/local/tmp/syncscope-${kind}.sh`.replace(/\//g, '_')),
+    'utf8',
+  );
+  assert.ok(
+    calls.some(call => call.endsWith(`shell sh /data/local/tmp/syncscope-${kind}.sh`)),
+    `the ${kind} script runs in one adb shell`,
+  );
+  assert.match(script, new RegExp(`^rm -rf '${escapeRegExp(dir)}'$`, 'm'));
+  assert.match(script, new RegExp(`^mkdir -p '${escapeRegExp(dir)}'$`, 'm'));
+  const lines = new Set(script.split('\n'));
+  for (const {name, size, mtime} of files) {
+    const path = `'${dir}/${name}'`;
+    assert.ok(
+      lines.has(
+        `cp /data/local/tmp/syncscope-generated-base.png ${path}; truncate -s ${size} ${path}; touch -d @${mtime} ${path}`,
+      ),
+      `${dir}/${name} must be the base PNG padded to ${size} B with mtime ${mtime}`,
+    );
+  }
+}
+
+test('device fixture script generates Scroll and Narrow from the manifest', async t => {
+  const source = await readFile(new URL('device-fixtures.sh', import.meta.url), 'utf8');
+  assert.match(source, /scroll-manifest\.sh/, 'must source scroll-manifest.sh');
+
+  const {seeded, calls, pushed} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const {scroll, narrow} = manifestFiles();
+
+  assertPng(
+    await readFile(join(pushed, '_data_local_tmp_syncscope-generated-base.png')),
+    'the generated base image',
+  );
+  await assertGeneratedSource(pushed, calls, 'scroll', '/sdcard/SyncScopeE2E/Scroll', scroll);
+  await assertGeneratedSource(pushed, calls, 'narrow', '/sdcard/SyncScopeE2E/Narrow', narrow);
+});
+
+test('device fixture script seeds TwoFolders as copies of scan/clean/a and scan/clean/b', async t => {
+  const remote = await seedRemoteFixtures(t);
+  const {seeded, calls} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const commands = calls.join('\n');
+
+  // The device Scan/a and Scan/b match the remote folders by name, bytes and mtime.
+  for (const folder of ['a', 'b']) {
+    const names = await readdir(join(remote, 'scan/clean', folder));
+    assert.ok(names.length > 0);
+    for (const name of names) {
+      const file = join(remote, 'scan/clean', folder, name);
+      const bytes = await readFile(file, 'utf8');
+      const mtime = Math.floor((await lstat(file)).mtimeMs / 1000);
+      const device = `${DEVICE_SCAN}/${folder}/${name}`;
+      assert.ok(
+        commands.includes(`printf '${bytes.replace(/\n$/, '\\n')}' > ${device}`),
+        `${device} must hold the bytes of scan/clean/${folder}/${name}`,
+      );
+      assert.ok(commands.includes(`touch -d @${mtime} ${device}`), `${device} mtime`);
+    }
+  }
+
+  const two = '/sdcard/SyncScopeE2E/TwoFolders';
+  const copy = calls.findIndex(call => call.includes(two));
+  assert.ok(copy !== -1, 'TwoFolders must be seeded');
+  assert.match(
+    calls[copy],
+    new RegExp(
+      `rm -rf ${escapeRegExp(two)} && mkdir -p ${escapeRegExp(two)} && cp -Rp ${escapeRegExp(`${DEVICE_SCAN}/a`)} ${escapeRegExp(`${DEVICE_SCAN}/b`)} ${escapeRegExp(two)}/`,
+    ),
+    'TwoFolders is a fresh copy (bytes and mtimes) of Scan/a and Scan/b',
+  );
+  const lastScan = calls.reduce(
+    (last, call, at) => (call.includes(`touch -d @1704067200 ${DEVICE_SCAN}/`) ? at : last),
+    -1,
+  );
+  assert.ok(lastScan < copy, 'TwoFolders is copied after the Scan files are seeded');
+});
+
+test('device fixture script creates DCIM/Big with one adb shell loop', async t => {
+  const {seeded, calls} = await seededDeviceCommands(t);
+  assert.equal(seeded.status, 0, seeded.stderr);
+
+  const big = calls.filter(call => call.includes('/sdcard/DCIM/Big') && !/\bls /.test(call));
+  assert.equal(big.length, 1, 'DCIM/Big is created in one adb call');
+  assert.ok(
+    big[0].includes('for i in $(seq 1 10000); do : > /sdcard/DCIM/Big/IMG_$i.jpg; done'),
+    big[0],
+  );
+});
+
+test('device fixture script keeps a complete Scroll and Big within one boot', async t => {
+  const complete = await seededDeviceCommands(t, {}, {
+    '/sdcard/SyncScopeE2E/Scroll': SCROLL_COUNT,
+    '/sdcard/DCIM/Big': 10000,
+  });
+  assert.equal(complete.seeded.status, 0, complete.seeded.stderr);
+  assert.ok(
+    !complete.calls.some(call => call.includes('syncscope-scroll.sh')),
+    'a complete Scroll is not re-created',
+  );
+  assert.ok(
+    !complete.calls.some(call => call.includes('/sdcard/DCIM/Big') && !/\bls /.test(call)),
+    'a complete Big is not re-created',
+  );
+  assert.ok(
+    complete.calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-narrow.sh')),
+    'Narrow is re-created on every run',
+  );
+
+  const partial = await seededDeviceCommands(t, {}, {
+    '/sdcard/SyncScopeE2E/Scroll': SCROLL_COUNT - 1,
+    '/sdcard/DCIM/Big': 9999,
+  });
+  assert.equal(partial.seeded.status, 0, partial.seeded.stderr);
+  assert.ok(partial.calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-scroll.sh')));
+  assert.ok(partial.calls.some(call => call.includes('seq 1 10000')));
 });
 
 test('e2e mode replaces a release-signed install only on a signature mismatch', async () => {
@@ -1278,6 +1610,62 @@ test('every staged pairs line alternates existing flows and executable hooks', a
 test('the Maestro workspace never lists the staged flows', async () => {
   const config = await text('validation/maestro/config.yaml');
   assert.doesNotMatch(config, /staged/);
+});
+
+test('the Maestro workspace runs the polish flows after mvp (feature 007)', async () => {
+  const config = await text('validation/maestro/config.yaml');
+  assert.match(config, /^ {2}- "mvp\/\*"\n {2}- "polish\/\*"$/m);
+  await lstat(new URL('validation/maestro/polish/.gitkeep', root));
+});
+
+test('the runner passes the scroll manifest to Maestro as -e variables (feature 007)', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const evaluated = source.indexOf('scroll-manifest.sh" print)');
+  assert.ok(evaluated !== -1, 'android-flow.sh must evaluate scroll-manifest.sh print');
+  assert.equal(
+    source.indexOf('scroll-manifest.sh', evaluated + 1),
+    -1,
+    'the manifest is evaluated once',
+  );
+  assert.ok(
+    evaluated < source.indexOf('for api in $apis'),
+    'the manifest is evaluated once, before the per-API loop',
+  );
+
+  const start = source.indexOf('while IFS= read -r manifest_line; do');
+  const end = source.indexOf('\nEOF\n', start);
+  assert.ok(start !== -1 && end !== -1, 'the manifest lines are read in one loop');
+  assert.ok(start > source.indexOf('SIZE_SYNCED_3='), 'next to the SIZE_* values');
+  assert.ok(
+    start < source.indexOf('"$maestro_bin" \\\n        test "$@"'),
+    'before the Maestro workspace runs',
+  );
+
+  // Run the loop as written, with the real manifest output.
+  const loop = source.slice(start, end + 5);
+  const run = spawnSync(
+    'sh',
+    [
+      '-c',
+      `set -eu
+scroll_manifest=$("$1" print)
+set -- -e SIZE_BEACH=1
+${loop}
+printf '%s\\n' "$@"`,
+      'sh',
+      SCROLL_MANIFEST.pathname,
+    ],
+    {encoding: 'utf8'},
+  );
+  assert.equal(run.status, 0, run.stderr);
+  const args = run.stdout.trimEnd().split('\n');
+  const values = printedManifest();
+  assert.deepEqual(args.slice(0, 2), ['-e', 'SIZE_BEACH=1'], 'existing values are kept');
+  for (const key of ['FIRST_SIZE_DESC', 'BAND_MONTH_LABEL', 'FIRST_NAME_ASC', 'BAND_MONTH_FIRST']) {
+    const at = args.indexOf(`${key}=${values.get(key)}`);
+    assert.ok(at > 0 && args[at - 1] === '-e', `${key} must be passed as -e`);
+  }
+  assert.equal(args.length, 2 + values.size * 2, 'every manifest line is passed');
 });
 
 test('remove-recheck-file.sh deletes exactly fixtures/recheck/beach.png', async t => {

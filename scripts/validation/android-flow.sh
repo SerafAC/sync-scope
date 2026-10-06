@@ -243,6 +243,10 @@ if [ "$mode" = e2e ]; then
   metro_started=yes
 fi
 
+# The expected values of the generated Scroll and Narrow sources (feature 007),
+# computed once from the same functions device-fixtures.sh seeds them with.
+scroll_manifest=$("$repo/scripts/validation/scroll-manifest.sh" print)
+
 for api in $apis; do
   active_api=$api
   "$repo/scripts/validation/android-validator.sh" start \
@@ -339,6 +343,12 @@ for api in $apis; do
         gallery-partial/restricted/hidden.png)" \
       -e "SIZE_SYNCED_3=$(size_of gallery/sunset.png gallery/beach.png \
         gallery/album/forest.png)"
+    # Feature 007: FIRST_SIZE_DESC, BAND_MONTH_LABEL, … from the scroll manifest.
+    while IFS= read -r manifest_line; do
+      [ -z "$manifest_line" ] || set -- "$@" -e "$manifest_line"
+    done <<EOF
+$scroll_manifest
+EOF
 
     if [ "$mode" = e2e ]; then
       # The whole workspace (003's sources flows and 004's scan flows, run in

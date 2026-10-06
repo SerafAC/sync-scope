@@ -301,6 +301,49 @@ URI or flags change the outcome, and the result is recorded in this entry. Then:
 No in-app device folder browser and no picker replacement, per the user's "do not implement too complex
 solutions" (clarification 4).
 
+### Spike result (2026-10-06)
+
+Setup: `scripts/validation/device-fixtures.sh` on the `dependency_api31` and `dependency_api36` emulators
+(emulator 37.1.11.0), so `/sdcard/DCIM/Big` held 10,000 empty `.jpg` files. The picker was started with
+`adb shell am start -a android.intent.action.OPEN_DOCUMENT_TREE`, which is the intent `SourcePicker`
+sends (same action, same `EXTRA_INITIAL_URI`); its contents were read with `uiautomator dump` and
+screenshots, once a second at first, then after 5, 15 and 30 s. DocumentsUI was force-stopped before each
+start, so no run reused a cached listing.
+
+What each API level shows when `Big` is opened from `DCIM`:
+
+| | API 31 | API 36 |
+| --- | --- | --- |
+| First open | "Files in Big" header over a blank list, **no loading bar or spinner**, for 1–2 s; then the files | the same blank list for 3–5 s; then the files |
+| Back to `DCIM`, open `Big` again | blank for 1–2 s, then the files | blank for 3–5 s, then the files |
+| Still blank after 30 s | never | never |
+
+- **Starting point and flags**: `EXTRA_INITIAL_URI` unset or the volume root (both open the storage
+  root), `DCIM` (today's value) and `DCIM/Big` itself all give the same blank-then-files delay once `Big`
+  is shown. Adding or leaving out the read, write and persistable grant flags changes nothing. The delay is
+  DocumentsUI loading the 10,000 rows from `ExternalStorageProvider`; no part of the intent reaches it.
+- **Selecting `Big` from `DCIM` without opening it**: not possible on either level. In tree-pick mode a tap
+  on a folder opens it, and a long press neither selects it nor offers an action; `Use this folder` always
+  means the folder currently shown.
+- **`Use this folder` while the list is still blank** works on both levels: it shows the system
+  "Allow … to access files in Big?" dialog at once, before any file is listed.
+- **Removable card**: both emulators have a public SD card volume (`0000-0000`). With 10,000 files in
+  `DCIM/Big` there, the picker behaves as on primary storage (API 31: blank 1–2 s; API 36: blank 3–5 s;
+  the same on a second open).
+
+The emulators did not reproduce a folder that stays empty: they show a blank list with no progress
+indicator for a few seconds, which is the symptom a user reads as "empty" and backs out of. The phone's
+`Camera` folder (thousands of real photos, slower storage) will take longer, but nothing in the intent
+changes it.
+
+**Chosen branch: B (hint).** No intent change fixes or shortens the blank list, so T048 ships the hint, not
+an intent fix. The hint text above ("select it from its parent folder … instead of opening it") describes
+a gesture DocumentsUI does not offer on API 31 or 36, so the hint has to say what works instead, for
+example: "A folder with thousands of files, such as Camera, can look empty for a while. Open it and tap
+Use this folder; you do not need to wait for its files to show." Flow 08 then adds `Big` by opening it
+and tapping `Use this folder` straight away, not "from its parent". Story 5 sc. 3 and 4 (spinner, cancel
+on back) stay recorded as not possible from the app.
+
 ## R16. "Device folders"
 
 **Decision**: the Settings section header and every string that points to it say "Settings › Device
