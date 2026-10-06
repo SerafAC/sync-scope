@@ -12,7 +12,7 @@ import {
   type SourceDto,
 } from '../native/CloudSyncContracts';
 
-/** A typed error envelope, shaped for the Folders snackbar. */
+/** A typed error envelope, shaped for the Device folders snackbar. */
 export interface SourcesError {
   code: string;
   message: string;

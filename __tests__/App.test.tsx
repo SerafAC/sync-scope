@@ -113,7 +113,7 @@ describe('SyncScope application shell', () => {
 
     fireEvent.press(screen.getByText('Settings'));
     expect(
-      await screen.findByRole('header', { name: 'Folders' }),
+      await screen.findByRole('header', { name: 'Device folders' }),
     ).toBeOnTheScreen();
     expect(screen.getByTestId('sources.add')).toBeOnTheScreen();
     expect(

@@ -24,7 +24,7 @@ const summaryMock = getRepositorySummary as jest.MockedFunction<
 >;
 
 describe('SettingsScreen', () => {
-  it('hosts the Repository section above the Folders section', async () => {
+  it('hosts the Repository section above the Device folders section', async () => {
     useSourcesMock.mockReturnValue({
       sources: [],
       loading: false,
@@ -55,7 +55,7 @@ describe('SettingsScreen', () => {
       await screen.findByLabelText('Repository not set up'),
     ).toBeOnTheScreen();
     const headers = screen.getAllByRole('header').map(h => h.props.children);
-    expect(headers).toEqual(['Repository', 'Folders']);
+    expect(headers).toEqual(['Repository', 'Device folders']);
     expect(screen.getByTestId('sources.add')).toBeOnTheScreen();
     expect(
       screen.queryByText('Repository and folder settings will appear here.'),

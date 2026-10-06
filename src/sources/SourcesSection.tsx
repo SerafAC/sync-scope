@@ -114,9 +114,9 @@ function SourceRow({
 }
 
 /**
- * Settings › Folders: the added sources with their availability, Add folder,
- * Re-grant (unavailable sources only), Remove with confirmation (FR-005) and
- * a snackbar for typed errors (research R14).
+ * Settings › Device folders (research R16): the added sources with their
+ * availability, Add folder, Re-grant (unavailable sources only), Remove with
+ * confirmation (FR-005) and a snackbar for typed errors (research R14).
  */
 export function SourcesSection(): React.JSX.Element {
   const { sources, loading, error, add, regrant, remove, dismissError } =
@@ -134,7 +134,7 @@ export function SourcesSection(): React.JSX.Element {
   return (
     <View style={styles.section}>
       <Text accessibilityRole="header" variant="titleLarge">
-        Folders
+        Device folders
       </Text>
       <Text variant="bodyMedium">
         The folders on this device that SyncScope checks against your backup.

@@ -232,7 +232,7 @@ browser; a scan matches against all of them and completes honestly when some can
 **Independent Test**: the Jest string test finds no "Settings › Folders" and no "Folders" header; flow 08
 sees the `Device folders` header.
 
-- [ ] T047 [US6] Write the failing tests: `src/screens/__tests__/SettingsScreen.test.tsx` (sections headed "Repository" and "Device folders"), and a new `src/__tests__/deviceFoldersWording.test.ts` that reads every `*.ts`/`*.tsx` under `src/` (tests excluded) and `KT/bridge/CloudSyncContracts.kt` and fails on `Settings › Folders` or a section header `Folders` (as 006's "no Connect screen" test). Then rename in `src/sources/SourcesSection.tsx` (header and doc comment), `src/screens/SettingsScreen.tsx` (comment) and every remaining user-visible string; JS names such as `FoldersItem` stay (research R16). Update `MAESTRO/subflows/open-sources.yaml` and any flow that taps `Folders` to `Device folders`.
+- [X] T047 [US6] Write the failing tests: `src/screens/__tests__/SettingsScreen.test.tsx` (sections headed "Repository" and "Device folders"), and a new `src/__tests__/deviceFoldersWording.test.ts` that reads every `*.ts`/`*.tsx` under `src/` (tests excluded) and `KT/bridge/CloudSyncContracts.kt` and fails on `Settings › Folders` or a section header `Folders` (as 006's "no Connect screen" test). Then rename in `src/sources/SourcesSection.tsx` (header and doc comment), `src/screens/SettingsScreen.tsx` (comment) and every remaining user-visible string; JS names such as `FoldersItem` stay (research R16). Update `MAESTRO/subflows/open-sources.yaml` and any flow that taps `Folders` to `Device folders`.
 
 **Checkpoint**: wording is consistent; existing `sources/*` flows still pass.
 

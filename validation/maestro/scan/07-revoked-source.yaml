@@ -62,7 +62,7 @@ name: scan/07-revoked-source
 - assertNotVisible: "Scan failed"
 
 # 006 FR-007: no readable folder is left, so no rescan is offered and the
-# checklist leads to the Folders section instead.
+# checklist leads to the Device folders section instead.
 - scrollUntilVisible:
     element: "Before you can scan"
     direction: UP
