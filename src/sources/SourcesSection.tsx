@@ -35,9 +35,15 @@ export function sourcesErrorText(error: SourcesError): string {
   return error.action ? `${summary} ${error.action}` : summary;
 }
 
-/** Shown above Add folder: the folders the system picker refuses (research R7). */
+/**
+ * Shown above Add folder: the folders the system picker refuses (research
+ * R7), and how to add a folder with thousands of files (feature 007 R15,
+ * spike branch B). Android's picker shows a large folder as a blank list for
+ * a while; the app cannot change that, but Use this folder works at once.
+ */
 export const FOLDER_PICKER_HINT =
-  'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures.';
+  'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures. ' +
+  'A folder with thousands of files, such as Camera, can look empty for a while. Open it and tap Use this folder; you do not need to wait for its files to show.';
 
 type SourceRowProps = {
   source: SourceDto;

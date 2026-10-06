@@ -244,10 +244,10 @@ sees the `Device folders` header.
 
 **Independent Test**: flow `polish/08-add-large-folder` adds `DCIM/Big` and sees it listed as available.
 
-- [ ] T048 [US5] Implement the branch recorded by T005.
+- [X] T048 [US5] Implement the branch recorded by T005.
   - **Branch A (intent fix)**: change the intent in `KT/source/SourcePicker.kt`, with a regression test in `KTEST/source/SourcePickerTest.kt` that fails without the fix; add `MAESTRO/polish/08` steps that open `Big` inside the picker.
   - **Branch B (hint, expected)**: in `src/sources/SourcesSection.tsx`, the existing picker hint gains "For a folder with thousands of files, such as Camera, select it from its parent folder (tap the folder's name once and choose Use this folder) instead of opening it." Test in `src/sources/__tests__/SourcesSection.test.tsx`. In [contracts/maestro-polish.md](./contracts/maestro-polish.md#deviations-recorded-in-planmd--complexity-tracking), confirm Story 5 sc. 2–4 as not possible from the app. Under branch A, remove that deviation instead (flow 08 then covers sc. 2).
-- [ ] T049 [US5] Create `MAESTRO/polish/08-add-large-folder.yaml` per the mapping row (clearState; Settings › `Device folders` › Add a folder; **branch B**: the hint shows, then in `DCIM` select `Big` from its parent; **branch A**: open `DCIM` › `Big`, its files show, back to `DCIM` and into `Big` again, its files show again (Story 5 sc. 2); both: `Use this folder` → `Allow`; `Big` is listed as available). Needs T047 (the `Device folders` label). Register in `MAESTRO/config.yaml`; pass on API 31 and API 36.
+- [X] T049 [US5] Create `MAESTRO/polish/08-add-large-folder.yaml` per the mapping row (clearState; Settings › `Device folders` › Add a folder; **branch B**: the hint shows, then in `DCIM` select `Big` from its parent; **branch A**: open `DCIM` › `Big`, its files show, back to `DCIM` and into `Big` again, its files show again (Story 5 sc. 2); both: `Use this folder` → `Allow`; `Big` is listed as available). Needs T047 (the `Device folders` label). Register in `MAESTRO/config.yaml`; pass on API 31 and API 36.
 
 **Checkpoint**: the camera-sized folder can be added; flow 08 passes.
 
