@@ -21,6 +21,8 @@ export type CloudSyncErrorDto = {
   action?: string | null;
   /** saveRepository rejections only: the offending config key (contract v5). */
   field?: string | null;
+  /** With `field: 'remoteRoots'`: the folder's index in the list (contract v6). */
+  fieldIndex?: number | null;
 };
 
 export type FileEntryDto = {

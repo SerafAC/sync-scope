@@ -1,4 +1,4 @@
-import {splitServerAddress} from '../serverAddress';
+import {splitServerAddress, withFirstRemoteRoot} from '../serverAddress';
 
 describe('splitServerAddress', () => {
   it.each(['nas.local', '192.168.1.10', ' nas.local ', 'fe80::1', '2001:db8::7'])(
@@ -76,5 +76,37 @@ describe('splitServerAddress', () => {
 
   it('leaves an unknown scheme for native validation to reject', () => {
     expect(splitServerAddress('smb://nas/share')).toBeNull();
+  });
+});
+
+describe('withFirstRemoteRoot', () => {
+  it('fills the first folder only and leaves the others alone (Story 3 sc. 8)', () => {
+    const roots = ['/old', '/scan/clean/b', '/c'];
+
+    expect(withFirstRemoteRoot(roots, '/scan/clean/a')).toEqual([
+      '/scan/clean/a',
+      '/scan/clean/b',
+      '/c',
+    ]);
+    expect(roots).toEqual(['/old', '/scan/clean/b', '/c']);
+  });
+
+  it('keeps every folder when the URL names none', () => {
+    expect(withFirstRemoteRoot(['/a', '/b'], undefined)).toEqual(['/a', '/b']);
+  });
+
+  it('fills an empty first field and never returns an empty list', () => {
+    expect(withFirstRemoteRoot([''], '/dav')).toEqual(['/dav']);
+    expect(withFirstRemoteRoot([], '/dav')).toEqual(['/dav']);
+    expect(withFirstRemoteRoot([], undefined)).toEqual(['']);
+  });
+
+  it('takes the folder a split URL names', () => {
+    const parts = splitServerAddress('https://nas.local/scan/clean/a/');
+
+    expect(withFirstRemoteRoot(['', '/scan/clean/b'], parts?.remoteRoot)).toEqual([
+      '/scan/clean/a',
+      '/scan/clean/b',
+    ]);
   });
 });

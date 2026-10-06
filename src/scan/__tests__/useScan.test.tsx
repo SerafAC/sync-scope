@@ -70,6 +70,7 @@ function active(overrides: Partial<ActiveSnapshotDto> = {}): ActiveSnapshotDto {
       unsynced: 3,
       unknown: 0,
       unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: [],
       remoteListingInterruptedBy: null,
       skippedSources: [],
     },

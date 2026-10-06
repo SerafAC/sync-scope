@@ -11,12 +11,14 @@ import {PaperProvider} from 'react-native-paper';
 
 import {
   approveSftpHostKey,
+  browseRemoteFolders,
   getRepositorySummary,
   saveRepository,
   testRepository,
 } from '../../native/CloudSync';
 import type {
   OperationError,
+  RepositoryFolderResultDto,
   RepositorySummaryDto,
 } from '../../native/CloudSyncContracts';
 import {useScan, type ScanState} from '../../scan/useScan';
@@ -33,6 +35,7 @@ jest.mock('../../native/CloudSync', () => ({
   testRepository: jest.fn(),
   approveSftpHostKey: jest.fn(),
   rejectSftpHostKey: jest.fn(),
+  browseRemoteFolders: jest.fn(),
 }));
 
 jest.mock('../../scan/useScan', () => ({useScan: jest.fn()}));
@@ -45,6 +48,9 @@ const testMock = testRepository as jest.MockedFunction<typeof testRepository>;
 const approveMock = approveSftpHostKey as jest.MockedFunction<
   typeof approveSftpHostKey
 >;
+const browseMock = browseRemoteFolders as jest.MockedFunction<
+  typeof browseRemoteFolders
+>;
 const useScanMock = useScan as jest.MockedFunction<typeof useScan>;
 
 const SAVED: RepositorySummaryDto = {
@@ -52,7 +58,7 @@ const SAVED: RepositorySummaryDto = {
   host: 'nas.local',
   port: 2222,
   username: 'alice',
-  remoteRoot: '/photos',
+  remoteRoots: ['/photos'],
   precisionMillis: 1000,
   credentialPresent: true,
   hostKeyTrusted: true,
@@ -72,14 +78,20 @@ const NOT_CONFIGURED: OperationError = {
 
 const OK = {contractVersion: 5, status: 'ok'} as const;
 
-function connected(entryCount: number) {
+function connected(
+  entryCount: number,
+  folders: RepositoryFolderResultDto[] = [
+    {path: '/photos', entryCount, error: null},
+  ],
+) {
   return {
-    contractVersion: 5,
+    contractVersion: 6,
     status: 'ok' as const,
     connection: {
       protocol: 'SFTP' as const,
       reachable: true,
       entryCount,
+      folders,
       precisionMillis: 1000,
       precisionBasis: 'SFTP_V3_WHOLE_SECONDS',
       precisionPersisted: true,
@@ -198,7 +210,7 @@ describe('RepositoryScreen', () => {
     expect(screen.getByLabelText('Host')).toHaveDisplayValue('nas.local');
     expect(screen.getByLabelText('Port')).toHaveDisplayValue('2222');
     expect(screen.getByLabelText('User name')).toHaveDisplayValue('alice');
-    expect(screen.getByLabelText('Remote folder')).toHaveDisplayValue(
+    expect(screen.getByLabelText('Remote folder 1')).toHaveDisplayValue(
       '/photos',
     );
     expect(screen.getByLabelText('Password')).toHaveDisplayValue('');
@@ -216,7 +228,7 @@ describe('RepositoryScreen', () => {
 
     typeInto('Host', 'nas.local');
     typeInto('User name', 'alice');
-    typeInto('Remote folder', '/photos');
+    typeInto('Remote folder 1', '/photos');
     expect(screen.getByLabelText('Save and test')).toBeDisabled();
     typeInto('Password', 'secret');
     expect(screen.getByLabelText('Save and test')).toBeEnabled();
@@ -276,17 +288,18 @@ describe('RepositoryScreen', () => {
     typeInto('Host', ' nas.local ');
     typeInto('User name', 'alice');
     typeInto('Password', 'secret');
-    typeInto('Remote folder', '/photos');
+    typeInto('Remote folder 1', '/photos');
     fireEvent.press(screen.getByLabelText('Save and test'));
 
-    expect(await screen.findByLabelText('Connected, 4 entries')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('/photos: 4 entries')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Connected')).toBeOnTheScreen();
     expect(saveMock).toHaveBeenCalledWith(
       {
         protocol: 'WEBDAV',
         host: 'nas.local',
         port: null,
         username: 'alice',
-        remoteRoot: '/photos',
+        remoteRoots: ['/photos'],
         webdavHttps: true,
       },
       'secret',
@@ -309,7 +322,7 @@ describe('RepositoryScreen', () => {
     expect(screen.getByLabelText('Port')).toHaveDisplayValue('');
     expect(screen.getByLabelText('Port').props.placeholder).toBe('443');
     expect(screen.getByLabelText('User name')).toHaveDisplayValue('alice');
-    expect(screen.getByLabelText('Remote folder')).toHaveDisplayValue(
+    expect(screen.getByLabelText('Remote folder 1')).toHaveDisplayValue(
       '/remote.php/dav',
     );
   });
@@ -326,14 +339,14 @@ describe('RepositoryScreen', () => {
     expect(screen.getByLabelText('Save and test')).toBeEnabled();
     fireEvent.press(screen.getByLabelText('Save and test'));
 
-    expect(await screen.findByLabelText('Connected, 2 entries')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('/photos: 2 entries')).toBeOnTheScreen();
     expect(saveMock).toHaveBeenCalledWith(
       {
         protocol: 'FTP',
         host: 'nas.local',
         port: 2121,
         username: 'alice',
-        remoteRoot: '/photos',
+        remoteRoots: ['/photos'],
         webdavHttps: false,
       },
       'secret',
@@ -346,12 +359,12 @@ describe('RepositoryScreen', () => {
     testMock.mockResolvedValue(connected(1));
     await renderScreen(SAVED);
 
-    typeInto('Remote folder', '/other');
+    typeInto('Remote folder 1', '/other');
     fireEvent.press(screen.getByLabelText('Save and test'));
 
-    await screen.findByLabelText('Connected, 1 entries');
+    await screen.findByLabelText('/photos: 1 entries');
     expect(saveMock).toHaveBeenCalledWith(
-      expect.objectContaining({port: 2222, remoteRoot: '/other', webdavHttps: false}),
+      expect.objectContaining({port: 2222, remoteRoots: ['/other'], webdavHttps: false}),
       null,
     );
   });
@@ -426,7 +439,7 @@ describe('RepositoryScreen', () => {
     typeInto('Host', 'nas.local');
     typeInto('User name', 'alice');
     typeInto('Password', 'wrong');
-    typeInto('Remote folder', '/photos');
+    typeInto('Remote folder 1', '/photos');
     fireEvent.press(screen.getByLabelText('Save and test'));
 
     expect(
@@ -478,14 +491,14 @@ describe('RepositoryScreen', () => {
     testMock.mockResolvedValue(connected(1));
     const {leave} = await renderScreen(SAVED);
 
-    typeInto('Remote folder', '/other');
+    typeInto('Remote folder 1', '/other');
     summaryMock.mockResolvedValue({
       contractVersion: 5,
       status: 'ok',
-      repository: {...SAVED, remoteRoot: '/other', revision: 3},
+      repository: {...SAVED, remoteRoots: ['/other'], revision: 3},
     });
     fireEvent.press(screen.getByLabelText('Save and test'));
-    await screen.findByLabelText('Connected, 1 entries');
+    await screen.findByLabelText('/photos: 1 entries');
     await waitFor(() => expect(summaryMock).toHaveBeenCalledTimes(2));
 
     expect(leave().preventDefault).not.toHaveBeenCalled();
@@ -504,7 +517,7 @@ describe('RepositoryScreen', () => {
       repository: {...SAVED, protocol: 'WEBDAV', port: 80, revision: 3},
     });
     fireEvent.press(screen.getByLabelText('Save and test'));
-    await screen.findByLabelText('Connected, 6 entries');
+    await screen.findByLabelText('/photos: 6 entries');
     await waitFor(() =>
       expect(screen.getByTestId('repository.port').props.value).toBe('80'),
     );
@@ -538,7 +551,7 @@ describe('RepositoryScreen', () => {
     ).toBeOnTheScreen();
     fireEvent.press(screen.getByLabelText('Trust server key'));
 
-    expect(await screen.findByLabelText('Connected, 2 entries')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('/photos: 2 entries')).toBeOnTheScreen();
     expect(approveMock).toHaveBeenCalledWith('c-1');
   });
 
@@ -601,5 +614,198 @@ describe('RepositoryScreen', () => {
     await screen.findByLabelText('Server key fingerprint SHA256:new');
 
     a11ySweep(result);
+  });
+
+  describe('several remote folders (Story 3, contract v6)', () => {
+    const TWO: RepositorySummaryDto = {
+      ...SAVED,
+      remoteRoots: ['/scan/clean/a', '/scan/clean/b'],
+    };
+
+    it('shows one folder field with Browse and Add another folder, and no Remove (sc. 1)', async () => {
+      await renderScreen(null);
+
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('');
+      expect(screen.getByLabelText('Browse remote folder 1')).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Remove remote folder 1')).toBeNull();
+      expect(screen.getByLabelText('Add another folder')).toBeOnTheScreen();
+    });
+
+    it('adds and removes folder fields, always keeping one', async () => {
+      await renderScreen(null);
+
+      fireEvent.press(screen.getByLabelText('Add another folder'));
+      typeInto('Remote folder 1', '/a');
+      typeInto('Remote folder 2', '/b');
+      expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue('/b');
+      expect(screen.getByLabelText('Remove remote folder 1')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Browse remote folder 2')).toBeOnTheScreen();
+
+      fireEvent.press(screen.getByLabelText('Remove remote folder 1'));
+
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('/b');
+      expect(screen.queryByTestId('repository.remoteRoots.1')).toBeNull();
+      expect(screen.queryByLabelText('Remove remote folder 1')).toBeNull();
+    });
+
+    it('prefills every saved folder in order', async () => {
+      await renderScreen(TWO);
+
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('/scan/clean/a');
+      expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue('/scan/clean/b');
+    });
+
+    it('sends every field in order, blank ones too, and needs at least one folder', async () => {
+      saveMock.mockResolvedValue(OK);
+      testMock.mockResolvedValue(connected(1));
+      await renderScreen({...SAVED, remoteRoots: ['/a']});
+
+      typeInto('Remote folder 1', ' ');
+      expect(screen.getByLabelText('Save and test')).toBeDisabled();
+      typeInto('Remote folder 1', ' /a ');
+      fireEvent.press(screen.getByLabelText('Add another folder'));
+      fireEvent.press(screen.getByLabelText('Add another folder'));
+      typeInto('Remote folder 3', '/c');
+      fireEvent.press(screen.getByLabelText('Save and test'));
+      await screen.findByLabelText('Connected');
+
+      expect(saveMock).toHaveBeenCalledWith(
+        expect.objectContaining({remoteRoots: ['/a', '', '/c']}),
+        null,
+      );
+    });
+
+    it('shows a folder save error under the folder it names', async () => {
+      const message = 'This folder is the same as, inside or around /scan/clean/a.';
+      saveMock.mockResolvedValue(
+        failure('INVALID_QUERY', {message, field: 'remoteRoots', fieldIndex: 1}),
+      );
+      await renderScreen(TWO);
+
+      typeInto('Remote folder 2', '/scan/clean/a/x');
+      fireEvent.press(screen.getByLabelText('Save and test'));
+
+      await screen.findByText(message);
+      expect(screen.getAllByText(message)).toHaveLength(1);
+      expect(screen.queryByText(/Connection failed/)).toBeNull();
+      // In form order, the error sits between the second field and its Browse button.
+      const order = screen.UNSAFE_root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          (node.props.testID === 'repository.remoteRoots.0' ||
+            node.props.testID === 'repository.remoteRoots.1' ||
+            node.props.accessibilityLabel === 'Browse remote folder 2' ||
+            (String(node.type) === 'Text' && node.props.children === message)),
+      );
+      const at = (match: (props: Record<string, unknown>) => boolean) =>
+        order.findIndex(node => match(node.props));
+      const second = at(props => props.testID === 'repository.remoteRoots.1');
+      const shown = at(props => props.children === message);
+      const browse = at(props => props.accessibilityLabel === 'Browse remote folder 2');
+      expect(at(props => props.testID === 'repository.remoteRoots.0')).toBeLessThan(second);
+      expect(second).toBeLessThan(shown);
+      expect(shown).toBeLessThan(browse);
+      expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue('/scan/clean/a/x');
+    });
+
+    it('shows Connected with a line per folder, and a failing folder error with its action under its field (sc. 2)', async () => {
+      saveMock.mockResolvedValue(OK);
+      testMock.mockResolvedValue(
+        connected(3, [
+          {path: '/scan/clean/a', entryCount: 3, error: null},
+          {
+            path: '/scan/clean/b',
+            entryCount: null,
+            error: {
+              code: 'REMOTE_ROOT_NOT_FOUND',
+              message: 'The remote folder was not found.',
+              action: 'Check the remote folder.',
+            },
+          },
+        ]),
+      );
+      await renderScreen(TWO);
+
+      fireEvent.press(screen.getByLabelText('Save and test'));
+
+      expect(await screen.findByLabelText('Connected')).toBeOnTheScreen();
+      expect(screen.getByLabelText('/scan/clean/a: 3 entries')).toBeOnTheScreen();
+      expect(screen.getByLabelText('/scan/clean/b: could not be read')).toBeOnTheScreen();
+      expect(screen.getByText('The remote folder was not found.')).toBeOnTheScreen();
+      expect(screen.getByText('Check the remote folder.')).toBeOnTheScreen();
+    });
+
+    it('fills only the first folder from a server URL typed into Host (sc. 8)', async () => {
+      await renderScreen(TWO);
+
+      typeInto('Host', 'https://nas.local/scan/other');
+      fireEvent(screen.getByLabelText('Host'), 'blur');
+
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('/scan/other');
+      expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue('/scan/clean/b');
+    });
+
+    it('Browse opens the server folder browser at that field and Use this folder fills it (sc. 11)', async () => {
+      browseMock
+        .mockResolvedValueOnce({
+          contractVersion: 6,
+          status: 'ok',
+          remoteFolders: {path: '/scan/clean/b', parent: '/scan/clean', folders: ['x'], fellBackToRoot: false},
+        })
+        .mockResolvedValueOnce({
+          contractVersion: 6,
+          status: 'ok',
+          remoteFolders: {path: '/scan/clean/b/x', parent: '/scan/clean/b', folders: [], fellBackToRoot: false},
+        });
+      await renderScreen(TWO);
+      typeInto('Password', 'typed');
+
+      fireEvent.press(screen.getByLabelText('Browse remote folder 2'));
+      expect(await screen.findByTestId('remote-browser')).toBeOnTheScreen();
+      expect(browseMock).toHaveBeenCalledWith(
+        {protocol: 'SFTP', host: 'nas.local', port: 2222, username: 'alice', webdavHttps: false},
+        'typed',
+        '/scan/clean/b',
+      );
+      fireEvent.press(await screen.findByLabelText('x'));
+      await screen.findByText('No folders here');
+      fireEvent.press(screen.getByLabelText('Use this folder'));
+
+      await waitFor(() => expect(screen.queryByTestId('remote-browser')).toBeNull());
+      expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue('/scan/clean/b/x');
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('/scan/clean/a');
+      expect(saveMock).not.toHaveBeenCalled();
+    });
+
+    it('Browse without a typed password relies on the stored one, and Cancel keeps the field', async () => {
+      browseMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: {path: '/', parent: null, folders: ['scan'], fellBackToRoot: true},
+      });
+      await renderScreen(TWO);
+
+      fireEvent.press(screen.getByLabelText('Browse remote folder 1'));
+      await screen.findByLabelText('scan');
+      expect(browseMock).toHaveBeenCalledWith(expect.anything(), null, '/scan/clean/a');
+      fireEvent.press(screen.getByLabelText('Close folder browser'));
+
+      await waitFor(() => expect(screen.queryByTestId('remote-browser')).toBeNull());
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue('/scan/clean/a');
+    });
+
+    it('labels every control with several folders and in the folder browser', async () => {
+      browseMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: {path: '/', parent: null, folders: ['scan'], fellBackToRoot: false},
+      });
+      const result = await renderScreen(TWO);
+      a11ySweep(result);
+
+      fireEvent.press(screen.getByLabelText('Browse remote folder 1'));
+      await screen.findByLabelText('scan');
+      a11ySweep(result);
+    });
   });
 });

@@ -86,6 +86,7 @@ function active(): ActiveSnapshotDto {
       unsynced: 3,
       unknown: 0,
       unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: [],
       remoteListingInterruptedBy: null,
       skippedSources: [],
     },

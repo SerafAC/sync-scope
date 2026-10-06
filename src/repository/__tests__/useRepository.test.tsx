@@ -11,8 +11,20 @@ import type {
   HostKeyChallengeDto,
   OperationError,
   RepositoryConfigInput,
+  RepositoryFolderResultDto,
+  RepositorySummaryDto,
 } from '../../native/CloudSyncContracts';
-import {useRepository} from '../useRepository';
+import {
+  NEW_REPOSITORY_DRAFT,
+  draftOf,
+  fieldErrorAt,
+  folderResultAt,
+  useRepository,
+  withRemoteRoot,
+  withRemoteRootAdded,
+  withRemoteRootRemoved,
+  type RepositoryFormState,
+} from '../useRepository';
 
 jest.mock('../../native/CloudSync', () => ({
   saveRepository: jest.fn(),
@@ -35,7 +47,7 @@ const CONFIG: RepositoryConfigInput = {
   host: 'nas.local',
   port: null,
   username: 'alice',
-  remoteRoot: '/photos',
+  remoteRoots: ['/photos', '/backup'],
 };
 
 const CHALLENGE: HostKeyChallengeDto = {
@@ -57,14 +69,20 @@ function failure(error: Partial<CloudSyncError> & {code: string}): OperationErro
   };
 }
 
-function connected(entryCount: number) {
+function connected(
+  entryCount: number,
+  folders: RepositoryFolderResultDto[] = [
+    {path: '/photos', entryCount, error: null},
+  ],
+) {
   return {
-    contractVersion: 5,
+    contractVersion: 6,
     status: 'ok' as const,
     connection: {
       protocol: 'SFTP' as const,
       reachable: true,
       entryCount,
+      folders,
       precisionMillis: 1000,
       precisionBasis: 'SFTP_V3_WHOLE_SECONDS',
       precisionPersisted: true,
@@ -96,7 +114,11 @@ describe('useRepository', () => {
 
     const {result} = await saveAndTest();
 
-    expect(result.current.state).toEqual({kind: 'connected', entryCount: 7});
+    expect(result.current.state).toEqual({
+      kind: 'connected',
+      entryCount: 7,
+      folders: [{path: '/photos', entryCount: 7, error: null}],
+    });
     expect(saveMock).toHaveBeenCalledWith(CONFIG, 'secret');
   });
 
@@ -172,7 +194,7 @@ describe('useRepository', () => {
 
     expect(approveMock).toHaveBeenCalledWith('c-1');
     expect(testMock).toHaveBeenCalledTimes(2);
-    expect(result.current.state).toEqual({kind: 'connected', entryCount: 3});
+    expect(result.current.state).toMatchObject({kind: 'connected', entryCount: 3});
   });
 
   it('SFTP_HOST_KEY_CHANGED → hostKeyPrompt with changed: true', async () => {
@@ -279,5 +301,131 @@ describe('useRepository', () => {
     await saveAndTest(null);
 
     expect(saveMock).toHaveBeenCalledWith(CONFIG, null);
+  });
+});
+
+describe('useRepository with several remote folders (contract v6)', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('sends every folder in order', async () => {
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(connected(1));
+
+    await saveAndTest();
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({remoteRoots: ['/photos', '/backup']}),
+      'secret',
+    );
+  });
+
+  it('keeps a folder save error at its fieldIndex', async () => {
+    saveMock.mockResolvedValue(
+      failure({
+        code: 'INVALID_QUERY',
+        message: 'This folder is the same as, inside or around /photos.',
+        field: 'remoteRoots',
+        fieldIndex: 1,
+      }),
+    );
+
+    const {result} = await saveAndTest();
+    const state = result.current.state;
+
+    expect(fieldErrorAt(state, 'remoteRoots', 1)?.message).toBe(
+      'This folder is the same as, inside or around /photos.',
+    );
+    expect(fieldErrorAt(state, 'remoteRoots', 0)).toBeNull();
+    expect(fieldErrorAt(state, 'host')).toBeNull();
+    expect(testMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a folder error without an index under the first folder', () => {
+    const state: RepositoryFormState = {
+      kind: 'failed',
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'The repository remoteRoots is invalid: it must be a list of folders.',
+        action: null,
+        field: 'remoteRoots',
+      },
+    };
+
+    expect(fieldErrorAt(state, 'remoteRoots', 0)).toBe(state.error);
+    expect(fieldErrorAt(state, 'remoteRoots', 1)).toBeNull();
+  });
+
+  it('keeps other field errors on their field', () => {
+    const state: RepositoryFormState = {
+      kind: 'failed',
+      error: {code: 'INVALID_QUERY', message: 'Bad port.', action: null, field: 'port'},
+    };
+
+    expect(fieldErrorAt(state, 'port')).toBe(state.error);
+    expect(fieldErrorAt(state, 'remoteRoots', 0)).toBeNull();
+    expect(fieldErrorAt({kind: 'idle'}, 'port')).toBeNull();
+  });
+
+  it('keeps the per-folder lines of a passed test', async () => {
+    const missing = {
+      code: 'REMOTE_ROOT_NOT_FOUND',
+      message: 'The folder was not found.',
+      action: 'Check the folder.',
+    };
+    saveMock.mockResolvedValue(OK);
+    testMock.mockResolvedValue(
+      connected(5, [
+        {path: '/photos', entryCount: 5, error: null},
+        {path: '/backup', entryCount: null, error: missing},
+      ]),
+    );
+
+    const {result} = await saveAndTest();
+    const state = result.current.state;
+
+    expect(state).toMatchObject({kind: 'connected', entryCount: 5});
+    expect(folderResultAt(state, 0)).toEqual({path: '/photos', entryCount: 5, error: null});
+    expect(folderResultAt(state, 1)?.error).toEqual(missing);
+    expect(folderResultAt(state, 2)).toBeNull();
+    expect(folderResultAt({kind: 'idle'}, 0)).toBeNull();
+  });
+});
+
+describe('the repository draft (contract v6)', () => {
+  const summary: RepositorySummaryDto = {
+    protocol: 'FTP',
+    host: 'nas.local',
+    port: 21,
+    username: 'alice',
+    remoteRoots: ['/a', '/b'],
+    precisionMillis: null,
+    credentialPresent: true,
+    hostKeyTrusted: null,
+    revision: 1,
+    webdavHttps: false,
+  };
+
+  it('starts a new form with one empty folder field', () => {
+    expect(NEW_REPOSITORY_DRAFT.remoteRoots).toEqual(['']);
+  });
+
+  it('fills every saved folder in order, and one empty field when none was saved', () => {
+    expect(draftOf(summary).remoteRoots).toEqual(['/a', '/b']);
+    expect(draftOf({...summary, remoteRoots: []}).remoteRoots).toEqual(['']);
+  });
+
+  it('adds, edits and removes folder fields, keeping at least one', () => {
+    const draft = draftOf(summary);
+
+    const added = withRemoteRootAdded(draft);
+    expect(added.remoteRoots).toEqual(['/a', '/b', '']);
+    expect(withRemoteRoot(added, 2, '/c').remoteRoots).toEqual(['/a', '/b', '/c']);
+    expect(withRemoteRootRemoved(added, 0).remoteRoots).toEqual(['/b', '']);
+    const single = withRemoteRootRemoved(draft, 1);
+    expect(single.remoteRoots).toEqual(['/a']);
+    expect(withRemoteRootRemoved(single, 0)).toBe(single);
+    expect(draft.remoteRoots).toEqual(['/a', '/b']);
   });
 });

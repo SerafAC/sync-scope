@@ -27,8 +27,12 @@ import {
   type QueryFilesResult,
   type QuerySpec,
   type RepositoryConfigInput,
+  type BrowseRemoteFoldersResult,
+  type RemoteBrowseConfigInput,
+  type RemoteFoldersDto,
   type RepositoryConnectionDto,
   type RepositoryField,
+  type RepositoryFolderResultDto,
   type RepositorySummaryDto,
   type RepositorySummaryResult,
   type ActiveSnapshotDto,
@@ -151,6 +155,7 @@ type NativeEnvelope = {
   plan?: unknown;
   result?: unknown;
   preferences?: unknown;
+  remoteFolders?: unknown;
 };
 
 type NativeErrorShape = {
@@ -160,6 +165,7 @@ type NativeErrorShape = {
   conflictingSource?: { sourceId?: unknown; alias?: unknown } | null;
   hostKeyChallenge?: unknown;
   field?: unknown;
+  fieldIndex?: unknown;
 };
 
 function isRepositoryField(value: unknown): value is RepositoryField {
@@ -198,18 +204,27 @@ function contractVersionOf(result: NativeEnvelope): number {
 }
 
 function normalizeOperationError(result: NativeEnvelope): OperationError {
-  const nativeError = result.error as NativeErrorShape | null | undefined;
-  if (nativeError == null || typeof nativeError.code !== 'string') {
-    return {
-      contractVersion: contractVersionOf(result),
-      status: 'error',
-      error: {
-        code: CloudSyncErrorCode.INTERNAL_ERROR,
-        message: 'Native operation failed without a typed error.',
-        action: null,
-        conflictingSource: null,
-      },
-    };
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'error',
+    error: cloudSyncErrorOf(result.error) ?? {
+      code: CloudSyncErrorCode.INTERNAL_ERROR,
+      message: 'Native operation failed without a typed error.',
+      action: null,
+      conflictingSource: null,
+    },
+  };
+}
+
+/** A typed error from native's error map; null when it has no code. */
+function cloudSyncErrorOf(value: unknown): CloudSyncError | null {
+  const nativeError = value as NativeErrorShape | null | undefined;
+  if (
+    nativeError == null ||
+    typeof nativeError !== 'object' ||
+    typeof nativeError.code !== 'string'
+  ) {
+    return null;
   }
   const conflict = nativeError.conflictingSource;
   const error: CloudSyncError = {
@@ -226,12 +241,17 @@ function normalizeOperationError(result: NativeEnvelope): OperationError {
   // Kept only when typed: an unknown field name never reaches the form.
   if (isRepositoryField(nativeError.field)) {
     error.field = nativeError.field;
+    // The folder to fix (contract v6); a malformed index is dropped, so the
+    // error shows for the whole list instead.
+    if (isCount(nativeError.fieldIndex)) {
+      error.fieldIndex = nativeError.fieldIndex;
+    }
   }
   const challenge = hostKeyChallengeOf(nativeError.hostKeyChallenge);
   if (challenge != null) {
     error.hostKeyChallenge = challenge;
   }
-  return { contractVersion: contractVersionOf(result), status: 'error', error };
+  return error;
 }
 
 export async function listSources(): Promise<ListSourcesResult> {
@@ -373,11 +393,30 @@ function activeSnapshotOf(value: unknown): ActiveSnapshotDto | null {
     return null;
   }
   const active = value as ActiveSnapshotDto & { configRevision?: unknown };
+  const summary = (active.summary ?? {}) as ActiveSnapshotDto['summary'] & {
+    unreadRemoteFolders?: unknown;
+  };
   return {
     ...active,
     configRevision:
       typeof active.configRevision === 'number' ? active.configRevision : 0,
+    // Contract v6: missing or malformed reads as "every folder was read".
+    summary: {
+      ...summary,
+      unreadRemoteFolders: stringsOf(summary.unreadRemoteFolders),
+    },
   };
+}
+
+/** The strings of [value] when it is an array; otherwise none. */
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
 /**
@@ -714,7 +753,8 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
     typeof r.host !== 'string' ||
     typeof r.port !== 'number' ||
     typeof r.username !== 'string' ||
-    typeof r.remoteRoot !== 'string'
+    !isStringArray(r.remoteRoots) ||
+    r.remoteRoots.length === 0
   ) {
     return null;
   }
@@ -723,7 +763,7 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
     host: r.host,
     port: r.port,
     username: r.username,
-    remoteRoot: r.remoteRoot,
+    remoteRoots: [...r.remoteRoots],
     precisionMillis:
       typeof r.precisionMillis === 'number' ? r.precisionMillis : null,
     credentialPresent: r.credentialPresent === true,
@@ -737,7 +777,8 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
 /**
  * Saves the single repository. [password] is sent only when typed: null keeps the
  * stored one for the same server and account (native rule). A parse failure is
- * INVALID_QUERY with `error.field` naming the form field.
+ * INVALID_QUERY with `error.field` naming the form field, and for a folder
+ * (`remoteRoots`) `error.fieldIndex` naming which one (contract v6).
  */
 export async function saveRepository(
   config: RepositoryConfigInput,
@@ -753,7 +794,7 @@ export async function saveRepository(
       host: config.host,
       port: config.port,
       username: config.username,
-      remoteRoot: config.remoteRoot,
+      remoteRoots: [...config.remoteRoots],
       webdavHttps: config.webdavHttps ?? false,
     },
     password != null && password !== '' ? password : null,
@@ -765,8 +806,10 @@ export async function saveRepository(
 }
 
 /**
- * Connects to the saved repository and lists its folder. An unknown or changed SFTP
- * key resolves SFTP_HOST_KEY_UNVERIFIED / _CHANGED with `error.hostKeyChallenge`.
+ * Connects to the saved repository and lists each of its folders. An unknown or
+ * changed SFTP key resolves SFTP_HOST_KEY_UNVERIFIED / _CHANGED with
+ * `error.hostKeyChallenge`. A folder that could not be listed fails only its
+ * own line in `connection.folders` (contract v6, research R12).
  */
 export async function testRepository(): Promise<TestRepositoryResult> {
   const module = scanModule();
@@ -787,7 +830,101 @@ export async function testRepository(): Promise<TestRepositoryResult> {
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    connection: connection as RepositoryConnectionDto,
+    connection: {
+      ...(connection as RepositoryConnectionDto),
+      folders: folderResultsOf(connection.folders),
+    },
+  };
+}
+
+/** The per-folder lines; a malformed line is dropped, a missing list is empty. */
+function folderResultsOf(value: unknown): RepositoryFolderResultDto[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item: unknown) => {
+    if (item == null || typeof item !== 'object') {
+      return [];
+    }
+    const line = item as Record<string, unknown>;
+    if (typeof line.path !== 'string') {
+      return [];
+    }
+    return [
+      {
+        path: line.path,
+        entryCount: isCount(line.entryCount) ? line.entryCount : null,
+        error: cloudSyncErrorOf(line.error),
+      },
+    ];
+  });
+}
+
+function remoteFoldersOf(value: unknown): RemoteFoldersDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const r = value as Record<string, unknown>;
+  if (
+    typeof r.path !== 'string' ||
+    (r.parent != null && typeof r.parent !== 'string') ||
+    !isStringArray(r.folders)
+  ) {
+    return null;
+  }
+  return {
+    path: r.path,
+    parent: typeof r.parent === 'string' ? r.parent : null,
+    folders: [...r.folders],
+    fellBackToRoot: r.fellBackToRoot === true,
+  };
+}
+
+/**
+ * Lists the folders directly inside [path] on the server of the form's draft
+ * (contract v6, research R13). [password] is sent only when typed; without it
+ * native uses the stored one for the same account, or answers
+ * CREDENTIAL_UNAVAILABLE. A null or empty [path] lists `/`. Errors follow
+ * testRepository, including the SFTP host-key challenge. Nothing is saved.
+ */
+export async function browseRemoteFolders(
+  config: RemoteBrowseConfigInput,
+  password?: string | null,
+  path?: string | null,
+): Promise<BrowseRemoteFoldersResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    native =>
+      native.browseRemoteFolders(
+        {
+          protocol: config.protocol,
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          webdavHttps: config.webdavHttps ?? false,
+        },
+        password != null && password !== '' ? password : null,
+        path != null && path !== '' ? path : null,
+      ),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const remoteFolders = remoteFoldersOf(result.remoteFolders);
+  if (remoteFolders == null) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    remoteFolders,
   };
 }
 
@@ -934,6 +1071,7 @@ export const CloudSync = {
   getRepositorySummary,
   saveRepository,
   testRepository,
+  browseRemoteFolders,
   approveSftpHostKey,
   rejectSftpHostKey,
   getBrowsePreferences,

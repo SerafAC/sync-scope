@@ -36,7 +36,7 @@ const SAVED: RepositorySummaryDto = {
   host: '10.0.2.2',
   port: 2222,
   username: 'alice',
-  remoteRoot: '/photos',
+  remoteRoots: ['/photos'],
   precisionMillis: 1000,
   credentialPresent: true,
   hostKeyTrusted: true,
@@ -83,6 +83,20 @@ describe('RepositorySection', () => {
 
     fireEvent.press(screen.getByLabelText('Set up repository'));
     expect(mockNavigate).toHaveBeenCalledWith('Repository');
+  });
+
+  it('lists every remote folder in order (Story 3 sc. 10)', async () => {
+    summaryMock.mockResolvedValue(
+      ok({...SAVED, remoteRoots: ['/scan/clean/a', '/scan/clean/b']}),
+    );
+    renderSection();
+
+    const first = await screen.findByText('Folder /scan/clean/a');
+    const second = screen.getByText('Folder /scan/clean/b');
+    const texts = screen.UNSAFE_root.findAll(
+      node => node === first || node === second,
+    );
+    expect(texts).toEqual([first, second]);
   });
 
   it('summarises a saved repository with a stored password', async () => {

@@ -47,6 +47,7 @@ import org.robolectric.shadows.ShadowLog
 /**
  * The debug-only repository seam (D018): `syncscope-debug://configure-repository?…` runs the production
  * [com.syncscope.bridge.RepositoryOperations] save and test (approving an SFTP host-key challenge once),
+ * takes `root` once per folder, in order (contract version 6),
  * shows the resulting code, and never lets the password or the deep link reach the view or the log.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -100,6 +101,35 @@ class ConfigureRepositoryActivityTest {
     assertEquals("save, then test, then a second test after the approval", 2, remote.connects.size)
     assertTrue("the challenge was approved into the trust store", hostKeys.isTrusted("10.0.2.2", 2222))
     assertEquals(1000L, db.repositoryConfigDao().get()!!.precisionMillis)
+  }
+
+  @Test
+  fun repeatedRootParametersBecomeTheFoldersInOrder() = runBlocking<Unit> {
+    val activity =
+      launch(link("FTP", port = "2121", extra = "&root=%2Fscan%2Fpartial%2Frestricted&root=%2Fgallery-partial"))
+
+    assertEquals("Repository configured", awaitResult(activity))
+    val row = db.repositoryConfigDao().get()!!
+    assertEquals(
+      listOf("/scan/clean", "/scan/partial/restricted", "/gallery-partial"),
+      RemoteRoots.decode(row.remoteRoots),
+    )
+    assertEquals(listOf("/scan/clean", "/scan/partial/restricted", "/gallery-partial"), remote.connects.single().rootPaths)
+  }
+
+  @Test
+  fun aSingleRootIsTheOnlyFolder() = runBlocking<Unit> {
+    awaitResult(launch(link("FTP", port = "2121")))
+
+    assertEquals(listOf("/scan/clean"), RemoteRoots.decode(db.repositoryConfigDao().get()!!.remoteRoots))
+  }
+
+  @Test
+  fun overlappingRootsAreRefusedByTheProductionRules() {
+    val activity = launch(link("FTP", port = "2121", extra = "&root=%2Fscan%2Fclean%2Fa"))
+
+    assertEquals("Repository error: INVALID_QUERY", awaitResult(activity))
+    assertTrue(remote.connects.isEmpty())
   }
 
   @Test

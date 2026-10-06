@@ -111,9 +111,10 @@ export function RepositorySection(): React.JSX.Element {
             {repositoryTitle(state.repository)}
           </Text>
           <Text variant="bodyMedium">{`User ${state.repository.username}`}</Text>
-          <Text variant="bodyMedium">
-            {`Folder ${state.repository.remoteRoot}`}
-          </Text>
+          {/* Every saved folder, in order (Story 3 sc. 10). */}
+          {state.repository.remoteRoots.map(folder => (
+            <Text key={folder} variant="bodyMedium">{`Folder ${folder}`}</Text>
+          ))}
           <Text variant="bodyMedium">
             {state.repository.credentialPresent
               ? 'Password stored'

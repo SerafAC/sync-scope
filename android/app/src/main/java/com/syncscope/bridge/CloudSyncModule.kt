@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
  * on a background dispatcher, and any throwable is converted into a redacted
  * INTERNAL_ERROR envelope so no Kotlin exception ever reaches JS.
  *
- * Repository methods delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
+ * Repository methods (including `browseRemoteFolders`) delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
  * `removeSource` delegate to [SourceOperations] and [SourcePicker], whose activity results arrive
  * through an `ActivityEventListener` registered here for the module's lifetime.
  * `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` delegate to
@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
  * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
- * `setIncludeHidden`, and the contract v6 `getScrollIndex` and `browseRemoteFolders`) resolve a typed
+ * `setIncludeHidden`, and the contract v6 `getScrollIndex`) resolve a typed
  * NOT_IMPLEMENTED envelope. `getBrowsePreferences` and `setBrowsePreferences` delegate to [BrowsePreferences].
  */
 class CloudSyncModule(
@@ -280,12 +280,12 @@ class CloudSyncModule(
       }
     }
 
-  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055, browseRemoteFolders T039).
+  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055).
   override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
     notImplemented("getScrollIndex", promise)
 
   override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
-    notImplemented("browseRemoteFolders", promise)
+    runOperation("browseRemoteFolders", promise) { repositories.browse(config, transientPassword, path) }
 
   override fun getBrowsePreferences(promise: Promise) =
     runOperation("getBrowsePreferences", promise) { preferences.get() }

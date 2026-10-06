@@ -5,6 +5,7 @@ import type {
   ActiveSnapshotDto,
   BrowsePreferencesDto,
   BrowsePreferencesResult,
+  BrowseRemoteFoldersResult,
   CloudSyncError,
   DeletionFailureReason,
   DeletionPlanDto,
@@ -19,13 +20,17 @@ import type {
   ListSelectableEntriesResult,
   ListSourcesResult,
   PrepareLocalDeletionResult,
+  RemoteBrowseConfigInput,
+  RemoteFoldersDto,
   RepositoryConfigInput,
+  RepositoryConnectionDto,
   RepositoryField,
   RepositorySummaryResult,
   ScanMode,
   ScanPhase,
   ScanRunDto,
   ScanStateResult,
+  ScanSummaryDto,
   ScanTerminalState,
   QuerySpec,
   ScrollAnchor,
@@ -492,6 +497,7 @@ describe('CloudSync versioned contract', () => {
         unsynced: 2,
         unknown: 3,
         unreadableRemoteDirectories: 1,
+        unreadRemoteFolders: [],
         remoteListingInterruptedBy: null,
         skippedSources: [
           {sourceId: 'src-1', alias: 'Camera', reason: 'GRANT_REVOKED'},
@@ -689,7 +695,7 @@ describe('CloudSync versioned contract', () => {
         'port',
         'username',
         'password',
-        'remoteRoot',
+        'remoteRoots',
       ];
       const invalidPort: CloudSyncError = {
         code: CloudSyncErrorCode.INVALID_QUERY,
@@ -720,7 +726,7 @@ describe('CloudSync versioned contract', () => {
           host: 'nas.local',
           port: 443,
           username: 'me',
-          remoteRoot: '/backup',
+          remoteRoots: ['/backup', '/phone'],
           precisionMillis: null,
           credentialPresent: true,
           hostKeyTrusted: null,
@@ -733,7 +739,7 @@ describe('CloudSync versioned contract', () => {
         host: 'nas.local',
         port: null,
         username: 'me',
-        remoteRoot: '/backup',
+        remoteRoots: ['/backup'],
       };
       const https: RepositoryConfigInput = {
         ...legacyCaller,
@@ -745,7 +751,10 @@ describe('CloudSync versioned contract', () => {
         // @ts-expect-error the summary always carries its revision in contract v5
         repository: {...summary.repository, revision: undefined},
       };
+      // @ts-expect-error contract v6 replaced the single remoteRoot with remoteRoots
+      const singleRoot: RepositoryConfigInput = {...legacyCaller, remoteRoot: '/x'};
       expect(isErrorResult(summary)).toBe(false);
+      expect(singleRoot.remoteRoots).toEqual(['/backup']);
       expect(legacyCaller.webdavHttps).toBeUndefined();
       expect(https.webdavHttps).toBe(true);
       expect(noRevision.status).toBe('ok');
@@ -764,6 +773,7 @@ describe('CloudSync versioned contract', () => {
           unsynced: 0,
           unknown: 0,
           unreadableRemoteDirectories: 0,
+          unreadRemoteFolders: [],
           remoteListingInterruptedBy: null,
           skippedSources: [],
         },
@@ -854,5 +864,61 @@ describe('CloudSync versioned contract', () => {
       expect(reasons).toHaveLength(4);
       expect([badReason, noPlan]).toHaveLength(2);
     });
+  });
+});
+
+describe('several remote folders (contract v6)', () => {
+  it('names the folder to fix with fieldIndex', () => {
+    const overlap: CloudSyncError = {
+      code: CloudSyncErrorCode.INVALID_QUERY,
+      message: 'This folder is the same as, inside or around /scan/clean/a.',
+      action: null,
+      field: 'remoteRoots',
+      fieldIndex: 1,
+    };
+    // @ts-expect-error fieldIndex is a number
+    const badIndex: CloudSyncError = {...overlap, fieldIndex: '1'};
+    expect(overlap.fieldIndex).toBe(1);
+    expect(badIndex.field).toBe('remoteRoots');
+  });
+
+  it('types the per-folder connection lines, the browser listing and the unread folders', () => {
+    const connection: RepositoryConnectionDto = {
+      protocol: 'FTP',
+      reachable: true,
+      entryCount: 3,
+      folders: [
+        {path: '/a', entryCount: 3, error: null},
+        {
+          path: '/missing',
+          entryCount: null,
+          error: {code: 'REMOTE_ROOT_NOT_FOUND', message: 'Not found.', action: 'Check the folder.'},
+        },
+      ],
+      precisionMillis: 1000,
+      precisionBasis: 'MLSD_WHOLE_SECONDS',
+      precisionPersisted: true,
+    };
+    const listing: BrowseRemoteFoldersResult = {
+      contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+      status: 'ok',
+      remoteFolders: {path: '/scan', parent: '/', folders: ['clean'], fellBackToRoot: false},
+    };
+    const draft: RemoteBrowseConfigInput = {protocol: 'SFTP', host: 'h', port: null, username: 'u'};
+    const folders: RemoteFoldersDto = {path: '/', parent: null, folders: [], fellBackToRoot: true};
+    const summary: ScanSummaryDto = {
+      synced: 1,
+      unsynced: 0,
+      unknown: 2,
+      unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: ['/scan/partial/restricted'],
+      remoteListingInterruptedBy: null,
+      skippedSources: [],
+    };
+    expect(connection.folders.map(line => line.entryCount)).toEqual([3, null]);
+    expect(isErrorResult(listing)).toBe(false);
+    expect(draft).not.toHaveProperty('remoteRoots');
+    expect(folders.parent).toBeNull();
+    expect(summary.unreadRemoteFolders).toHaveLength(1);
   });
 });

@@ -88,11 +88,9 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
-        // Contract v6 methods, wired by T039 (folder browser) and T055 (scroll index).
+        // Contract v6 scroll index, wired by T055.
         { module.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
         { module.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
-        { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), null, null, it) },
-        { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), "pw", "/photos", it) },
       )
 
     for (call in calls) {
@@ -101,6 +99,19 @@ class CloudSyncModuleTest {
       val result = promise.resolved as ReadableMap
       assertEquals("error", result.getString("status"))
       assertEquals("NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
+      assertNull(promise.rejectedCode)
+    }
+  }
+
+  @Test
+  fun browseRemoteFoldersIsWiredAndValidatesTheDraftWithoutRejecting() {
+    for (path in listOf(null, "/photos")) {
+      val promise = RecordingPromise()
+      module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), "pw", path, promise)
+      val result = promise.resolved as ReadableMap
+      assertEquals("error", result.getString("status"))
+      assertEquals("INVALID_QUERY", result.getMap("error")!!.getString("code"))
+      assertEquals("host", result.getMap("error")!!.getString("field"))
       assertNull(promise.rejectedCode)
     }
   }

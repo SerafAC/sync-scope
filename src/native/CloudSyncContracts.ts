@@ -268,6 +268,11 @@ export interface CloudSyncError {
    * (contract version 5). The rejected value is never echoed.
    */
   field?: RepositoryField | null;
+  /**
+   * With `field: 'remoteRoots'` only: the index of the folder to fix, in the
+   * list as sent (contract version 6). Absent when the whole list is at fault.
+   */
+  fieldIndex?: number | null;
 }
 
 /** The repository form fields an error can name in `CloudSyncError.field`. */
@@ -277,7 +282,7 @@ export const REPOSITORY_FIELDS = [
   'port',
   'username',
   'password',
-  'remoteRoot',
+  'remoteRoots',
 ] as const;
 
 export type RepositoryField = (typeof REPOSITORY_FIELDS)[number];
@@ -307,8 +312,12 @@ export interface RepositoryConfigInput {
   /** null → REPOSITORY_DEFAULT_PORTS for the protocol (WebDAV over HTTPS → 443). */
   port: number | null;
   username: string;
-  /** Absolute folder path on the server. */
-  remoteRoot: string;
+  /**
+   * The folders on the server, in order (contract version 6). Native
+   * normalizes them and refuses an empty list, a line break and overlaps,
+   * naming the folder with `error.fieldIndex`.
+   */
+  remoteRoots: string[];
   /** WebDAV only: connect over HTTPS. Absent means false, so existing callers keep HTTP (contract v5). */
   webdavHttps?: boolean;
 }
@@ -319,7 +328,8 @@ export interface RepositorySummaryDto {
   host: string;
   port: number;
   username: string;
-  remoteRoot: string;
+  /** The saved folders, normalized, in order; at least one (contract version 6). */
+  remoteRoots: string[];
   /** Timestamp precision found by testRepository; null until a test succeeded. */
   precisionMillis: number | null;
   /** A stored password is present and readable; the password itself never crosses the bridge. */
@@ -340,12 +350,23 @@ export interface RepositorySummaryOk {
 
 export type RepositorySummaryResult = RepositorySummaryOk | OperationError;
 
-/** What testRepository found at the saved repository's remote folder. */
+/** One saved folder's line in the connection test (contract version 6, research R12). */
+export interface RepositoryFolderResultDto {
+  path: string;
+  /** Direct children of the folder; null when it could not be listed. */
+  entryCount: number | null;
+  /** Why the folder could not be listed, with its action; null when it was. */
+  error: CloudSyncError | null;
+}
+
+/** What testRepository found at the saved repository's remote folders. */
 export interface RepositoryConnectionDto {
   protocol: RepositoryProtocol;
   reachable: boolean;
-  /** Direct children of the remote folder. */
+  /** Direct children of every folder that could be listed, summed. */
   entryCount: number;
+  /** One line per saved folder, in order (contract version 6). */
+  folders: RepositoryFolderResultDto[];
   precisionMillis: number;
   precisionBasis: string;
   /** False when a save landed during the test, so the precision was not written. */
@@ -359,6 +380,32 @@ export interface TestRepositoryOk {
 }
 
 export type TestRepositoryResult = TestRepositoryOk | OperationError;
+
+/** One folder listing of the server folder browser (contract version 6, research R13). */
+export interface RemoteFoldersDto {
+  /** The listed folder, normalized. */
+  path: string;
+  /** The folder above [path]; null at `/`. */
+  parent: string | null;
+  /** Names of the folders directly inside [path], sorted case-insensitively. Files and links never appear. */
+  folders: string[];
+  /** The requested folder could not be listed, so `/` was. */
+  fellBackToRoot: boolean;
+}
+
+export interface BrowseRemoteFoldersOk {
+  contractVersion: number;
+  status: 'ok';
+  remoteFolders: RemoteFoldersDto;
+}
+
+export type BrowseRemoteFoldersResult = BrowseRemoteFoldersOk | OperationError;
+
+/** The connection part of the repository form, as browseRemoteFolders takes it: no folders needed. */
+export type RemoteBrowseConfigInput = Omit<
+  RepositoryConfigInput,
+  'remoteRoots'
+>;
 
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';
 export type LocalNodeKind = 'FILE' | 'DIRECTORY';
@@ -781,7 +828,14 @@ export interface ScanSummaryDto {
   unsynced: number;
   /** "Files that could not be checked" (FR-005, FR-007). */
   unknown: number;
+  /** Non-root directories below the folders that could not be listed. */
   unreadableRemoteDirectories: number;
+  /**
+   * Saved folders the last full scan could not read, in folder order; empty
+   * when every folder was read (contract version 6). Not empty means
+   * `coverage` is INCOMPLETE.
+   */
+  unreadRemoteFolders: string[];
   /** Code of the transient failure that stopped the remote walk, or null. */
   remoteListingInterruptedBy: string | null;
   skippedSources: SkippedSourceDto[];

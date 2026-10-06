@@ -20,6 +20,7 @@ import {
   setBrowsePreferences,
   startScan,
   testRepository,
+  browseRemoteFolders,
 } from '../CloudSync';
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
@@ -397,6 +398,7 @@ const activeSnapshot = {
     unsynced: 3,
     unknown: 0,
     unreadableRemoteDirectories: 0,
+    unreadRemoteFolders: [],
     remoteListingInterruptedBy: null,
     skippedSources: [],
   },
@@ -577,6 +579,37 @@ describe('CloudSync scan wrappers', () => {
         if (result.status === 'ok') {
           expect(result.active?.configRevision).toBe(0);
         }
+      }
+    });
+
+    it('reads the unread remote folders and defaults them to none (contract v6)', async () => {
+      const cases: [unknown, string[]][] = [
+        [
+          ['/b', '/c'],
+          ['/b', '/c'],
+        ],
+        [undefined, []],
+        ['/b', []],
+        [['/b', 3], ['/b']],
+      ];
+      for (const [unreadRemoteFolders, expected] of cases) {
+        mockNative({
+          getScanState: jest.fn().mockResolvedValue({
+            contractVersion: 6,
+            status: 'ok',
+            run: null,
+            active: {
+              ...activeSnapshot,
+              summary: { ...activeSnapshot.summary, unreadRemoteFolders },
+            },
+          }),
+        });
+
+        const result = await getScanState();
+
+        expect(
+          result.status === 'ok' && result.active?.summary.unreadRemoteFolders,
+        ).toEqual(expected);
       }
     });
 
@@ -909,7 +942,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     host: 'nas.local',
     port: 443,
     username: 'alice',
-    remoteRoot: '/photos',
+    remoteRoots: ['/photos'],
     precisionMillis: null,
     credentialPresent: true,
     hostKeyTrusted: null,
@@ -929,7 +962,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
         host: 'nas.local',
         port: null,
         username: 'alice',
-        remoteRoot: '/photos',
+        remoteRoots: ['/photos'],
         webdavHttps: true,
       },
       'secret',
@@ -942,7 +975,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
         host: 'nas.local',
         port: null,
         username: 'alice',
-        remoteRoot: '/photos',
+        remoteRoots: ['/photos'],
         webdavHttps: true,
       },
       'secret',
@@ -956,7 +989,13 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     mockNative({ saveRepository: save });
 
     await saveRepository(
-      { protocol: 'FTP', host: 'h', port: 21, username: 'u', remoteRoot: '/' },
+      {
+        protocol: 'FTP',
+        host: 'h',
+        port: 21,
+        username: 'u',
+        remoteRoots: ['/'],
+      },
       '',
     );
 
@@ -987,7 +1026,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
       host: 'h',
       port: 0,
       username: 'u',
-      remoteRoot: '/',
+      remoteRoots: ['/'],
     };
 
     const known = await saveRepository(config, 'p');
@@ -1002,13 +1041,11 @@ describe('CloudSync repository wrappers (contract v5)', () => {
 
   it('getRepositorySummary reads revision and webdavHttps', async () => {
     mockNative({
-      getRepositorySummary: jest
-        .fn()
-        .mockResolvedValue({
-          contractVersion: 5,
-          status: 'ok',
-          repository: summary,
-        }),
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        repository: summary,
+      }),
     });
 
     const result = await getRepositorySummary();
@@ -1064,13 +1101,11 @@ describe('CloudSync repository wrappers (contract v5)', () => {
 
   it('getRepositorySummary treats a malformed repository as INTERNAL_ERROR', async () => {
     mockNative({
-      getRepositorySummary: jest
-        .fn()
-        .mockResolvedValue({
-          contractVersion: 5,
-          status: 'ok',
-          repository: {},
-        }),
+      getRepositorySummary: jest.fn().mockResolvedValue({
+        contractVersion: 5,
+        status: 'ok',
+        repository: {},
+      }),
     });
 
     const result = await getRepositorySummary();
@@ -1085,6 +1120,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
       protocol: 'SFTP',
       reachable: true,
       entryCount: 4,
+      folders: [{ path: '/photos', entryCount: 4, error: null }],
       precisionMillis: 1000,
       precisionBasis: 'SFTP_V3_WHOLE_SECONDS',
       precisionPersisted: true,
@@ -1122,6 +1158,290 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     );
   });
 
+  it('saveRepository sends every folder in order and keeps the error fieldIndex (contract v6)', async () => {
+    const save = jest
+      .fn()
+      .mockResolvedValueOnce({ contractVersion: 6, status: 'ok' })
+      .mockResolvedValueOnce({
+        contractVersion: 6,
+        status: 'error',
+        error: {
+          code: 'INVALID_QUERY',
+          message: 'This folder is the same as, inside or around /a.',
+          action: 'Correct the folder and save again.',
+          field: 'remoteRoots',
+          fieldIndex: 1,
+        },
+      })
+      .mockResolvedValueOnce({
+        contractVersion: 6,
+        status: 'error',
+        error: {
+          code: 'INVALID_QUERY',
+          message: 'Bad.',
+          action: null,
+          field: 'remoteRoots',
+          fieldIndex: -1,
+        },
+      });
+    mockNative({ saveRepository: save });
+    const config = {
+      protocol: 'FTP' as const,
+      host: 'h',
+      port: null,
+      username: 'u',
+      remoteRoots: ['/a', '/a/b'],
+    };
+
+    expect((await saveRepository(config, 'p')).status).toBe('ok');
+    const overlap = await saveRepository(config, 'p');
+    const malformed = await saveRepository(config, 'p');
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ remoteRoots: ['/a', '/a/b'] }),
+      'p',
+    );
+    expect(save.mock.calls[0][0]).not.toHaveProperty('remoteRoot');
+    expect(overlap.status === 'error' && overlap.error).toMatchObject({
+      field: 'remoteRoots',
+      fieldIndex: 1,
+    });
+    expect(malformed.status === 'error' && malformed.error.field).toBe(
+      'remoteRoots',
+    );
+    expect(
+      malformed.status === 'error' && malformed.error.fieldIndex,
+    ).toBeUndefined();
+  });
+
+  it('getRepositorySummary reads remoteRoots and refuses a summary without them (contract v6)', async () => {
+    const summaryOf = (repository: unknown) =>
+      jest
+        .fn()
+        .mockResolvedValue({ contractVersion: 6, status: 'ok', repository });
+    mockNative({
+      getRepositorySummary: summaryOf({
+        ...summary,
+        remoteRoots: ['/a', '/b'],
+      }),
+    });
+    const two = await getRepositorySummary();
+    expect(two.status === 'ok' && two.repository.remoteRoots).toEqual([
+      '/a',
+      '/b',
+    ]);
+
+    for (const remoteRoots of [undefined, [], '/a', ['/a', 2]]) {
+      const legacy: Record<string, unknown> = {
+        ...summary,
+        remoteRoots,
+        remoteRoot: '/a',
+      };
+      mockNative({ getRepositorySummary: summaryOf(legacy) });
+      const result = await getRepositorySummary();
+      expect(result.status === 'error' && result.error.code).toBe(
+        'INTERNAL_ERROR',
+      );
+    }
+  });
+
+  it('testRepository keeps the per-folder lines and drops malformed ones (contract v6)', async () => {
+    const connection = {
+      protocol: 'FTP',
+      reachable: true,
+      entryCount: 4,
+      precisionMillis: 1000,
+      precisionBasis: 'MLSD_WHOLE_SECONDS',
+      precisionPersisted: true,
+    };
+    const missing = {
+      code: 'REMOTE_ROOT_NOT_FOUND',
+      message: 'The folder was not found.',
+      action: 'Check the folder.',
+    };
+    mockNative({
+      testRepository: jest
+        .fn()
+        .mockResolvedValueOnce({
+          contractVersion: 6,
+          status: 'ok',
+          connection: {
+            ...connection,
+            folders: [
+              { path: '/a', entryCount: 4, error: null },
+              { path: '/missing', entryCount: null, error: missing },
+              { entryCount: 1 },
+              'junk',
+            ],
+          },
+        })
+        .mockResolvedValueOnce({
+          contractVersion: 6,
+          status: 'ok',
+          connection,
+        }),
+    });
+
+    const lines = await testRepository();
+    const none = await testRepository();
+
+    expect(lines.status === 'ok' && lines.connection.folders).toEqual([
+      { path: '/a', entryCount: 4, error: null },
+      {
+        path: '/missing',
+        entryCount: null,
+        error: { ...missing, conflictingSource: null },
+      },
+    ]);
+    expect(none.status === 'ok' && none.connection.folders).toEqual([]);
+  });
+
+  describe('browseRemoteFolders (contract v6)', () => {
+    const draft = {
+      protocol: 'SFTP' as const,
+      host: 'nas.local',
+      port: 2222,
+      username: 'alice',
+    };
+    const listing = {
+      path: '/scan',
+      parent: '/',
+      folders: ['clean', 'partial'],
+      fellBackToRoot: false,
+    };
+
+    it('sends the draft, the typed password and the path, and returns the listing', async () => {
+      const browse = jest
+        .fn()
+        .mockResolvedValue({
+          contractVersion: 6,
+          status: 'ok',
+          remoteFolders: listing,
+        });
+      mockNative({ browseRemoteFolders: browse });
+
+      const result = await browseRemoteFolders(
+        { ...draft, remoteRoots: ['/x'], webdavHttps: true } as typeof draft,
+        'secret',
+        '/scan',
+      );
+
+      expect(result).toEqual({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: listing,
+      });
+      expect(browse).toHaveBeenCalledWith(
+        { ...draft, webdavHttps: true },
+        'secret',
+        '/scan',
+      );
+    });
+
+    it('sends null for an empty password and an empty path', async () => {
+      const browse = jest.fn().mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: {
+          path: '/',
+          parent: null,
+          folders: [],
+          fellBackToRoot: true,
+        },
+      });
+      mockNative({ browseRemoteFolders: browse });
+
+      const result = await browseRemoteFolders(draft, '', '');
+
+      expect(browse).toHaveBeenCalledWith(
+        { ...draft, webdavHttps: false },
+        null,
+        null,
+      );
+      expect(result.status === 'ok' && result.remoteFolders).toEqual({
+        path: '/',
+        parent: null,
+        folders: [],
+        fellBackToRoot: true,
+      });
+    });
+
+    it('passes the host-key challenge and the credential error through', async () => {
+      const challenge = {
+        challengeId: 'c-1',
+        host: 'nas.local',
+        port: 2222,
+        algorithm: 'ssh-ed25519',
+        fingerprint: 'SHA256:abc',
+        previousFingerprint: null,
+      };
+      mockNative({
+        browseRemoteFolders: jest
+          .fn()
+          .mockResolvedValueOnce({
+            contractVersion: 6,
+            status: 'error',
+            error: {
+              code: 'SFTP_HOST_KEY_UNVERIFIED',
+              message: 'The server key is not trusted yet.',
+              action: null,
+              hostKeyChallenge: challenge,
+            },
+          })
+          .mockResolvedValueOnce({
+            contractVersion: 6,
+            status: 'error',
+            error: {
+              code: 'CREDENTIAL_UNAVAILABLE',
+              message: 'A password is needed to browse this server.',
+              action: 'Enter the password to browse the server.',
+            },
+          }),
+      });
+
+      const key = await browseRemoteFolders(draft, 'p', null);
+      const password = await browseRemoteFolders(draft, null, null);
+
+      expect(key.status === 'error' && key.error.hostKeyChallenge).toEqual(
+        challenge,
+      );
+      expect(password.status === 'error' && password.error.action).toBe(
+        'Enter the password to browse the server.',
+      );
+    });
+
+    it('treats a malformed listing or a rejected call as INTERNAL_ERROR', async () => {
+      const malformed = [
+        {},
+        { ...listing, folders: ['a', 1] },
+        { ...listing, path: 3 },
+        { ...listing, parent: 4 },
+      ];
+      for (const remoteFolders of malformed) {
+        mockNative({
+          browseRemoteFolders: jest
+            .fn()
+            .mockResolvedValue({
+              contractVersion: 6,
+              status: 'ok',
+              remoteFolders,
+            }),
+        });
+        const result = await browseRemoteFolders(draft, 'p', null);
+        expect(result.status === 'error' && result.error.code).toBe(
+          'INTERNAL_ERROR',
+        );
+      }
+      mockNative({
+        browseRemoteFolders: jest.fn().mockRejectedValue(new Error('boom')),
+      });
+      const rejected = await browseRemoteFolders(draft, 'p', null);
+      expect(rejected.status === 'error' && rejected.error.code).toBe(
+        'INTERNAL_ERROR',
+      );
+    });
+  });
+
   it('approve and reject pass the challenge ID through', async () => {
     const approve = jest
       .fn()
@@ -1147,9 +1467,15 @@ describe('CloudSync repository wrappers (contract v5)', () => {
         host: 'h',
         port: null,
         username: 'u',
-        remoteRoot: '/',
+        remoteRoots: ['/'],
       }),
       await testRepository(),
+      await browseRemoteFolders({
+        protocol: 'FTP',
+        host: 'h',
+        port: null,
+        username: 'u',
+      }),
       await approveSftpHostKey('c'),
       await rejectSftpHostKey('c'),
     ]) {

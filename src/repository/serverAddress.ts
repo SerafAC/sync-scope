@@ -8,6 +8,7 @@ export interface ServerAddressParts {
   /** As text, the way the Port field holds it. */
   port?: string;
   username?: string;
+  /** The folder the URL names; it goes into the first remote folder field only (see [withFirstRemoteRoot]). */
   remoteRoot?: string;
 }
 
@@ -84,4 +85,19 @@ export function splitServerAddress(text: string): ServerAddressParts | null {
     }
   }
   return parts;
+}
+
+/**
+ * The form's remote folders with a server URL's [folder] in the first field (Story 3 sc. 8): the other
+ * folders stay as they are, and no folder in the URL changes nothing. Always at least one field.
+ */
+export function withFirstRemoteRoot(
+  remoteRoots: readonly string[],
+  folder: string | undefined,
+): string[] {
+  const roots = remoteRoots.length > 0 ? [...remoteRoots] : [''];
+  if (folder != null) {
+    roots[0] = folder;
+  }
+  return roots;
 }

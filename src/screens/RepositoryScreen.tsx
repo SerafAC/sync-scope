@@ -25,16 +25,27 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {getRepositorySummary} from '../native/CloudSync';
 import {
   REPOSITORY_DEFAULT_PORTS,
-  type CloudSyncError,
   type RepositoryField,
   type RepositoryProtocol,
   type RepositorySummaryDto,
 } from '../native/CloudSyncContracts';
 import type {RootStackParamList} from '../navigation/AppNavigator';
 import {HostKeyDialog} from '../repository/HostKeyDialog';
-import {splitServerAddress} from '../repository/serverAddress';
+import {RemoteFolderBrowser} from '../repository/RemoteFolderBrowser';
 import {
+  splitServerAddress,
+  withFirstRemoteRoot,
+} from '../repository/serverAddress';
+import {
+  NEW_REPOSITORY_DRAFT,
+  draftOf,
+  fieldErrorAt,
+  folderResultAt,
   useRepository,
+  withRemoteRoot,
+  withRemoteRootAdded,
+  withRemoteRootRemoved,
+  type RepositoryDraft,
   type RepositoryFormState,
 } from '../repository/useRepository';
 import {useScan} from '../scan/useScan';
@@ -42,26 +53,7 @@ import {spacing} from '../theme/spacing';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Repository'>;
 
-/** The form's non-secret fields. The password is kept apart, in its own state. */
-export interface RepositoryDraft {
-  protocol: RepositoryProtocol;
-  host: string;
-  /** As typed; empty means the protocol's default port. */
-  port: string;
-  username: string;
-  remoteRoot: string;
-  webdavHttps: boolean;
-}
-
-/** A new configuration: HTTPS is on by default for WebDAV (research R4). */
-const NEW_DRAFT: RepositoryDraft = {
-  protocol: 'SFTP',
-  host: '',
-  port: '',
-  username: '',
-  remoteRoot: '',
-  webdavHttps: true,
-};
+const NEW_DRAFT = NEW_REPOSITORY_DRAFT;
 
 const PROTOCOL_BUTTONS = [
   {value: 'FTP', label: 'FTP', accessibilityLabel: 'Protocol FTP'},
@@ -73,17 +65,6 @@ export const UNENCRYPTED_WARNING =
   'The password and file names are sent unencrypted. Use only on a network you trust.';
 export const PASSWORD_STORED_HINT =
   'A password is stored. Leave empty to keep it.';
-
-function draftOf(summary: RepositorySummaryDto): RepositoryDraft {
-  return {
-    protocol: summary.protocol,
-    host: summary.host,
-    port: String(summary.port),
-    username: summary.username,
-    remoteRoot: summary.remoteRoot,
-    webdavHttps: summary.webdavHttps,
-  };
-}
 
 /** The port the native side uses when the field is empty (mirrored constant, research R2). */
 export function defaultPortFor(
@@ -98,20 +79,23 @@ export function defaultPortFor(
 
 /**
  * The draft with a server URL typed into Host spread over the other fields: protocol, HTTPS, port,
- * user name and remote folder, as far as the URL names them. A URL that switches the protocol but
- * names no port clears the port, so the new protocol's default applies.
+ * user name and the first remote folder, as far as the URL names them; the other folders stay
+ * (Story 3 sc. 8). A URL that switches the protocol but names no port clears the port, so the new
+ * protocol's default applies.
  */
 export function withServerAddress(draft: RepositoryDraft): RepositoryDraft {
   const parts = splitServerAddress(draft.host);
   if (parts == null) {
     return draft;
   }
+  const {remoteRoot, ...fields} = parts;
   const protocolChanged =
-    parts.protocol != null && parts.protocol !== draft.protocol;
+    fields.protocol != null && fields.protocol !== draft.protocol;
   return {
     ...draft,
-    ...parts,
-    port: parts.port ?? (protocolChanged ? '' : draft.port),
+    ...fields,
+    port: fields.port ?? (protocolChanged ? '' : draft.port),
+    remoteRoots: withFirstRemoteRoot(draft.remoteRoots, remoteRoot),
   };
 }
 
@@ -121,7 +105,8 @@ function sameDraft(a: RepositoryDraft, b: RepositoryDraft): boolean {
     a.host === b.host &&
     a.port === b.port &&
     a.username === b.username &&
-    a.remoteRoot === b.remoteRoot &&
+    a.remoteRoots.length === b.remoteRoots.length &&
+    a.remoteRoots.every((root, i) => root === b.remoteRoots[i]) &&
     (a.protocol !== 'WEBDAV' || a.webdavHttps === b.webdavHttps)
   );
 }
@@ -132,10 +117,20 @@ function portValue(text: string): number | null {
   return trimmed === '' ? null : Number(trimmed);
 }
 
+/** A passed test's line for one folder: its entry count, or that it could not be read. */
+export function folderLineText(
+  path: string,
+  entryCount: number | null,
+): string {
+  return entryCount != null
+    ? `${path}: ${entryCount} entries`
+    : `${path}: could not be read`;
+}
+
 function statusText(state: RepositoryFormState): string | null {
   switch (state.kind) {
     case 'connected':
-      return `Connected, ${state.entryCount} entries`;
+      return 'Connected';
     case 'failed':
       return state.error.field != null
         ? null
@@ -232,7 +227,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
   const missingRequired =
     resolved.host.trim() === '' ||
     resolved.username.trim() === '' ||
-    resolved.remoteRoot.trim() === '' ||
+    resolved.remoteRoots.every(root => root.trim() === '') ||
     (!credentialStored && password === '');
   const saveDisabled = loading || busy || isRunning || missingRequired;
 
@@ -250,7 +245,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
         host: resolved.host.trim(),
         port: portValue(resolved.port),
         username: resolved.username,
-        remoteRoot: resolved.remoteRoot.trim(),
+        // Every field, blank ones too, so a save error's fieldIndex names the field shown.
+        remoteRoots: resolved.remoteRoots.map(root => root.trim()),
         webdavHttps: resolved.protocol === 'WEBDAV' && resolved.webdavHttps,
       },
       typed === '' ? null : typed,
@@ -261,16 +257,19 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
     await loadSummary(saved);
   };
 
-  const fieldError: {field: RepositoryField; error: CloudSyncError} | null =
-    state.kind === 'failed' && state.error.field != null
-      ? {field: state.error.field, error: state.error}
-      : null;
-  const errorFor = (field: RepositoryField) =>
-    fieldError?.field === field ? (
+  const hasError = (field: RepositoryField, index = 0) =>
+    fieldErrorAt(state, field, index) != null;
+  const errorFor = (field: RepositoryField, index = 0) => {
+    const error = fieldErrorAt(state, field, index);
+    return error != null ? (
       <HelperText type="error" visible>
-        {fieldError.error.message}
+        {error.message}
       </HelperText>
     ) : null;
+  };
+
+  // The folder field whose Browse button opened the server folder browser.
+  const [browsing, setBrowsing] = useState<number | null>(null);
 
   const status = statusText(state);
   const statusColor =
@@ -344,7 +343,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               accessibilityLabel="Host"
               autoCapitalize="none"
               autoCorrect={false}
-              error={fieldError?.field === 'host'}
+              error={hasError('host')}
               keyboardType="url"
               label="Host"
               mode="outlined"
@@ -359,7 +358,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
           <View>
             <TextInput
               accessibilityLabel="Port"
-              error={fieldError?.field === 'port'}
+              error={hasError('port')}
               keyboardType="number-pad"
               label="Port"
               mode="outlined"
@@ -377,7 +376,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               accessibilityLabel="User name"
               autoCapitalize="none"
               autoCorrect={false}
-              error={fieldError?.field === 'username'}
+              error={hasError('username')}
               label="User name"
               mode="outlined"
               onChangeText={value => set('username', value)}
@@ -391,7 +390,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               accessibilityLabel="Password"
               autoCapitalize="none"
               autoCorrect={false}
-              error={fieldError?.field === 'password'}
+              error={hasError('password')}
               label="Password"
               mode="outlined"
               onChangeText={setPassword}
@@ -399,7 +398,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               testID="repository.password"
               value={password}
             />
-            {fieldError?.field === 'password' ? (
+            {hasError('password') ? (
               errorFor('password')
             ) : credentialStored ? (
               <HelperText type="info" visible>
@@ -407,21 +406,72 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               </HelperText>
             ) : null}
           </View>
-          <View>
-            <TextInput
-              accessibilityLabel="Remote folder"
-              autoCapitalize="none"
-              autoCorrect={false}
-              error={fieldError?.field === 'remoteRoot'}
-              label="Remote folder"
-              mode="outlined"
-              onChangeText={value => set('remoteRoot', value)}
-              testID="repository.remoteRoot"
-              placeholder="/photos"
-              value={draft.remoteRoot}
-            />
-            {errorFor('remoteRoot')}
-          </View>
+          {draft.remoteRoots.map((root, index) => {
+            const number = index + 1;
+            const line = folderResultAt(state, index);
+            return (
+              // Fields are positional: the index is the field's identity.
+              <View key={index}>
+                <TextInput
+                  accessibilityLabel={`Remote folder ${number}`}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  error={hasError('remoteRoots', index) || line?.error != null}
+                  label={`Remote folder ${number}`}
+                  mode="outlined"
+                  onChangeText={value =>
+                    setDraft(current => withRemoteRoot(current, index, value))
+                  }
+                  testID={`repository.remoteRoots.${index}`}
+                  placeholder="/photos"
+                  value={root}
+                />
+                {errorFor('remoteRoots', index)}
+                {line?.error != null ? (
+                  <>
+                    <HelperText type="error" visible>
+                      {line.error.message}
+                    </HelperText>
+                    {line.error.action ? (
+                      <HelperText type="info" visible>
+                        {line.error.action}
+                      </HelperText>
+                    ) : null}
+                  </>
+                ) : null}
+                <View style={styles.folderActions}>
+                  <Button
+                    accessibilityLabel={`Browse remote folder ${number}`}
+                    compact
+                    disabled={busy}
+                    icon="folder-search-outline"
+                    onPress={() => setBrowsing(index)}>
+                    Browse
+                  </Button>
+                  {draft.remoteRoots.length > 1 ? (
+                    <Button
+                      accessibilityLabel={`Remove remote folder ${number}`}
+                      compact
+                      disabled={busy}
+                      icon="close"
+                      onPress={() =>
+                        setDraft(current => withRemoteRootRemoved(current, index))
+                      }>
+                      Remove
+                    </Button>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+          <Button
+            accessibilityLabel="Add another folder"
+            disabled={busy}
+            icon="plus"
+            onPress={() => setDraft(withRemoteRootAdded)}
+            style={styles.addFolder}>
+            Add another folder
+          </Button>
 
           {isRunning ? (
             <Text variant="bodyMedium">A scan is running</Text>
@@ -451,11 +501,45 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               {state.kind === 'failed' && state.error.action ? (
                 <Text variant="bodyMedium">{state.error.action}</Text>
               ) : null}
+              {state.kind === 'connected'
+                ? state.folders.map(folder => {
+                    const text = folderLineText(folder.path, folder.entryCount);
+                    return (
+                      <Text
+                        accessibilityLabel={text}
+                        key={folder.path}
+                        style={folder.error != null ? themed.warning : undefined}
+                        variant="bodyMedium">
+                        {text}
+                      </Text>
+                    );
+                  })
+                : null}
             </View>
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
+      <RemoteFolderBrowser
+        config={{
+          protocol: resolved.protocol,
+          host: resolved.host.trim(),
+          port: portValue(resolved.port),
+          username: resolved.username,
+          webdavHttps: resolved.protocol === 'WEBDAV' && resolved.webdavHttps,
+        }}
+        initialPath={browsing != null ? resolved.remoteRoots[browsing] ?? '' : ''}
+        onClose={() => setBrowsing(null)}
+        onUse={path => {
+          if (browsing != null) {
+            const index = browsing;
+            setDraft(current => withRemoteRoot(withServerAddress(current), index, path));
+          }
+          setBrowsing(null);
+        }}
+        password={password === '' ? null : password}
+        visible={browsing != null}
+      />
       <HostKeyDialog
         challenge={state.kind === 'hostKeyPrompt' ? state.challenge : null}
         changed={state.kind === 'hostKeyPrompt' && state.changed}
@@ -498,11 +582,18 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  addFolder: {
+    alignSelf: 'flex-start',
+  },
   content: {
     gap: spacing.lg,
     padding: spacing.xl,
   },
   field: {
+    gap: spacing.sm,
+  },
+  folderActions: {
+    flexDirection: 'row',
     gap: spacing.sm,
   },
   keyboard: {

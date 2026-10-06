@@ -53,6 +53,11 @@ export function formatTimestamp(millis: number): string {
 export const RESCAN_SUGGESTED_TEXT =
   'The remote listing is more than 7 days old. A rescan from scratch is suggested before you delete anything.';
 
+/** A saved remote folder the last full scan could not read (contract v6, FR-011). */
+export function unreadRemoteFolderText(folder: string): string {
+  return `Could not read ${folder}`;
+}
+
 export function unreadableFoldersText(count: number): string {
   return `${count} remote ${count === 1 ? 'folder' : 'folders'} could not be read`;
 }
@@ -96,6 +101,11 @@ export function ScanSummaryCard({
           {`Files that could not be checked: ${summary.unknown}`}
         </Text>
       </View>
+      {summary.unreadRemoteFolders.map(folder => (
+        <Text key={folder} style={themed.error} variant="bodyMedium">
+          {unreadRemoteFolderText(folder)}
+        </Text>
+      ))}
       {summary.unreadableRemoteDirectories > 0 ? (
         <Text style={themed.error} variant="bodyMedium">
           {unreadableFoldersText(summary.unreadableRemoteDirectories)}
