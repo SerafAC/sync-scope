@@ -275,14 +275,14 @@ describe('ScanScreen', () => {
       error: {
         code: 'NO_SOURCES_SELECTED',
         message: 'No folders are selected to check.',
-        action: 'Add a folder in Settings › Folders.',
+        action: 'Add a folder in Settings › Device folders.',
       },
     });
     renderScreen(state);
 
     expect(
       screen.getByText(
-        'No folders are selected to check. Add a folder in Settings › Folders.',
+        'No folders are selected to check. Add a folder in Settings › Device folders.',
       ),
     ).toBeOnTheScreen();
   });
@@ -432,7 +432,7 @@ describe('ScanScreen', () => {
         error: {
           code: 'NO_SOURCES_SELECTED',
           message: 'No folders are selected to check.',
-          action: 'Add a folder in Settings › Folders.',
+          action: 'Add a folder in Settings › Device folders.',
         },
       });
       renderScreen(state);

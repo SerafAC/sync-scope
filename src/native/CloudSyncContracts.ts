@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 5;
+export const CLOUD_SYNC_CONTRACT_VERSION = 6;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -32,6 +32,15 @@ export const REPOSITORY_DEFAULT_PORTS = {
 
 /** A deletion plan expires this long after prepareLocalDeletion made it (contract version 5). */
 export const MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000;
+
+/**
+ * Scroll index band bounds (contract version 6). A date scrollbar uses the coarsest unit (year, month,
+ * day) that gives at least SCROLL_BANDS_MIN bands (research R6); a size scrollbar has between
+ * SCROLL_BANDS_MIN and SCROLL_BANDS_MAX bands (research R5). Mirrored by the Kotlin
+ * `CloudSyncContracts` under CloudSyncContractsParityTest.
+ */
+export const SCROLL_BANDS_MIN = 5;
+export const SCROLL_BANDS_MAX = 15;
 
 export const CloudSyncErrorCode = {
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
@@ -136,14 +145,15 @@ export type ScanErrorCode =
 /**
  * Exact redacted message and recovery action for the scan error codes
  * (contract version 3). Mirrored by the Kotlin `CloudSyncErrorCode` entries and
- * checked by CloudSyncContractsParityTest.
+ * checked by CloudSyncContractsParityTest. Contract version 6 points the
+ * NO_SOURCES_SELECTED action at the "Device folders" section (research R16).
  */
 export const SCAN_ERROR_TEXT: Readonly<
   Record<ScanErrorCode, {message: string; action: string}>
 > = {
   NO_SOURCES_SELECTED: {
     message: 'No folders are selected to check.',
-    action: 'Add a folder in Settings › Folders.',
+    action: 'Add a folder in Settings › Device folders.',
   },
   SCAN_IN_PROGRESS: {
     message: 'A scan is already running.',
@@ -216,13 +226,23 @@ export const MVP_ERROR_TEXT: Readonly<
  * User-facing text of the file issue codes that are not error codes. Mirrored
  * by the Kotlin `enum class FileIssueCode` under the parity test. A remote
  * cause reuses the matching `CloudSyncErrorCode` value and its text instead.
+ * REMOTE_FOLDER_UNREAD (contract version 6, research R14): a configured backup
+ * folder could not be listed, so a file without an exact match is UNKNOWN.
  */
 export const FILE_ISSUE_TEXT: Readonly<
-  Record<Extract<FileIssueCode, 'REMOTE_MTIME_MISSING' | 'LOCAL_UNAVAILABLE'>, string>
+  Record<
+    Extract<
+      FileIssueCode,
+      'REMOTE_MTIME_MISSING' | 'LOCAL_UNAVAILABLE' | 'REMOTE_FOLDER_UNREAD'
+    >,
+    string
+  >
 > = {
   REMOTE_MTIME_MISSING:
     'The backup has this file but no modified time, so it could not be compared.',
   LOCAL_UNAVAILABLE: 'This file could not be read on the device.',
+  REMOTE_FOLDER_UNREAD:
+    'A backup folder could not be read, so this file may be backed up there.',
 };
 
 export interface CloudSyncError {
@@ -345,7 +365,32 @@ export type LocalNodeKind = 'FILE' | 'DIRECTORY';
 
 export type FileFilter = 'ALL' | 'SYNCED' | 'UNSYNCED' | 'ISSUES_UNKNOWN';
 export type FileView = 'LIST' | 'GALLERY';
-export type FileSort = 'NAME_ASC' | 'NAME_DESC' | 'TIME_ASC' | 'TIME_DESC';
+/**
+ * Every sort orders by (key, sortName, entryId) in its direction, with unknown
+ * values last in both directions (contract version 6, research R1). Mirrored by
+ * the Kotlin `FileSort` under CloudSyncContractsParityTest.
+ */
+export type FileSort =
+  | 'NAME_ASC'
+  | 'NAME_DESC'
+  | 'TIME_ASC'
+  | 'TIME_DESC'
+  | 'SIZE_ASC'
+  | 'SIZE_DESC';
+
+/**
+ * Narrows a read to folders or files (contract version 6, research R3): list
+ * view reads a folder's subfolders, then its files. Mirrored by the Kotlin
+ * `FileKind` under CloudSyncContractsParityTest.
+ */
+export type FileKind = 'DIRECTORY' | 'FILE';
+
+/**
+ * What a scroll index band stands for (contract version 6): a first letter
+ * (research R4), a year, month or day (research R6), or a size (research R5).
+ * Mirrored by the Kotlin `ScrollUnit` under CloudSyncContractsParityTest.
+ */
+export type ScrollUnit = 'LETTER' | 'YEAR' | 'MONTH' | 'DAY' | 'SIZE';
 
 export interface QuerySpec {
   filter: FileFilter;
@@ -355,6 +400,8 @@ export interface QuerySpec {
   parentId?: string | null;
   search?: string | null;
   pageSize?: number | null;
+  /** Narrows the rows to folders or files; part of the token fingerprint (contract v6, research R3). */
+  kind?: FileKind | null;
 }
 
 export interface FileEntryDto {
@@ -378,7 +425,76 @@ export interface FileEntryDto {
    * dimmed. null for FILE rows and for snapshots written before contract 4.
    */
   matchingFileCount: number | null;
+  /**
+   * The name's sort key: NFKD, accents removed, lowercased, prefixed `0` (`#`
+   * band) or `1` (a letter) (contract v6, research R2). Name sorts order by
+   * it, and a view builds its `ScrollAnchor` from it without a second read.
+   */
+  sortName: string;
 }
+
+/**
+ * One band of the scrollbar (contract v6, research R4–R6). Exactly one lower
+ * bound is set, matching the index's `unit`, unless `unknown` is true.
+ */
+export interface ScrollBandDto {
+  /** Position of the band's first file among the result's files (0-based). */
+  startIndex: number;
+  count: number;
+  /** null for the first band: read it with a null token. */
+  startToken: string | null;
+  /** LETTER: '#' or 'a'…'z'. */
+  letter?: string | null;
+  /** YEAR / MONTH / DAY: local start of the period. */
+  startMillis?: number | null;
+  /** SIZE: the band holds files from this size up to the next band's. */
+  lowerBytes?: number | null;
+  /** Last band only: files without a size or date (they sort last, research R1). */
+  unknown?: boolean;
+}
+
+/** What getScrollIndex returns under payload key `scrollIndex` (contract v6, research R4). */
+export interface ScrollIndexDto {
+  unit: ScrollUnit;
+  /** FILE rows only; in LIST the folder read is separate. */
+  totalCount: number;
+  /** In sort order; never an empty band. */
+  bands: ScrollBandDto[];
+  /** Only when an anchor was passed: the number of files that sort before it. */
+  anchorIndex: number | null;
+}
+
+/** The first visible file, passed to getScrollIndex to keep the place (contract v6, research R8). */
+export interface ScrollAnchor {
+  sortValue: string | number | null;
+  sortName: string;
+}
+
+export interface ScrollIndexOk {
+  contractVersion: number;
+  status: 'ok';
+  scrollIndex: ScrollIndexDto;
+}
+
+export type ScrollIndexResult = ScrollIndexOk | OperationError;
+
+/**
+ * The remembered browse choices (contract v6, research R10). Missing or
+ * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC.
+ */
+export interface BrowsePreferencesDto {
+  view: 'GALLERY' | 'LIST';
+  gallerySort: FileSort;
+  listSort: FileSort;
+}
+
+export interface BrowsePreferencesOk {
+  contractVersion: number;
+  status: 'ok';
+  preferences: BrowsePreferencesDto;
+}
+
+export type BrowsePreferencesResult = BrowsePreferencesOk | OperationError;
 
 export interface StatusCountDto {
   status: FileStatus;
@@ -685,7 +801,8 @@ export type FileIssueCode =
   | 'CONNECTION_TIMEOUT'
   | 'SERVER_ERROR'
   | 'REMOTE_MTIME_MISSING'
-  | 'LOCAL_UNAVAILABLE';
+  | 'LOCAL_UNAVAILABLE'
+  | 'REMOTE_FOLDER_UNREAD';
 
 export function isErrorResult(
   result: OperationResult | QueryFilesResult,

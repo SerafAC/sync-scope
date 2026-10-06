@@ -21,6 +21,7 @@ import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.source.LocalFile
 import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SourceAvailability
@@ -211,7 +212,7 @@ class ScanHarness(context: Context) {
         host = REMOTE_HOST,
         port = 2222,
         username = "alice",
-        remoteRoot = REMOTE_ROOT,
+        remoteRoots = RemoteRoots.encode(listOf(REMOTE_ROOT)),
         precisionMillis = 0L,
         credentialVersion = version,
         revision = revision,

@@ -23,6 +23,7 @@ import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.scan.ScanPacing
 import java.util.Base64
 import java.util.Collections
@@ -93,7 +94,7 @@ class ConfigureRepositoryActivityTest {
     assertEquals("10.0.2.2", row.host)
     assertEquals(2222, row.port)
     assertEquals("e2e", row.username)
-    assertEquals("/scan/clean", row.remoteRoot)
+    assertEquals("/scan/clean", RemoteRoots.decode(row.remoteRoots).first())
     assertEquals(1L, row.revision)
     assertEquals(PASSWORD, String(credentials.load(row.credentialVersion)!!))
     assertEquals("save, then test, then a second test after the approval", 2, remote.connects.size)

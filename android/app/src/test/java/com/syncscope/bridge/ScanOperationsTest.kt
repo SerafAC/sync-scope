@@ -90,7 +90,7 @@ class ScanOperationsTest {
     h.configure()
     val error = assertError(ops.start(null), "NO_SOURCES_SELECTED")
     assertEquals("No folders are selected to check.", error.getString("message"))
-    assertEquals("Add a folder in Settings › Folders.", error.getString("action"))
+    assertEquals("Add a folder in Settings › Device folders.", error.getString("action"))
   }
 
   @Test

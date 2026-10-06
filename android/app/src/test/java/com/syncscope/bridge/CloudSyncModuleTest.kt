@@ -73,12 +73,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesFive() {
+  fun contractVersionResolvesSix() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(5, promise.resolved)
+    assertEquals(6, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -88,6 +88,13 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
+        // Contract v6 methods, wired by T019 (preferences), T039 (folder browser) and T055 (scroll index).
+        { module.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
+        { module.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
+        { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), null, null, it) },
+        { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), "pw", "/photos", it) },
+        { module.getBrowsePreferences(it) },
+        { module.setBrowsePreferences(JavaOnlyMap.of("view", "LIST"), it) },
       )
 
     for (call in calls) {
@@ -104,7 +111,7 @@ class CloudSyncModuleTest {
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(5, empty.getInt("contractVersion"))
+    assertEquals(6, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -231,7 +238,7 @@ class CloudSyncModuleTest {
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 5, result.getInt("contractVersion"))
+        assertEquals(method, 6, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
@@ -414,7 +421,7 @@ class CloudSyncModuleTest {
       )
       for (include in listOf(false, true)) {
         val result = resolve { deletions.executeLocalDeletion("plan", include, it) }
-        assertEquals(5, result.getInt("contractVersion"))
+        assertEquals(6, result.getInt("contractVersion"))
         assertEquals("PLAN_NOT_FOUND", result.getMap("error")!!.getString("code"))
       }
     } finally {

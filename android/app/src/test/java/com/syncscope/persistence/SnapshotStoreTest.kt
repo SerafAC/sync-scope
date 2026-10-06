@@ -337,6 +337,29 @@ class SnapshotStoreTest {
   }
 
   @Test
+  fun copyRemoteStateCarriesTheRemotePathOfEachGap() = runBlocking {
+    val from = store.beginRun("run-1", "FULL", 1L, "LISTING_REMOTE", 100L)
+    store.stageSnapshot(stagingSnapshot("snap-1", from.runId, remoteListedAtMillis = 4_000L))
+    // The copy carries the column for every copied scope; REMOTE_FOLDER joins those scopes with US3 (T037).
+    store.stageAmbiguities(
+      listOf(
+        RemoteAmbiguityEntity(0, "snap-1", "REMOTE_LISTING", null, null, null, "CONNECTION_LOST", remotePath = "/photos"),
+        RemoteAmbiguityEntity(0, "snap-1", "REMOTE_DIRECTORY", null, null, null, "DIRECTORY_UNREADABLE"),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    val to = store.beginRun("run-2", "LOCAL_REFRESH", 1L, "COPYING_REMOTE", 6_000L)
+    store.stageSnapshot(stagingSnapshot("snap-2", to.runId))
+
+    store.copyRemoteState(fromSnapshotId = "snap-1", toSnapshotId = "snap-2")
+
+    assertEquals(
+      setOf("REMOTE_LISTING" to "/photos", "REMOTE_DIRECTORY" to null),
+      store.ambiguities("snap-2").map { it.scope to it.remotePath }.toSet(),
+    )
+  }
+
+  @Test
   fun ambiguitiesAndCountsAreStagedAndRead() = runBlocking {
     seedRun("run-1", 1L, "snap-1")
     store.stageAmbiguities(emptyList())

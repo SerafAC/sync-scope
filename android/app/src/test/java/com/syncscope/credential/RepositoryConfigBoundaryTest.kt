@@ -24,6 +24,7 @@ import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -122,7 +123,7 @@ class RepositoryConfigBoundaryTest {
     assertEquals(HOST, row.host)
     assertEquals(2222, row.port)
     assertEquals(USER, row.username)
-    assertEquals("/photos", row.remoteRoot)
+    assertEquals("/photos", RemoteRoots.decode(row.remoteRoots).first())
     assertEquals(0L, row.precisionMillis)
     assertEquals(PASSWORD, String(credentials.load(row.credentialVersion)!!))
     assertNoPasswordInRoom()
@@ -196,7 +197,7 @@ class RepositoryConfigBoundaryTest {
     // A different account must never inherit it.
     val error = call { module.saveRepository(config(username = "mallory"), null, it) }.getMap("error")!!
     assertEquals("password", error.getString("field"))
-    assertEquals("/other", db.repositoryConfigDao().get()!!.remoteRoot)
+    assertEquals("/other", RemoteRoots.decode(db.repositoryConfigDao().get()!!.remoteRoots).first())
   }
 
   @Test
@@ -207,7 +208,7 @@ class RepositoryConfigBoundaryTest {
 
     val row = db.repositoryConfigDao().get()!!
     assertEquals(21, row.port)
-    assertEquals("/", row.remoteRoot)
+    assertEquals("/", RemoteRoots.decode(row.remoteRoots).first())
   }
 
   // --- getRepositorySummary ---

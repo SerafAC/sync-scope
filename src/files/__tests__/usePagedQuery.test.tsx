@@ -28,6 +28,7 @@ function entry(entryId: string, overrides: Partial<FileEntryDto> = {}) {
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${entryId}.png`,
     ...overrides,
   } satisfies FileEntryDto;
 }

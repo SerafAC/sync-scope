@@ -21,6 +21,7 @@ import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.remote.SftpHostKeyException
 import com.syncscope.scan.MatchIndex
 import kotlinx.coroutines.runBlocking
@@ -352,7 +353,7 @@ class DeletionRecheckTest {
       host = HOST,
       port = 22,
       username = USER,
-      remoteRoot = "/backup",
+      remoteRoots = RemoteRoots.encode(listOf("/backup")),
       precisionMillis = PRECISION,
       credentialVersion = credentialVersion,
       revision = 1,

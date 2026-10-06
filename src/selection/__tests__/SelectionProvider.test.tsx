@@ -77,6 +77,7 @@ function file(entryId: string, overrides: Partial<FileEntryDto> = {}): FileEntry
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${entryId}.png`,
     ...overrides,
   };
 }

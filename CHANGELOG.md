@@ -59,6 +59,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- CloudSync contract version 6 (feature 007): `SIZE_ASC` and `SIZE_DESC` sorts, `FileKind`, `ScrollUnit`
+  and the scroll band bounds, the `REMOTE_FOLDER_UNREAD` file issue code, and the `NO_SOURCES_SELECTED`
+  action now points to Settings › Device folders.
 - Release builds allow user-chosen unencrypted connections (FTP, and WebDAV without HTTPS), with a
   warning in the repository form; WebDAV can use HTTPS, on by default for a new setup, and an untrusted
   certificate is reported as `TLS_UNTRUSTED` (D021).

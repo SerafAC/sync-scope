@@ -353,6 +353,7 @@ describe('findChildDirectory', () => {
       issueCode: null,
       nameInOtherSource: false,
       matchingFileCount: 1,
+      sortName: `1${name.toLowerCase()}`,
     };
   }
 

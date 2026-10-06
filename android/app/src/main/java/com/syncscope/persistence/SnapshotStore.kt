@@ -406,23 +406,25 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     val (where, args) = scopeOf(snapshotId, query, topLevelOnly)
     val gallery = query.view == FileView.GALLERY
 
-    val ascending = query.sort == FileSort.NAME_ASC || query.sort == FileSort.TIME_ASC
+    val ascending = query.sort == FileSort.NAME_ASC || query.sort == FileSort.TIME_ASC || query.sort == FileSort.SIZE_ASC
     val sortColumn =
       when (query.sort) {
         FileSort.NAME_ASC,
         FileSort.NAME_DESC -> "name"
         FileSort.TIME_ASC,
         FileSort.TIME_DESC -> "COALESCE(modifiedUtcMillis, -1)"
+        FileSort.SIZE_ASC,
+        FileSort.SIZE_DESC -> "COALESCE(sizeBytes, -1)"
       }
     val direction = if (ascending) "ASC" else "DESC"
     val comparator = if (ascending) ">" else "<"
 
     if (cursor != null) {
-      // A time key must bind as an integer: SQLite orders every INTEGER below every TEXT, so a text key
+      // A time or size key must bind as an integer: SQLite orders every INTEGER below every TEXT, so a text key
       // would match every row again and the pages would never end.
       val sortKey: Any =
         if (sortColumn == "name") cursor.sortKey
-        else cursor.sortKey.toLongOrNull() ?: throw PageTokenMismatchException("page token carries a non-numeric time key")
+        else cursor.sortKey.toLongOrNull() ?: throw PageTokenMismatchException("page token carries a non-numeric sort key")
       where.append(" AND ($sortColumn $comparator ? OR ($sortColumn = ? AND entryId $comparator ?))")
       args += sortKey
       args += sortKey
@@ -587,6 +589,8 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
       FileSort.NAME_DESC -> node.name
       FileSort.TIME_ASC,
       FileSort.TIME_DESC -> (node.modifiedUtcMillis ?: -1L).toString()
+      FileSort.SIZE_ASC,
+      FileSort.SIZE_DESC -> (node.sizeBytes ?: -1L).toString()
     }
 
   private fun escapeLike(value: String): String =

@@ -115,6 +115,35 @@ describe('typed native boundary', () => {
     );
   });
 
+  it('adds the scroll index, folder browser and browse preference methods (contract v6)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /getScrollIndex\(\s*snapshotId: string,\s*querySpec: QuerySpecInput,\s*anchor\?: Object \| null,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).toMatch(
+      /browseRemoteFolders\(\s*config: Object,\s*transientPassword\?: string \| null,\s*path\?: string \| null,?\s*\): Promise<OperationResultDto>;/,
+    );
+    expect(source).toMatch(
+      /getBrowsePreferences\(\): Promise<OperationResultDto>;/,
+    );
+    expect(source).toMatch(
+      /setBrowsePreferences\(\s*preferences: Object,?\s*\): Promise<OperationResultDto>;/,
+    );
+  });
+
+  it('query spec carries an optional kind (contract v6)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /export type QuerySpecInput = \{[^}]*kind\?: string \| null;[^}]*\};/,
+    );
+  });
+
   it('spec pages are bounded by the shared page contract', () => {
     const source = fs.readFileSync(
       path.join(SPECS_DIR, 'NativeCloudSync.ts'),

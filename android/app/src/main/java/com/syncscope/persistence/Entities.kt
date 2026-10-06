@@ -84,6 +84,8 @@ data class SourceRootEntity(
     Index(value = ["snapshotId", "status", "name"]),
     Index(value = ["snapshotId", "sourceId", "parentId", "kind", "name"]),
     Index(value = ["snapshotId", "kind", "modifiedUtcMillis"]),
+    Index(value = ["snapshotId", "kind", "sizeBytes"]),
+    Index(value = ["snapshotId", "kind", "sortName"]),
     Index(value = ["sourceId"]),
   ],
   foreignKeys = [
@@ -130,6 +132,12 @@ data class LocalNodeEntity(
    * and on rows written before version 3.
    */
   val descUnknown: Long? = null,
+  /**
+   * The name's sort key, `SortName.of(name)` (research R2): NFKD, accents removed, lowercased, prefixed `0`
+   * (`#` band) or `1` (a letter). Rows migrated from version 4 hold the SQL prefix rule on `lower(name)`,
+   * without accent folding, until the next scan or refresh rewrites them.
+   */
+  @ColumnInfo(defaultValue = "''") val sortName: String = "",
 )
 
 /**
@@ -218,6 +226,8 @@ data class RemoteAmbiguityEntity(
   val entryId: String?,
   val matchKeyId: Long?,
   val reason: String,
+  /** `REMOTE_FOLDER` gaps only: the configured folder that could not be read. `NULL` for every other scope. */
+  val remotePath: String? = null,
 ) {
   companion object {
     /** A non-root remote directory could not be listed; `reason` is the error code. */
@@ -299,7 +309,8 @@ data class RepositoryConfigEntity(
   val host: String,
   val port: Int,
   val username: String,
-  val remoteRoot: String,
+  /** The remote folders, `\n`-separated, in the user's order. An existing single folder is a one-element list. */
+  val remoteRoots: String,
   val precisionMillis: Long,
   val credentialVersion: Long,
   val revision: Long = 1L,

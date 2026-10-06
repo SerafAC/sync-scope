@@ -22,6 +22,7 @@ import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.scan.BusyState
 import com.syncscope.scan.ScanCoordinator
 import com.syncscope.scan.ScanEngine
@@ -57,7 +58,8 @@ import kotlinx.coroutines.launch
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
  * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
- * `setIncludeHidden`) resolve a typed NOT_IMPLEMENTED envelope.
+ * `setIncludeHidden`, and the contract v6 `getScrollIndex`, `browseRemoteFolders`, `getBrowsePreferences`
+ * and `setBrowsePreferences`) resolve a typed NOT_IMPLEMENTED envelope.
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -256,7 +258,7 @@ class CloudSyncModule(
         is PrepareOutcome.RemoteFailed -> {
           Log.w(TAG, "prepareLocalDeletion failed: ${outcome.error.code} reply=${outcome.error.replyCode}")
           val repository = outcome.repository
-          envelope.deletionRemoteFailure(outcome.error, listOf(repository.host, repository.username, repository.remoteRoot))
+          envelope.deletionRemoteFailure(outcome.error, listOf(repository.host, repository.username) + RemoteRoots.decode(repository.remoteRoots))
         }
       }
     }
@@ -269,6 +271,19 @@ class CloudSyncModule(
         is ExecuteOutcome.Refused -> envelope.deletionRefused(outcome.code)
       }
     }
+
+  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055, browseRemoteFolders T039,
+  // get/setBrowsePreferences T019).
+  override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
+    notImplemented("getScrollIndex", promise)
+
+  override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
+    notImplemented("browseRemoteFolders", promise)
+
+  override fun getBrowsePreferences(promise: Promise) = notImplemented("getBrowsePreferences", promise)
+
+  override fun setBrowsePreferences(preferences: ReadableMap, promise: Promise) =
+    notImplemented("setBrowsePreferences", promise)
 
   private fun notImplemented(method: String, promise: Promise) =
     runOperation(method, promise) { envelope.notImplemented(method) }

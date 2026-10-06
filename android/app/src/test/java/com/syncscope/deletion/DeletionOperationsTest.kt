@@ -5,6 +5,7 @@ import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.persistence.RepositoryConfigEntity
 import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.scan.DeletionInProgress
 import com.syncscope.scan.ScanInProgress
 import kotlinx.coroutines.runBlocking
@@ -333,7 +334,7 @@ class DeletionOperationsTest {
       host = "10.0.2.2",
       port = 22,
       username = "alice",
-      remoteRoot = "/backup",
+      remoteRoots = RemoteRoots.encode(listOf("/backup")),
       precisionMillis = 1_000L,
       credentialVersion = 1L,
       revision = revision,

@@ -14,7 +14,7 @@ import org.junit.Test
 class SchemaContractTest {
 
   /** The current schema version's export; older exports stay frozen for MigrationTest. */
-  private val schemaFile = schemaExport(4)
+  private val schemaFile = schemaExport(5)
 
   private fun schemaExport(version: Int) =
     File("schemas/com.syncscope.persistence.SyncScopeDatabase/$version.json")
@@ -104,7 +104,6 @@ class SchemaContractTest {
 
   @Test
   fun version4AddsNullableDirectoriesAndWebdavHttpsDefaultingToFalse() {
-    assertTrue(schemaText.contains("\"version\": 4"))
     val matchKey = sectionFor("remote_match_key")
     assertTrue(
       "remote_match_key.directories must be a nullable TEXT",
@@ -123,13 +122,35 @@ class SchemaContractTest {
   }
 
   @Test
+  fun version5RenamesRemoteRootsAndAddsSortNameRemotePathAndTwoIndexes() {
+    assertTrue(schemaText.contains("\"version\": 5"))
+    val repository = sectionFor("repository_config")
+    assertTrue(repository.contains("`remoteRoots` TEXT NOT NULL"))
+    assertFalse(repository.contains("`remoteRoot` TEXT"))
+    assertTrue(
+      "local_node.sortName must be a NOT NULL TEXT defaulting to ''",
+      sectionFor("local_node").contains("`sortName` TEXT NOT NULL DEFAULT ''"),
+    )
+    val ambiguity = sectionFor("remote_ambiguity")
+    assertTrue(
+      "remote_ambiguity.remotePath must be a nullable TEXT",
+      ambiguity.contains("`remotePath` TEXT,") || ambiguity.contains("`remotePath` TEXT)"),
+    )
+    assertFalse(ambiguity.contains("`remotePath` TEXT NOT NULL"))
+    assertEquals(
+      indexNames(4) + setOf("index_local_node_snapshotId_kind_sizeBytes", "index_local_node_snapshotId_kind_sortName"),
+      indexNames(5),
+    )
+  }
+
+  @Test
   fun repositoryConfigColumnsAreExactlyTheNonSecretOnes() {
     // A new column must be added here deliberately, after checking it carries no secret.
     val fields =
       Regex("\"columnName\": \"(\\w+)\"").findAll(sectionFor("repository_config")).map { it.groupValues[1] }.toList()
     assertEquals(
       listOf(
-        "id", "protocol", "host", "port", "username", "remoteRoot", "precisionMillis", "credentialVersion",
+        "id", "protocol", "host", "port", "username", "remoteRoots", "precisionMillis", "credentialVersion",
         "revision", "webdavHttps",
       ),
       fields,

@@ -14,6 +14,7 @@ import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.remote.SftpHostKeyException
 import com.syncscope.scan.BusyState
 import kotlinx.coroutines.sync.Mutex
@@ -70,7 +71,7 @@ class RepositoryOperations(
               host = parsed.host,
               port = parsed.port,
               username = parsed.username,
-              remoteRoot = parsed.rootPath,
+              remoteRoots = RemoteRoots.encode(listOf(parsed.rootPath)),
               precisionMillis = UNKNOWN_PRECISION,
               credentialVersion = credentialVersion,
               revision = (existing?.revision ?: 0L) + 1,
@@ -144,7 +145,7 @@ class RepositoryOperations(
         putString("host", row.host)
         putInt("port", row.port)
         putString("username", row.username)
-        putString("remoteRoot", row.remoteRoot)
+        putString("remoteRoot", RemoteRoots.decode(row.remoteRoots).first())
         putBoolean("webdavHttps", row.webdavHttps)
         putDouble("revision", row.revision.toDouble())
         if (row.precisionMillis > UNKNOWN_PRECISION) {
@@ -272,7 +273,7 @@ internal fun RepositoryConfigEntity.protocol(): RemoteProtocol? = RemoteProtocol
 
 /** The non-secret connection parameters of the saved repository; null for an unknown protocol. */
 internal fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
-  protocol()?.let { RemoteConfig(it, host, port, username, remoteRoot, webdavHttps) }
+  protocol()?.let { RemoteConfig(it, host, port, username, RemoteRoots.decode(remoteRoots).first(), webdavHttps) }
 
 /**
  * A fresh, authenticated client for the saved repository, shared by the scan and the pre-delete re-check

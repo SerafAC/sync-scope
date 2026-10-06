@@ -112,6 +112,7 @@ function file(entryId: string, name: string): FileEntryDto {
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${name.toLowerCase()}`,
   };
 }
 

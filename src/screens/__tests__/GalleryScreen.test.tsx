@@ -58,6 +58,7 @@ function file(
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${name.toLowerCase()}`,
     ...overrides,
   };
 }

@@ -22,6 +22,7 @@ import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.source.LocalFile
 import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SourceListing
@@ -173,7 +174,7 @@ class ScanEngine(
       }
       throw t
     }
-    val remote = RemoteConfig(protocol, config.host, config.port, config.username, config.remoteRoot, config.webdavHttps)
+    val remote = RemoteConfig(protocol, config.host, config.port, config.username, RemoteRoots.decode(config.remoteRoots).first(), config.webdavHttps)
     return ScanTicket(run, snapshotId, config, remote, sources, refreshFrom)
   }
 
@@ -212,7 +213,7 @@ class ScanEngine(
         repositories.updatePrecision(ticket.config.revision, precision)
         progress.phase = ScanPhase.LISTING_REMOTE.name
         val result =
-          walker.walk(session, ticket.config.remoteRoot, precision) { listed ->
+          walker.walk(session, RemoteRoots.decode(ticket.config.remoteRoots).first(), precision) { listed ->
             progress.update {
               it.copy(remoteDirectoriesListed = listed.directoriesListed.toLong(), remoteFilesListed = listed.filesListed)
             }

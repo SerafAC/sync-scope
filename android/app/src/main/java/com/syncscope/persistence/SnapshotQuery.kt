@@ -14,12 +14,14 @@ enum class FileView {
   GALLERY,
 }
 
-/** Mirrors `FileSort` in `src/native/CloudSyncContracts.ts`. */
+/** Mirrors `FileSort` in `src/native/CloudSyncContracts.ts` (contract version 6 adds the size sorts, research R1). */
 enum class FileSort {
   NAME_ASC,
   NAME_DESC,
   TIME_ASC,
   TIME_DESC,
+  SIZE_ASC,
+  SIZE_DESC,
 }
 
 /**
