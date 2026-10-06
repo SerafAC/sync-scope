@@ -1,0 +1,19 @@
+# Subflow: pick a sort in the Files tab's sort drop-down (feature 007, FR-002)
+# and wait until the drop-down shows it. The sort applies to the visible view
+# only (FR-003). Never run on its own.
+#
+# Params (runFlow env):
+#   SORT  NAME_ASC, NAME_DESC, TIME_DESC, TIME_ASC, SIZE_DESC or SIZE_ASC
+#
+# The drop-down's accessibility label is `Sort: <choice>`
+# (contracts/maestro-polish.md › Selectors); the options are matched by id.
+appId: com.syncscope
+---
+- evalScript: "${output.sortLabel = ({ NAME_ASC: 'Name, A to Z', NAME_DESC: 'Name, Z to A', TIME_DESC: 'Date, newest first', TIME_ASC: 'Date, oldest first', SIZE_DESC: 'Size, largest first', SIZE_ASC: 'Size, smallest first' })[SORT]}"
+- tapOn:
+    id: "files-sort"
+- tapOn:
+    id: "${'files-sort-option-' + SORT}"
+- extendedWaitUntil:
+    visible: "${'Sort: ' + output.sortLabel}"
+    timeout: 15000

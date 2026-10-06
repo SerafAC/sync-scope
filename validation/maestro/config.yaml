@@ -48,3 +48,5 @@ executionOrder:
     - mvp/05-delete-synced
     - mvp/90-release-smoke
     - mvp/91-release-update
+    - polish/01-sort
+    - polish/02-sort-persists

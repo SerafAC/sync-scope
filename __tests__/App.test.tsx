@@ -21,19 +21,29 @@ import {
 import { ScanProvider } from '../src/scan/ScanProvider';
 
 jest.mock('../src/native/CloudSync', () => ({
+  getBrowsePreferences: jest.fn().mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+    preferences: {
+      view: 'GALLERY',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    },
+  }),
+  setBrowsePreferences: jest
+    .fn()
+    .mockResolvedValue({ contractVersion: 6, status: 'ok' }),
   listSources: jest
     .fn()
     .mockResolvedValue({ contractVersion: 2, status: 'ok', sources: [] }),
   launchSourcePicker: jest.fn(),
   removeSource: jest.fn(),
-  getScanState: jest
-    .fn()
-    .mockResolvedValue({
-      contractVersion: 3,
-      status: 'ok',
-      run: null,
-      active: null,
-    }),
+  getScanState: jest.fn().mockResolvedValue({
+    contractVersion: 3,
+    status: 'ok',
+    run: null,
+    active: null,
+  }),
   startScan: jest.fn(),
   cancelScan: jest.fn(),
   getRepositorySummary: jest.fn().mockResolvedValue({
@@ -53,12 +63,16 @@ jest.mock('../src/native/CloudSync', () => ({
 
 describe('SyncScope application shell', () => {
   it('shows the branded Material shell and all navigation destinations', async () => {
+    // While the scan state is unknown, the Files tab shows its toolbar.
+    (getScanState as jest.Mock).mockReturnValueOnce(new Promise(() => {}));
     render(<App />);
 
     expect(screen.getByText('SyncScope')).toBeOnTheScreen();
     expect(screen.getByText('Files')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Gallery view')).toBeOnTheScreen();
-    expect(screen.getByLabelText('List view')).toBeOnTheScreen();
+    expect(
+      await screen.findByLabelText('Sort: Date, newest first'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('View: Gallery')).toBeOnTheScreen();
     expect(screen.getByText('Scan')).toBeOnTheScreen();
     expect(screen.getByText('Settings')).toBeOnTheScreen();
     await waitFor(() => expect(getScanState).toHaveBeenCalled());
@@ -67,7 +81,9 @@ describe('SyncScope application shell', () => {
   it('shows the Files tab with no scan results before any scan', async () => {
     render(<App />);
 
-    expect(await screen.findByLabelText('No scan results yet')).toBeOnTheScreen();
+    expect(
+      await screen.findByLabelText('No scan results yet'),
+    ).toBeOnTheScreen();
     expect(screen.getByText('Results appear after a scan.')).toBeOnTheScreen();
     expect(screen.getByLabelText('Go to Scan')).toBeOnTheScreen();
   });

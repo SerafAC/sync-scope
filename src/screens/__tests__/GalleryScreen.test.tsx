@@ -10,9 +10,16 @@ import { PaperProvider } from 'react-native-paper';
 
 import { FilesProvider } from '../../files/FilesProvider';
 import { FilterChips } from '../../files/FilterChips';
+import { SortMenu } from '../../files/SortMenu';
+import { useFiles } from '../../files/useFiles';
 import { galleryTileSize } from '../../files/GalleryTile';
 import type { FilesViewProps } from '../../files/FilesViewParts';
-import { getLocalImageHandle, queryFiles } from '../../native/CloudSync';
+import {
+  getBrowsePreferences,
+  getLocalImageHandle,
+  queryFiles,
+  setBrowsePreferences,
+} from '../../native/CloudSync';
 import {
   CloudSyncErrorCode,
   type FileEntryDto,
@@ -26,11 +33,30 @@ import { density } from '../../theme/spacing';
 import { GalleryScreen } from '../GalleryScreen';
 
 jest.mock('../../native/CloudSync', () => ({
+  getBrowsePreferences: jest.fn(),
+  setBrowsePreferences: jest.fn(),
   queryFiles: jest.fn(),
   getLocalImageHandle: jest.fn(),
 }));
 
 const queryFilesMock = queryFiles as jest.MockedFunction<typeof queryFiles>;
+const getBrowsePreferencesMock = getBrowsePreferences as jest.MockedFunction<
+  typeof getBrowsePreferences
+>;
+const setBrowsePreferencesMock = setBrowsePreferences as jest.MockedFunction<
+  typeof setBrowsePreferences
+>;
+
+/** The Files toolbar's sort drop-down, as FilesScreen wires it for the gallery. */
+function GallerySort(): React.JSX.Element {
+  const { sorts, setSort } = useFiles();
+  return (
+    <SortMenu
+      onChange={sort => setSort('GALLERY', sort)}
+      sort={sorts.GALLERY}
+    />
+  );
+}
 const getLocalImageHandleMock = getLocalImageHandle as jest.MockedFunction<
   typeof getLocalImageHandle
 >;
@@ -113,6 +139,7 @@ function renderGallery(overrides: Partial<FilesViewProps> = {}) {
       <ScanContext.Provider value={scanState(p.snapshotId)}>
         <FilesProvider>
           <SelectionProvider>
+            <GallerySort />
             <FilterChips counts={null} />
             <GalleryScreen {...p} />
           </SelectionProvider>
@@ -131,6 +158,19 @@ function renderGallery(overrides: Partial<FilesViewProps> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  getBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+    preferences: {
+      view: 'GALLERY',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    },
+  });
+  setBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+  });
   getLocalImageHandleMock.mockResolvedValue({
     contractVersion: 4,
     status: 'ok',
@@ -281,6 +321,88 @@ describe('GalleryScreen', () => {
     await screen.findByLabelText('sunset.png, Synced, from Gallery');
 
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('sort (Story 1, FR-003)', () => {
+    it("puts the gallery's sort into the query spec", async () => {
+      queryFilesMock.mockResolvedValue(page([file('e-1', 'beach.png')]));
+      getBrowsePreferencesMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: {
+          view: 'GALLERY',
+          gallerySort: 'SIZE_DESC',
+          listSort: 'NAME_ASC',
+        },
+      });
+      renderGallery();
+
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          {
+            filter: 'ALL',
+            view: 'GALLERY',
+            sort: 'SIZE_DESC',
+            pageSize: 100,
+          },
+          null,
+        ),
+      );
+      expect(
+        await screen.findByLabelText('beach.png, Synced'),
+      ).toBeOnTheScreen();
+    });
+
+    it('a sort change reloads from page 1 and keeps the filter and the selection', async () => {
+      queryFilesMock.mockImplementation(async (_, query, token) =>
+        query.sort === 'SIZE_DESC'
+          ? page([file('e-2', 'b.png'), file('e-1', 'a.png')])
+          : token == null
+          ? page([file('e-1', 'a.png')], 'token-2')
+          : page([file('e-2', 'b.png')], null, null),
+      );
+      renderGallery();
+      await screen.findByLabelText('a.png, Synced');
+      fireEvent(screen.getByTestId('gallery-grid'), 'onEndReached');
+      await screen.findByLabelText('b.png, Synced');
+      fireEvent.press(screen.getByLabelText('Filter Synced'));
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ filter: 'SYNCED', sort: 'TIME_DESC' }),
+          null,
+        ),
+      );
+      fireEvent(await screen.findByLabelText('a.png, Synced'), 'longPress');
+      await screen.findByLabelText('a.png, Synced, selected');
+
+      queryFilesMock.mockClear();
+      fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
+      fireEvent.press(screen.getByLabelText('Size (largest first)'));
+
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenCalledWith(
+          'snap-1',
+          {
+            filter: 'SYNCED',
+            view: 'GALLERY',
+            sort: 'SIZE_DESC',
+            pageSize: 100,
+          },
+          null,
+        ),
+      );
+      expect(queryFilesMock).toHaveBeenCalledTimes(1);
+      expect(
+        await screen.findByLabelText('a.png, Synced, selected'),
+      ).toBeSelected();
+      expect(screen.getByLabelText('b.png, Synced')).not.toBeSelected();
+      expect(screen.getByLabelText('Filter Synced')).toBeSelected();
+      expect(setBrowsePreferencesMock).toHaveBeenCalledWith({
+        gallerySort: 'SIZE_DESC',
+      });
+    });
   });
 
   describe('selection (FR-015, FR-017)', () => {

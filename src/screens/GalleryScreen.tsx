@@ -24,14 +24,15 @@ import { density, gridColumns, spacing } from '../theme/spacing';
 
 /**
  * The gallery (FR-001): a virtualized three-column grid of the active
- * snapshot's images, newest first (clarification 5), read page by page
- * through `queryFiles` under the shared filter. A long-press starts the
+ * snapshot's images in the gallery's own sort (007 FR-003, newest first on
+ * first run), read page by page through `queryFiles` under the shared filter.
+ * A sort change reloads from page 1 and keeps the filter and the selection. A long-press starts the
  * selection; while selecting, a tap toggles a tile (FR-015).
  */
 export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
-  const { snapshotId, scanLoading, aliases, onSnapshotLost, reloadKey } =
-    props;
-  const { filter } = useFiles();
+  const { snapshotId, scanLoading, aliases, onSnapshotLost, reloadKey } = props;
+  const { filter, sorts } = useFiles();
+  const sort = sorts.GALLERY;
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const { width } = useWindowDimensions();
   const tileSize = galleryTileSize(width);
@@ -40,10 +41,10 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     () => ({
       filter,
       view: 'GALLERY',
-      sort: 'TIME_DESC',
+      sort,
       pageSize: PAGED_QUERY_PAGE_SIZE,
     }),
-    [filter],
+    [filter, sort],
   );
   const paged = usePagedQuery({
     snapshotId,

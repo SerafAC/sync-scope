@@ -215,8 +215,8 @@ validation/maestro/
   `sources.dialog.confirm`. Rows that repeat share an ID and are told apart with `childOf` or `index`.
 - **Files tab** (feature 005): select by accessibility label. Every interactive element there has one,
   built in `src/files/a11y.ts`, and the label is the selector, so a missing label fails a flow (spec
-  FR-004, SC-003). Examples: `Gallery view`, `Filter Synced, 3`, `sunset.png, Unsynced, from GalleryTwin`,
-  `Folder drafts, 0 matching, no matches`, `Breadcrumb All folders`. The full list is in
+  FR-004, SC-003). Examples: `View: Gallery`, `Sort: Size, largest first`, `Filter Synced, 3`,
+  `sunset.png, Unsynced, from GalleryTwin`, `Folder drafts, 0 matching, no matches`, `Breadcrumb All folders`. The full list is in
   `specs/005-gallery-list-filtering/contracts/maestro-browse.md` (Selectors). A new label goes in `a11y.ts`
   and its unit test, not inline in a component.
 - **Repository form** (feature 006): its buttons and status are selected by accessibility label, as in the

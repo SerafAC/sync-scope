@@ -207,6 +207,91 @@ describe('usePagedQuery', () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it('reports hasMore while a next token exists', async () => {
+    const read = jest
+      .fn<ReturnType<PageReader>, Parameters<PageReader>>()
+      .mockResolvedValueOnce(ok([entry('a')], 'token-2'))
+      .mockResolvedValueOnce(ok([entry('b')], null));
+    const { result } = setup({ read });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(result.current.hasMore).toBe(true);
+
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  describe('enabled (research R3: the list holds its file read)', () => {
+    it('holds idle without reading while disabled, then reads page 1', async () => {
+      const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+        async () => ok([entry('a')], null, COUNTS),
+      );
+      const { result, rerender } = setup({ read, enabled: false });
+
+      expect(result.current.phase).toBe('idle');
+      expect(result.current.entries).toEqual([]);
+      expect(result.current.hasMore).toBe(false);
+      act(() => result.current.loadMore());
+      expect(read).not.toHaveBeenCalled();
+
+      rerender({ enabled: true });
+
+      expect(result.current.phase).toBe('loading-first');
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      expect(result.current.entries.map(e => e.entryId)).toEqual(['a']);
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the rows when disabled again', async () => {
+      const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+        async () => ok([entry('a')], null, COUNTS),
+      );
+      const { result, rerender } = setup({ read });
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+      rerender({ enabled: false });
+
+      expect(result.current.phase).toBe('idle');
+      expect(result.current.entries).toEqual([]);
+      expect(result.current.counts).toBeNull();
+    });
+
+    it('still reports a snapshot change that happened while it was held', async () => {
+      const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+        async snapshotId => ok([entry(`${snapshotId}-row`)], null, COUNTS),
+      );
+      const { result, rerender } = setup({ read });
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+      rerender({ snapshotId: 'snap-2', enabled: false });
+      expect(result.current.snapshotChanged).toBe(false);
+      expect(result.current.entries).toEqual([]);
+
+      rerender({ snapshotId: 'snap-2', enabled: true });
+
+      expect(result.current.snapshotChanged).toBe(true);
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      expect(result.current.entries.map(e => e.entryId)).toEqual([
+        'snap-2-row',
+      ]);
+    });
+
+    it('ignores a page that arrives after it was disabled', async () => {
+      const page1 = deferred<QueryFilesResult>();
+      const read = jest
+        .fn<ReturnType<PageReader>, Parameters<PageReader>>()
+        .mockReturnValueOnce(page1.promise);
+      const { result, rerender } = setup({ read });
+
+      rerender({ enabled: false });
+      await act(async () => page1.resolve(ok([entry('late')], null)));
+
+      expect(result.current.phase).toBe('idle');
+      expect(result.current.entries).toEqual([]);
+    });
+  });
+
   it('does not report a snapshot change when no rows were shown', async () => {
     const read = jest
       .fn<ReturnType<PageReader>, Parameters<PageReader>>()
@@ -333,7 +418,12 @@ describe('usePagedQuery', () => {
   it('reloads page 1 of the same read when reloadKey changes, without reporting a snapshot change', async () => {
     let rows = ['a', 'b', 'c'];
     const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
-      async () => ok(rows.map(id => entry(id)), null, COUNTS),
+      async () =>
+        ok(
+          rows.map(id => entry(id)),
+          null,
+          COUNTS,
+        ),
     );
     const { result, rerender } = setup({ read, reloadKey: 0 });
     await waitFor(() => expect(result.current.phase).toBe('ready'));

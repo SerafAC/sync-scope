@@ -8,7 +8,7 @@ appId: com.syncscope
     text: "Files"
     leftOf: "Scan"
 - extendedWaitUntil:
-    visible: "Gallery view"
+    visible: "View: (Gallery|List)"
     timeout: 15000
 - extendedWaitUntil:
     notVisible: "Loading files"

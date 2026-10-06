@@ -68,7 +68,10 @@ name: mvp/04-select-size
 
 # List view keeps it too; folders cannot be selected and still open
 # (scenarios 4 and 7).
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - tapOn: "Folder Select, 3 matching"
 - tapOn: "Folder drafts, 0 matching, no matches"
 - extendedWaitUntil:

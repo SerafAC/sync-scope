@@ -18,6 +18,9 @@ import {
 } from '../SelectionProvider';
 
 jest.mock('../../native/CloudSync', () => ({
+  // The remembered view and sorts do not matter here: the read never answers.
+  getBrowsePreferences: jest.fn(() => new Promise(() => {})),
+  setBrowsePreferences: jest.fn(),
   listSelectableEntries: jest.fn(),
 }));
 

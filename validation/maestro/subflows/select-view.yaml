@@ -1,0 +1,17 @@
+# Subflow: pick a view in the Files tab's view drop-down (feature 007, FR-001)
+# and wait until the drop-down shows it. Never run on its own.
+#
+# Params (runFlow env):
+#   VIEW  GALLERY or LIST
+#
+# The drop-down's options are matched by id, because "Gallery" is also a source
+# alias in the list view.
+appId: com.syncscope
+---
+- tapOn:
+    id: "files-view"
+- tapOn:
+    id: "${'files-view-option-' + VIEW}"
+- extendedWaitUntil:
+    visible: "${VIEW == 'LIST' ? 'View: List' : 'View: Gallery'}"
+    timeout: 15000

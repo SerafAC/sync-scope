@@ -23,7 +23,9 @@ import { useListNavigation } from '../files/useListNavigation';
 import {
   PAGED_QUERY_PAGE_SIZE,
   usePagedQuery,
+  type PagedPhase,
   type PageReader,
+  type UsePagedQueryResult,
 } from '../files/usePagedQuery';
 import { queryTreeChildren } from '../native/CloudSync';
 import type {
@@ -237,9 +239,78 @@ const FileRow = memo(function FileRowBody({
   );
 });
 
+/** The two reads of a folder (research R3) as one list: folders first, then files. */
+interface ListReads {
+  entries: FileEntryDto[];
+  counts: StatusCountDto[] | null;
+  /** Nothing to show yet: page 1 of the folders, or of the files of a folder without subfolders, is loading. */
+  loading: boolean;
+  /** Both reads are complete. */
+  complete: boolean;
+  error: UsePagedQueryResult['error'];
+  retry: () => void;
+  loadMore: () => void;
+  snapshotChanged: boolean;
+  acknowledgeSnapshotChange: () => void;
+}
+
+function useListReads(
+  folders: UsePagedQueryResult,
+  files: UsePagedQueryResult,
+  foldersComplete: boolean,
+): ListReads {
+  const entries = useMemo(
+    () =>
+      files.entries.length === 0
+        ? folders.entries
+        : [...folders.entries, ...files.entries],
+    [folders.entries, files.entries],
+  );
+  const failed = folders.phase === 'error' ? folders : files;
+  const { loadMore: loadMoreFolders, acknowledgeSnapshotChange: ackFolders } =
+    folders;
+  const { loadMore: loadMoreFiles, acknowledgeSnapshotChange: ackFiles } =
+    files;
+  const loadMore = useCallback(() => {
+    if (foldersComplete) {
+      loadMoreFiles();
+    } else {
+      loadMoreFolders();
+    }
+  }, [foldersComplete, loadMoreFiles, loadMoreFolders]);
+  const acknowledgeSnapshotChange = useCallback(() => {
+    ackFolders();
+    ackFiles();
+  }, [ackFolders, ackFiles]);
+  const startingPhases: readonly PagedPhase[] = ['idle', 'loading-first'];
+  return {
+    entries,
+    // Counts are scoped by source, not by kind: both reads carry the same.
+    counts: folders.counts ?? files.counts,
+    // Once folders are shown, the files' page 1 arrives below them without a spinner.
+    loading:
+      startingPhases.includes(folders.phase) ||
+      (foldersComplete &&
+        folders.entries.length === 0 &&
+        startingPhases.includes(files.phase)),
+    complete: foldersComplete && files.phase === 'ready' && !files.hasMore,
+    error: failed.phase === 'error' ? failed.error : null,
+    retry: failed.retry,
+    loadMore,
+    snapshotChanged: folders.snapshotChanged || files.snapshotChanged,
+    acknowledgeSnapshotChange,
+  };
+}
+
 /**
  * The list view (FR-002): the sources at the top level, then each source's
- * folders by name through `queryTreeChildren`, with a breadcrumb back up.
+ * folders through `queryTreeChildren`, with a breadcrumb back up.
+ *
+ * A folder is read in two parts (007 research R3): its subfolders by name
+ * (`kind: 'DIRECTORY'`, always `NAME_ASC`), then, once that read has no next
+ * page, its files in the list's sort (`kind: 'FILE'`). Folders are shown
+ * above the files under every sort (FR-004). T063 replaces this with the
+ * band-segmented reader.
  * Under a filter, every folder stays visible with its matching-file count.
  * File rows are selectable (FR-015); source and directory rows never are,
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
@@ -253,7 +324,8 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     onFolderChange,
     reloadKey = 0,
   } = props;
-  const { filter } = useFiles();
+  const { filter, sorts } = useFiles();
+  const fileSort = sorts.LIST;
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
   const nav = useListNavigation({
     snapshotId,
@@ -278,24 +350,48 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     reloadKey,
   );
 
-  const query = useMemo<QuerySpec>(
+  const folderQuery = useMemo<QuerySpec>(
     () => ({
       filter,
       view: 'LIST',
       sort: 'NAME_ASC',
       sourceId: folderSourceId,
       parentId,
+      kind: 'DIRECTORY',
       pageSize: PAGED_QUERY_PAGE_SIZE,
     }),
     [filter, folderSourceId, parentId],
   );
-  const paged = usePagedQuery({
-    snapshotId: folder != null ? nav.snapshotId : null,
-    query,
+  const fileQuery = useMemo<QuerySpec>(
+    () => ({
+      filter,
+      view: 'LIST',
+      sort: fileSort,
+      sourceId: folderSourceId,
+      parentId,
+      kind: 'FILE',
+      pageSize: PAGED_QUERY_PAGE_SIZE,
+    }),
+    [filter, fileSort, folderSourceId, parentId],
+  );
+  const readSnapshot = folder != null ? nav.snapshotId : null;
+  const folders = usePagedQuery({
+    snapshotId: readSnapshot,
+    query: folderQuery,
     read: readTreeChildren,
     onSnapshotLost,
     reloadKey,
   });
+  const foldersComplete = folders.phase === 'ready' && !folders.hasMore;
+  const files = usePagedQuery({
+    snapshotId: readSnapshot,
+    query: fileQuery,
+    read: readTreeChildren,
+    onSnapshotLost,
+    reloadKey,
+    enabled: foldersComplete,
+  });
+  const paged = useListReads(folders, files, foldersComplete);
 
   const totals = useMemo(
     () =>
@@ -377,24 +473,17 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
   }
 
   let body: React.JSX.Element;
-  if (
-    nav.relocating ||
-    paged.phase === 'loading-first' ||
-    paged.phase === 'idle'
-  ) {
+  if (nav.relocating || (paged.error == null && paged.loading)) {
     body = <FilesMessage loading />;
-  } else if (paged.entries.length === 0) {
-    body =
-      paged.phase === 'error' ? (
-        <FilesMessage error={paged.error} onRetry={paged.retry} />
-      ) : (
-        <FilesMessage text={NO_MATCHES_TEXT} />
-      );
+  } else if (paged.entries.length === 0 && paged.error != null) {
+    body = <FilesMessage error={paged.error} onRetry={paged.retry} />;
+  } else if (paged.entries.length === 0 && paged.complete) {
+    body = <FilesMessage text={NO_MATCHES_TEXT} />;
   } else {
     body = (
       <FlatList
         ListFooterComponent={
-          paged.phase === 'error' ? (
+          paged.error != null ? (
             <FilesMessage error={paged.error} onRetry={paged.retry} />
           ) : undefined
         }

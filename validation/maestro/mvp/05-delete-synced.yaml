@@ -42,7 +42,10 @@ name: mvp/05-delete-synced
 - runFlow: ../subflows/open-files.yaml
 
 # List view, the Delete source's root.
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - tapOn: "Folder Delete.*"
 - extendedWaitUntil:
     visible: "beach.png, Synced"
@@ -131,7 +134,10 @@ name: mvp/05-delete-synced
       BUTTON: "Rescan from scratch"
 - assertVisible: "Completed .+"
 - runFlow: ../subflows/open-files.yaml
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - runFlow:
     when:
       visible: "Folder Delete.*"
@@ -177,7 +183,10 @@ name: mvp/05-delete-synced
       BUTTON: "Rescan from scratch"
 - assertVisible: "Completed .+"
 - runFlow: ../subflows/open-files.yaml
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - runFlow:
     when:
       visible: "Folder Delete.*"

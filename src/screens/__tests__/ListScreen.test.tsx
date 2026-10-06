@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,29 +9,55 @@ import {
 } from '@testing-library/react-native';
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 
+import { Button } from 'react-native-paper';
+
 import { FilesProvider } from '../../files/FilesProvider';
 import { FilterChips } from '../../files/FilterChips';
 import type { FilesViewProps } from '../../files/FilesViewParts';
-import { queryTreeChildren } from '../../native/CloudSync';
+import { SortMenu } from '../../files/SortMenu';
+import { useFiles } from '../../files/useFiles';
+import {
+  getBrowsePreferences,
+  listSelectableEntries,
+  queryTreeChildren,
+  setBrowsePreferences,
+} from '../../native/CloudSync';
 import type {
   FileEntryDto,
   FileFilter,
+  FileSort,
   FileStatus,
   QueryFilesResult,
   QuerySpec,
   StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import { ScanContext, type ScanState } from '../../scan/useScan';
-import { SelectionProvider } from '../../selection/SelectionProvider';
+import {
+  SelectionProvider,
+  useSelection,
+} from '../../selection/SelectionProvider';
 import { a11ySweep } from '../../test-utils/a11ySweep';
-import { ListScreen, formatSize } from '../ListScreen';
+import { selectAllQuery } from '../FilesScreen';
+import { ListScreen, formatSize, type ListFolder } from '../ListScreen';
 
 jest.mock('../../native/CloudSync', () => ({
+  getBrowsePreferences: jest.fn(),
+  setBrowsePreferences: jest.fn(),
+  listSelectableEntries: jest.fn(),
   queryTreeChildren: jest.fn(),
 }));
 
 const queryTreeChildrenMock = queryTreeChildren as jest.MockedFunction<
   typeof queryTreeChildren
+>;
+const getBrowsePreferencesMock = getBrowsePreferences as jest.MockedFunction<
+  typeof getBrowsePreferences
+>;
+const setBrowsePreferencesMock = setBrowsePreferences as jest.MockedFunction<
+  typeof setBrowsePreferences
+>;
+const listSelectableEntriesMock = listSelectableEntries as jest.MockedFunction<
+  typeof listSelectableEntries
 >;
 
 const DIMMED = MD3LightTheme.colors.onSurfaceDisabled;
@@ -144,6 +171,25 @@ function ok(entries: FileEntryDto[], counts: StatusCountDto[] | null) {
   return result;
 }
 
+/** What the native sorts compare (research R1); enough for these fixtures. */
+function compareBy(
+  sort: FileSort,
+): (a: FileEntryDto, b: FileEntryDto) => number {
+  const byName = (a: FileEntryDto, b: FileEntryDto) =>
+    a.sortName.localeCompare(b.sortName);
+  switch (sort) {
+    case 'NAME_DESC':
+      return (a, b) => byName(b, a);
+    case 'SIZE_DESC':
+      return (a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || byName(a, b);
+    case 'SIZE_ASC':
+      return (a, b) => (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0) || byName(a, b);
+    default:
+      return byName;
+  }
+}
+
+/** queryTreeChildren over {@link children}: narrowed by `kind` and ordered by `sort`. */
 function fakeTree(
   _snapshotId: string,
   parentId: string | null,
@@ -154,7 +200,10 @@ function fakeTree(
   if (query.pageSize === 1) {
     return Promise.resolve(ok([], counts));
   }
-  return Promise.resolve(ok(children(parentId, query.filter), counts));
+  const rows = children(parentId, query.filter)
+    .filter(row => query.kind == null || row.kind === query.kind)
+    .sort(compareBy(query.sort));
+  return Promise.resolve(ok(rows, counts));
 }
 
 function scanState(snapshotId: string | null): ScanState {
@@ -176,6 +225,49 @@ function scanState(snapshotId: string | null): ScanState {
   };
 }
 
+/** The Files toolbar's sort drop-down, as FilesScreen wires it for the list. */
+function ListSort(): React.JSX.Element {
+  const { sorts, setSort } = useFiles();
+  return (
+    <SortMenu onChange={sort => setSort('LIST', sort)} sort={sorts.LIST} />
+  );
+}
+
+/** The top bar's "Select all", as FilesScreen wires it for the list. */
+function SelectAllProbe({
+  folder,
+}: {
+  folder: ListFolder | null;
+}): React.JSX.Element {
+  const { filter } = useFiles();
+  const { selectAll } = useSelection();
+  const query = selectAllQuery('LIST', filter, folder);
+  return (
+    <Button
+      accessibilityLabel="Select all"
+      onPress={() => {
+        if (query != null) {
+          selectAll(query);
+        }
+      }}
+    >
+      Select all
+    </Button>
+  );
+}
+
+function Harness(props: FilesViewProps): React.JSX.Element {
+  const [folder, setFolder] = React.useState<ListFolder | null>(null);
+  return (
+    <>
+      <ListSort />
+      <SelectAllProbe folder={folder} />
+      <FilterChips counts={null} />
+      <ListScreen {...props} onFolderChange={setFolder} />
+    </>
+  );
+}
+
 function renderList(overrides: Partial<FilesViewProps> = {}) {
   const props: FilesViewProps = {
     snapshotId: 'snap-1',
@@ -190,8 +282,7 @@ function renderList(overrides: Partial<FilesViewProps> = {}) {
       <ScanContext.Provider value={scanState(props.snapshotId)}>
         <FilesProvider>
           <SelectionProvider>
-            <FilterChips counts={null} />
-            <ListScreen {...props} />
+            <Harness {...props} />
           </SelectionProvider>
         </FilesProvider>
       </ScanContext.Provider>
@@ -202,6 +293,19 @@ function renderList(overrides: Partial<FilesViewProps> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  getBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+    preferences: {
+      view: 'LIST',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    },
+  });
+  setBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+  });
   queryTreeChildrenMock.mockImplementation(fakeTree);
 });
 
@@ -328,7 +432,7 @@ describe('ListScreen', () => {
 
   it('shows file rows with size, time and status, and no origin badge', async () => {
     queryTreeChildrenMock.mockImplementation((s, parentId, query) =>
-      parentId === null && query.pageSize !== 1
+      parentId === null && query.pageSize !== 1 && query.kind === 'FILE'
         ? Promise.resolve(
             ok(
               [
@@ -373,6 +477,280 @@ describe('ListScreen', () => {
     fireEvent.press(screen.getByLabelText('Folder Gallery, 6 matching'));
     await screen.findByLabelText('beach.png, Synced');
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('folders first, files in the chosen sort (Story 1 sc. 4, FR-004, research R3)', () => {
+    /** Source s-1's root: two folders and three files of different sizes. */
+    function sizedRoot(query: QuerySpec): FileEntryDto[] {
+      const rows = [
+        dir('d-zoo', 'zoo', null, 'ALL'),
+        dir('d-album', 'album', null, 'ALL'),
+        entry('f-small', 'small.png', { sizeBytes: 10 }),
+        entry('f-big', 'big.png', { sizeBytes: 5000 }),
+        entry('f-mid', 'mid.png', { sizeBytes: 300 }),
+      ];
+      return rows
+        .filter(row => query.kind == null || row.kind === query.kind)
+        .sort(compareBy(query.sort));
+    }
+
+    beforeEach(() => {
+      queryTreeChildrenMock.mockImplementation((s, parentId, query) =>
+        parentId === null && query.pageSize !== 1
+          ? Promise.resolve(ok(sizedRoot(query), SOURCE_COUNTS['s-1'] ?? null))
+          : fakeTree(s, parentId, query),
+      );
+    });
+
+    function rowLabels(): string[] {
+      return screen
+        .getAllByLabelText(/^(Folder |[a-z]+\.png, )/)
+        .map(node => node.props.accessibilityLabel as string)
+        .filter(label => !label.startsWith('Folder Gallery'));
+    }
+
+    async function openGallery() {
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+      await screen.findByLabelText('small.png, Synced');
+    }
+
+    function pickSort(text: string) {
+      fireEvent.press(screen.getByLabelText(/^Sort: /));
+      fireEvent.press(screen.getByLabelText(text));
+    }
+
+    it('reads the subfolders by name, then the files in the list sort', async () => {
+      renderList();
+      await openGallery();
+
+      const reads = queryTreeChildrenMock.mock.calls.filter(
+        ([, , query]) => query.pageSize !== 1,
+      );
+      expect(reads.map(([, parentId, query]) => [parentId, query])).toEqual([
+        [
+          null,
+          {
+            filter: 'ALL',
+            view: 'LIST',
+            sort: 'NAME_ASC',
+            sourceId: 's-1',
+            parentId: null,
+            kind: 'DIRECTORY',
+            pageSize: 100,
+          },
+        ],
+        [
+          null,
+          {
+            filter: 'ALL',
+            view: 'LIST',
+            sort: 'NAME_ASC',
+            sourceId: 's-1',
+            parentId: null,
+            kind: 'FILE',
+            pageSize: 100,
+          },
+        ],
+      ]);
+      expect(rowLabels()).toEqual([
+        'Folder album',
+        'Folder zoo',
+        'big.png, Synced',
+        'mid.png, Synced',
+        'small.png, Synced',
+      ]);
+    });
+
+    it('keeps the folders above the files under SIZE_DESC', async () => {
+      getBrowsePreferencesMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: {
+          view: 'LIST',
+          gallerySort: 'TIME_DESC',
+          listSort: 'SIZE_DESC',
+        },
+      });
+      renderList();
+      await openGallery();
+
+      expect(rowLabels()).toEqual([
+        'Folder album',
+        'Folder zoo',
+        'big.png, Synced',
+        'mid.png, Synced',
+        'small.png, Synced',
+      ]);
+      expect(queryTreeChildrenMock).toHaveBeenCalledWith(
+        'snap-1',
+        null,
+        expect.objectContaining({ kind: 'FILE', sort: 'SIZE_DESC' }),
+        null,
+      );
+      expect(queryTreeChildrenMock).not.toHaveBeenCalledWith(
+        'snap-1',
+        null,
+        expect.objectContaining({ kind: 'DIRECTORY', sort: 'SIZE_DESC' }),
+        null,
+      );
+    });
+
+    it('a sort change reorders only the files and does not read the folders again', async () => {
+      renderList();
+      await openGallery();
+      const folderReads = () =>
+        queryTreeChildrenMock.mock.calls.filter(
+          ([, , query]) => query.kind === 'DIRECTORY',
+        ).length;
+      expect(folderReads()).toBe(1);
+
+      pickSort('Size (smallest first)');
+
+      await waitFor(() =>
+        expect(rowLabels()).toEqual([
+          'Folder album',
+          'Folder zoo',
+          'small.png, Synced',
+          'mid.png, Synced',
+          'big.png, Synced',
+        ]),
+      );
+      expect(folderReads()).toBe(1);
+      expect(setBrowsePreferencesMock).toHaveBeenCalledWith({
+        listSort: 'SIZE_ASC',
+      });
+    });
+
+    it('starts the file read only once the folder read has no next page', async () => {
+      let resolvePage2: (result: QueryFilesResult) => void = () => {};
+      queryTreeChildrenMock.mockImplementation((s, parentId, query, token) => {
+        if (parentId !== null || query.pageSize === 1) {
+          return fakeTree(s, parentId, query);
+        }
+        if (query.kind === 'DIRECTORY' && token == null) {
+          return Promise.resolve({
+            contractVersion: 6,
+            status: 'ok',
+            page: {
+              entries: [dir('d-album', 'album', null, 'ALL')],
+              nextPageToken: 'folders-2',
+              counts: SOURCE_COUNTS['s-1'] ?? null,
+            },
+          });
+        }
+        if (query.kind === 'DIRECTORY') {
+          return new Promise(resolve => {
+            resolvePage2 = resolve;
+          });
+        }
+        return Promise.resolve(ok(sizedRoot(query), null));
+      });
+      renderList();
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+      await screen.findByLabelText('Folder album');
+      const fileReads = () =>
+        queryTreeChildrenMock.mock.calls.filter(
+          ([, , query]) => query.kind === 'FILE',
+        ).length;
+      expect(fileReads()).toBe(0);
+
+      fireEvent(screen.getByTestId('list-entries'), 'onEndReached');
+      await waitFor(() =>
+        expect(queryTreeChildrenMock).toHaveBeenCalledWith(
+          'snap-1',
+          null,
+          expect.objectContaining({ kind: 'DIRECTORY' }),
+          'folders-2',
+        ),
+      );
+      expect(fileReads()).toBe(0);
+
+      await act(async () =>
+        resolvePage2(
+          ok([dir('d-zoo', 'zoo', null, 'ALL')], SOURCE_COUNTS['s-1'] ?? null),
+        ),
+      );
+
+      expect(await screen.findByLabelText('big.png, Synced')).toBeOnTheScreen();
+      expect(fileReads()).toBe(1);
+      expect(rowLabels()).toEqual([
+        'Folder album',
+        'Folder zoo',
+        'big.png, Synced',
+        'mid.png, Synced',
+        'small.png, Synced',
+      ]);
+    });
+
+    it("select all is unchanged by the sort: the open folder's direct files under the filter", async () => {
+      listSelectableEntriesMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
+      });
+      renderList();
+      await openGallery();
+      pickSort('Size (largest first)');
+      await waitFor(() =>
+        expect(queryTreeChildrenMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          null,
+          expect.objectContaining({ kind: 'FILE', sort: 'SIZE_DESC' }),
+          null,
+        ),
+      );
+
+      fireEvent.press(screen.getByLabelText('Select all'));
+
+      await waitFor(() =>
+        expect(listSelectableEntriesMock).toHaveBeenCalledWith('snap-1', {
+          filter: 'ALL',
+          view: 'LIST',
+          sort: 'NAME_ASC',
+          sourceId: 's-1',
+          parentId: null,
+          pageSize: 100,
+        }),
+      );
+    });
+
+    it('reports a snapshot change in a folder that holds only files', async () => {
+      queryTreeChildrenMock.mockImplementation((s, parentId, query) =>
+        parentId === null && query.pageSize !== 1
+          ? Promise.resolve(
+              ok(
+                query.kind === 'FILE' ? [entry('f-z', 'zebra.png')] : [],
+                SOURCE_COUNTS['s-1'] ?? null,
+              ),
+            )
+          : fakeTree(s, parentId, query),
+      );
+      const { props, rerender } = renderList();
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+      await screen.findByLabelText('zebra.png, Synced');
+
+      rerender(
+        <PaperProvider theme={MD3LightTheme}>
+          <ScanContext.Provider value={scanState('snap-2')}>
+            <FilesProvider>
+              <SelectionProvider>
+                <Harness {...props} snapshotId="snap-2" />
+              </SelectionProvider>
+            </FilesProvider>
+          </ScanContext.Provider>
+        </PaperProvider>,
+      );
+
+      await waitFor(() =>
+        expect(props.onSnapshotChange).toHaveBeenCalledTimes(1),
+      );
+    });
   });
 
   describe('selection (FR-015, FR-017, Story 5 sc. 7)', () => {

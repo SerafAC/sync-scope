@@ -47,6 +47,13 @@ export interface UsePagedQueryOptions {
    * (a deletion, research R14).
    */
   reloadKey?: number;
+  /**
+   * While false the hook holds without reading (phase `idle`, no rows), and
+   * the snapshot last shown is kept, so a snapshot change is still reported
+   * once reading starts. List view holds its file read until the folder
+   * read is complete (research R3).
+   */
+  enabled?: boolean;
 }
 
 export interface UsePagedQueryResult {
@@ -56,6 +63,8 @@ export interface UsePagedQueryResult {
   counts: StatusCountDto[] | null;
   phase: PagedPhase;
   error: CloudSyncError | null;
+  /** A next page exists: the read is not complete yet. */
+  hasMore: boolean;
   /** Loads the next page; a no-op without a next token or while loading. */
   loadMore: () => void;
   /** After an error: reloads page 1, or the failed next page when rows are shown. */
@@ -137,6 +146,7 @@ export function usePagedQuery({
   read,
   onSnapshotLost,
   reloadKey = 0,
+  enabled = true,
 }: UsePagedQueryOptions): UsePagedQueryResult {
   const queryKey = queryKeyOf(query);
   const stableQuery = useMemo<QuerySpec>(
@@ -255,13 +265,26 @@ export function usePagedQuery({
       commit(emptyState(null, queryKey, 'idle'));
       return;
     }
+    if (!enabled) {
+      sequence.current += 1;
+      commit(emptyState(snapshotId, queryKey, 'idle'));
+      return;
+    }
     if (shownSnapshot.current != null && shownSnapshot.current !== snapshotId) {
       setSnapshotChanged(true);
     }
     shownSnapshot.current = null;
     commit(emptyState(snapshotId, queryKey, 'loading-first'));
     fetchPage({ snapshotId, queryKey, query: stableQuery }, null, false);
-  }, [snapshotId, queryKey, stableQuery, commit, fetchPage, reloadKey]);
+  }, [
+    snapshotId,
+    queryKey,
+    stableQuery,
+    commit,
+    fetchPage,
+    reloadKey,
+    enabled,
+  ]);
 
   const loadMore = useCallback(() => {
     const current = stateRef.current;
@@ -310,13 +333,15 @@ export function usePagedQuery({
 
   // Between a prop change and its effect, never expose rows of the old read.
   const matches =
-    state.snapshotId === snapshotId && state.queryKey === queryKey;
+    state.snapshotId === snapshotId &&
+    state.queryKey === queryKey &&
+    (enabled || state.phase === 'idle');
   const view: PagedState = matches
     ? state
     : emptyState(
         snapshotId,
         queryKey,
-        snapshotId == null ? 'idle' : 'loading-first',
+        snapshotId == null || !enabled ? 'idle' : 'loading-first',
       );
 
   return {
@@ -324,6 +349,7 @@ export function usePagedQuery({
     counts: view.counts,
     phase: view.phase,
     error: view.error,
+    hasMore: view.nextPageToken != null,
     loadMore,
     retry,
     snapshotChanged,

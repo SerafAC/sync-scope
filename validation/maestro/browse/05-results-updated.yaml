@@ -28,7 +28,10 @@ name: browse/05-results-updated
 - runFlow: ../subflows/open-files.yaml
 
 # 1. Open Gallery › album in the list view.
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - extendedWaitUntil:
     visible: "Folder Gallery, 6 matching"
     timeout: 15000
