@@ -88,13 +88,11 @@ class CloudSyncModuleTest {
       listOf(
         { module.getSettings(it) },
         { module.setIncludeHidden(true, it) },
-        // Contract v6 methods, wired by T019 (preferences), T039 (folder browser) and T055 (scroll index).
+        // Contract v6 methods, wired by T039 (folder browser) and T055 (scroll index).
         { module.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
         { module.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
         { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), null, null, it) },
         { module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), "pw", "/photos", it) },
-        { module.getBrowsePreferences(it) },
-        { module.setBrowsePreferences(JavaOnlyMap.of("view", "LIST"), it) },
       )
 
     for (call in calls) {
@@ -105,6 +103,29 @@ class CloudSyncModuleTest {
       assertEquals("NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
       assertNull(promise.rejectedCode)
     }
+  }
+
+  @Test
+  fun browsePreferencesReadDefaultsAndStoreWhatIsSet() {
+    appContext.getSharedPreferences(BrowsePreferences.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+
+    val first = resolve { module.getBrowsePreferences(it) }
+    assertEquals("ok", first.getString("status"))
+    assertEquals(6, first.getInt("contractVersion"))
+    assertEquals("GALLERY", first.getMap("preferences")!!.getString("view"))
+    assertEquals("TIME_DESC", first.getMap("preferences")!!.getString("gallerySort"))
+    assertEquals("NAME_ASC", first.getMap("preferences")!!.getString("listSort"))
+
+    val saved = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "LIST", "listSort", "SIZE_DESC"), it) }
+    assertEquals("ok", saved.getString("status"))
+    val read = resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!
+    assertEquals("LIST", read.getString("view"))
+    assertEquals("TIME_DESC", read.getString("gallerySort"))
+    assertEquals("SIZE_DESC", read.getString("listSort"))
+
+    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }
+    assertEquals("INVALID_QUERY", refused.getMap("error")!!.getString("code"))
+    assertEquals("LIST", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
   }
 
   @Test

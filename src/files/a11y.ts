@@ -1,5 +1,10 @@
-import type {FileFilter, FileStatus} from '../native/CloudSyncContracts';
-import {FILTER_LABEL, STATUS_LABEL} from '../theme/statusLabels';
+import type {
+  FileFilter,
+  FileSort,
+  FileStatus,
+  FileView,
+} from '../native/CloudSyncContracts';
+import { FILTER_LABEL, STATUS_LABEL } from '../theme/statusLabels';
 
 // Accessibility labels for the Files tab. Each label is also the control's
 // Maestro selector (contracts/maestro-browse.md#selectors), so the text is
@@ -73,4 +78,39 @@ export function selectionDetailsLabel(text: string): string {
 /** `Breadcrumb All folders`. */
 export function breadcrumbLabel(name: string): string {
   return `Breadcrumb ${name}`;
+}
+
+/**
+ * The one table of sort labels (FR-017): the sort menu's option text, and the
+ * spoken form the drop-down carries in its accessibility label.
+ */
+export const SORT_LABEL: Readonly<
+  Record<FileSort, { readonly option: string; readonly spoken: string }>
+> = {
+  NAME_ASC: { option: 'Name (A–Z)', spoken: 'Name, A to Z' },
+  NAME_DESC: { option: 'Name (Z–A)', spoken: 'Name, Z to A' },
+  TIME_DESC: { option: 'Date (newest first)', spoken: 'Date, newest first' },
+  TIME_ASC: { option: 'Date (oldest first)', spoken: 'Date, oldest first' },
+  SIZE_DESC: { option: 'Size (largest first)', spoken: 'Size, largest first' },
+  SIZE_ASC: { option: 'Size (smallest first)', spoken: 'Size, smallest first' },
+};
+
+/** `Size (largest first)`: the option's text in the sort menu. */
+export function sortOptionText(sort: FileSort): string {
+  return SORT_LABEL[sort].option;
+}
+
+/** `Sort: Size, largest first`: the sort drop-down with its current choice. */
+export function sortMenuLabel(sort: FileSort): string {
+  return `Sort: ${SORT_LABEL[sort].spoken}`;
+}
+
+export const VIEW_LABEL: Readonly<Record<FileView, string>> = {
+  GALLERY: 'Gallery',
+  LIST: 'List',
+};
+
+/** `View: Gallery`: the view drop-down with its current choice. */
+export function viewMenuLabel(view: FileView): string {
+  return `View: ${VIEW_LABEL[view]}`;
 }

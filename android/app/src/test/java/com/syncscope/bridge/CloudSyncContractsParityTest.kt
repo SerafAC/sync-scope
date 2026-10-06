@@ -1,5 +1,6 @@
 package com.syncscope.bridge
 
+import com.syncscope.persistence.FileKind
 import com.syncscope.persistence.FileSort
 import java.io.File
 import org.junit.Assert.assertEquals

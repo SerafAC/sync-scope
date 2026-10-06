@@ -181,15 +181,6 @@ enum class FileIssueCode(val text: String) {
 }
 
 /**
- * Narrows a read to folders or files (`FileKind`, contract version 6, research R3); the wire value is the
- * enum name. List view reads a folder's subfolders, then its files.
- */
-enum class FileKind {
-  DIRECTORY,
-  FILE,
-}
-
-/**
  * What a scroll index band stands for (`ScrollUnit`, contract version 6): a first letter (research R4), a
  * year, month or day (research R6), or a size (research R5). The wire value is the enum name.
  */

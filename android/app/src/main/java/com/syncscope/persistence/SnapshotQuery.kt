@@ -25,6 +25,15 @@ enum class FileSort {
 }
 
 /**
+ * Narrows a read to folders or files (`FileKind` in `src/native/CloudSyncContracts.ts`, contract version 6,
+ * research R3); the wire value is the enum name. List view reads a folder's subfolders, then its files.
+ */
+enum class FileKind {
+  DIRECTORY,
+  FILE,
+}
+
+/**
  * A bounded browse query over one published snapshot. The [fingerprint] covers
  * every dimension that changes *which* rows match, so a page token minted for
  * one query can never be replayed against another. `pageSize` is deliberately
@@ -38,6 +47,8 @@ data class SnapshotQuery(
   val parentId: String? = null,
   val search: String? = null,
   val pageSize: Int? = null,
+  /** Only rows of this kind; null reads both (research R3). */
+  val kind: FileKind? = null,
 ) {
   init {
     val length = search?.length ?: 0
@@ -55,6 +66,7 @@ data class SnapshotQuery(
         "src=${sourceId ?: ""}",
         "p=${parentId ?: ""}",
         "q=${search ?: ""}",
+        "k=${kind?.name ?: ""}",
       )
       .joinToString("|")
 

@@ -1,5 +1,7 @@
 package com.syncscope.bridge
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
@@ -58,8 +60,8 @@ import kotlinx.coroutines.launch
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
  * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
- * `setIncludeHidden`, and the contract v6 `getScrollIndex`, `browseRemoteFolders`, `getBrowsePreferences`
- * and `setBrowsePreferences`) resolve a typed NOT_IMPLEMENTED envelope.
+ * `setIncludeHidden`, and the contract v6 `getScrollIndex` and `browseRemoteFolders`) resolve a typed
+ * NOT_IMPLEMENTED envelope. `getBrowsePreferences` and `setBrowsePreferences` delegate to [BrowsePreferences].
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -77,6 +79,9 @@ class CloudSyncModule(
   },
   localImages: () -> LocalImageStore = {
     LocalImageStore(reactContext.cacheDir, ContentResolverThumbnailSource(reactContext.contentResolver))
+  },
+  browsePreferences: () -> SharedPreferences = {
+    reactContext.getSharedPreferences(BrowsePreferences.FILE_NAME, Context.MODE_PRIVATE)
   },
 ) : NativeCloudSyncSpec(reactContext) {
 
@@ -105,6 +110,9 @@ class CloudSyncModule(
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
   private val sources = SourceOperations(saf = saf, sources = sourceRootDao, envelope = envelope)
+
+  /** Opened on first use, on the background dispatcher. */
+  private val preferences = BrowsePreferences(memoize(browsePreferences), envelope)
 
   private val picker = SourcePicker(sources, envelope) { reactContext.currentActivity }
 
@@ -272,18 +280,18 @@ class CloudSyncModule(
       }
     }
 
-  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055, browseRemoteFolders T039,
-  // get/setBrowsePreferences T019).
+  // Contract v6: resolve NOT_IMPLEMENTED until wired (getScrollIndex T055, browseRemoteFolders T039).
   override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
     notImplemented("getScrollIndex", promise)
 
   override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
     notImplemented("browseRemoteFolders", promise)
 
-  override fun getBrowsePreferences(promise: Promise) = notImplemented("getBrowsePreferences", promise)
+  override fun getBrowsePreferences(promise: Promise) =
+    runOperation("getBrowsePreferences", promise) { preferences.get() }
 
   override fun setBrowsePreferences(preferences: ReadableMap, promise: Promise) =
-    notImplemented("setBrowsePreferences", promise)
+    runOperation("setBrowsePreferences", promise) { this.preferences.set(preferences) }
 
   private fun notImplemented(method: String, promise: Promise) =
     runOperation(method, promise) { envelope.notImplemented(method) }

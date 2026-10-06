@@ -408,28 +408,25 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     val (where, args) = scopeOf(snapshotId, query, topLevelOnly)
     val gallery = query.view == FileView.GALLERY
 
-    val ascending = query.sort == FileSort.NAME_ASC || query.sort == FileSort.TIME_ASC || query.sort == FileSort.SIZE_ASC
-    val sortColumn =
-      when (query.sort) {
-        FileSort.NAME_ASC,
-        FileSort.NAME_DESC -> "name"
-        FileSort.TIME_ASC,
-        FileSort.TIME_DESC -> "COALESCE(modifiedUtcMillis, -1)"
-        FileSort.SIZE_ASC,
-        FileSort.SIZE_DESC -> "COALESCE(sizeBytes, -1)"
-      }
-    val direction = if (ascending) "ASC" else "DESC"
-    val comparator = if (ascending) ">" else "<"
+    val key = sortKeyOf(query.sort)
+    val direction = if (key.ascending) "ASC" else "DESC"
+    val comparator = if (key.ascending) ">" else "<"
 
     if (cursor != null) {
-      // A time or size key must bind as an integer: SQLite orders every INTEGER below every TEXT, so a text key
-      // would match every row again and the pages would never end.
-      val sortKey: Any =
-        if (sortColumn == "name") cursor.sortKey
-        else cursor.sortKey.toLongOrNull() ?: throw PageTokenMismatchException("page token carries a non-numeric sort key")
-      where.append(" AND ($sortColumn $comparator ? OR ($sortColumn = ? AND entryId $comparator ?))")
-      args += sortKey
-      args += sortKey
+      // (key, sortName, entryId) past the cursor, in the sort's direction. A time or size key must bind as an
+      // integer: SQLite orders every INTEGER below every TEXT, so a text key would match every row again and
+      // the pages would never end.
+      val tail = "(sortName $comparator ? OR (sortName = ? AND entryId $comparator ?))"
+      if (key.expression == null) {
+        where.append(" AND $tail")
+      } else {
+        val sortKey = cursor.sortKey.toLongOrNull() ?: throw PageTokenMismatchException("page token carries a non-numeric sort key")
+        where.append(" AND (${key.expression} $comparator ? OR (${key.expression} = ? AND $tail))")
+        args += sortKey
+        args += sortKey
+      }
+      args += cursor.sortName
+      args += cursor.sortName
       args += cursor.lastEntryId
     }
 
@@ -444,7 +441,8 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
       } else {
         "0"
       }
-    val order = "ORDER BY $sortColumn $direction, entryId $direction"
+    val order =
+      "ORDER BY " + (listOfNotNull(key.expression, "sortName", "entryId").joinToString(", ") { "$it $direction" })
     val sql =
       "SELECT p.*, $duplicateProbe AS nameInOtherSource" +
         " FROM (SELECT * FROM local_node WHERE $where $order LIMIT ${limit + 1}) AS p $order"
@@ -457,7 +455,8 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
         PageTokenCodec.encode(
           snapshotId = snapshotId,
           queryFingerprint = fingerprint,
-          sortKey = sortValueOf(it, query.sort),
+          sortKey = key.valueOf(it),
+          sortName = it.sortName,
           lastEntryId = it.entryId,
         )
       }
@@ -541,7 +540,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
    * The row scope of a browse read, shared by [queryFilePage] and [selectableEntries] so the filter,
    * view and parent rules are defined once: the snapshot, the filter (directories always pass while
    * browsing a folder, research R3), GALLERY's image-only rule, the source, the parent (or the top
-   * level) and the search. Returns the `WHERE` clause and its bind arguments.
+   * level), the kind (research R3) and the search. Returns the `WHERE` clause and its bind arguments.
    */
   private fun scopeOf(
     snapshotId: String,
@@ -567,6 +566,10 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     if (query.view == FileView.GALLERY) {
       where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
     }
+    query.kind?.let {
+      where.append(" AND kind = ?")
+      args += it.name
+    }
     query.sourceId?.let {
       where.append(" AND sourceId = ?")
       args += it
@@ -584,16 +587,6 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     }
     return where to args
   }
-
-  private fun sortValueOf(node: LocalNodeEntity, sort: FileSort): String =
-    when (sort) {
-      FileSort.NAME_ASC,
-      FileSort.NAME_DESC -> node.name
-      FileSort.TIME_ASC,
-      FileSort.TIME_DESC -> (node.modifiedUtcMillis ?: -1L).toString()
-      FileSort.SIZE_ASC,
-      FileSort.SIZE_DESC -> (node.sizeBytes ?: -1L).toString()
-    }
 
   private fun escapeLike(value: String): String =
     value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -628,3 +621,44 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     }
   }
 }
+
+/**
+ * The primary key of one sort (data-model "Sort keys and ordering"). Every sort orders by
+ * `(key, sortName, entryId)` in its direction; name sorts have no separate key, as their key is `sortName`.
+ * [expression] is `COALESCE(column, sentinel)`, with the sentinel chosen so unknown values come last in
+ * both directions (research R1).
+ */
+internal class SortKey(
+  val expression: String?,
+  val ascending: Boolean,
+  private val column: ((LocalNodeEntity) -> Long?)?,
+  private val sentinel: Long,
+) {
+  /** The cursor value of [node] under this key; name sorts carry their key in the cursor's `sortName`. */
+  fun valueOf(node: LocalNodeEntity): String = column?.let { (it(node) ?: sentinel).toString() } ?: ""
+}
+
+/** The only place sort keys are defined (Principle III); the page read and the scroll index both use it. */
+internal fun sortKeyOf(sort: FileSort): SortKey {
+  val ascending =
+    when (sort) {
+      FileSort.NAME_ASC,
+      FileSort.TIME_ASC,
+      FileSort.SIZE_ASC -> true
+      FileSort.NAME_DESC,
+      FileSort.TIME_DESC,
+      FileSort.SIZE_DESC -> false
+    }
+  // Unknown values sort past every known one: the largest Long ascending, below every real value descending.
+  val sentinel = if (ascending) Long.MAX_VALUE else UNKNOWN_DESCENDING
+  return when (sort) {
+    FileSort.NAME_ASC,
+    FileSort.NAME_DESC -> SortKey(null, ascending, null, sentinel)
+    FileSort.TIME_ASC,
+    FileSort.TIME_DESC -> SortKey("COALESCE(modifiedUtcMillis, $sentinel)", ascending, { it.modifiedUtcMillis }, sentinel)
+    FileSort.SIZE_ASC,
+    FileSort.SIZE_DESC -> SortKey("COALESCE(sizeBytes, $sentinel)", ascending, { it.sizeBytes }, sentinel)
+  }
+}
+
+private const val UNKNOWN_DESCENDING = -1L

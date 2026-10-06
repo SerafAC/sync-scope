@@ -1,5 +1,7 @@
 package com.syncscope.persistence
 
+import com.syncscope.scan.SortName
+
 fun scanRun(
   runId: String,
   generation: Long,
@@ -63,6 +65,7 @@ fun localNode(
   mimeType: String? = null,
   status: String = "SYNCED",
   issueCode: String? = null,
+  sortName: String = SortName.of(name),
 ) =
   LocalNodeEntity(
     entryId = entryId,
@@ -79,4 +82,5 @@ fun localNode(
     precisionMillis = 1L,
     status = status,
     issueCode = issueCode,
+    sortName = sortName,
   )

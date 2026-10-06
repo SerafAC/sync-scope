@@ -1,4 +1,6 @@
+import { FILE_SORTS } from '../../native/CloudSyncContracts';
 import {
+  SORT_LABEL,
   breadcrumbLabel,
   fileRowLabel,
   filterChipLabel,
@@ -7,6 +9,9 @@ import {
   originBadgeLabel,
   selectionDetailsLabel,
   selectionLabel,
+  sortMenuLabel,
+  sortOptionText,
+  viewMenuLabel,
 } from '../a11y';
 
 describe('filterChipLabel', () => {
@@ -49,9 +54,9 @@ describe('galleryTileLabel selected', () => {
     expect(galleryTileLabel('beach.png', 'SYNCED', null, true)).toBe(
       'beach.png, Synced, selected',
     );
-    expect(galleryTileLabel('sunset.png', 'UNSYNCED', 'GalleryTwin', true)).toBe(
-      'sunset.png, Unsynced, from GalleryTwin, selected',
-    );
+    expect(
+      galleryTileLabel('sunset.png', 'UNSYNCED', 'GalleryTwin', true),
+    ).toBe('sunset.png, Unsynced, from GalleryTwin, selected');
   });
 
   it('adds nothing when the tile is not selected', () => {
@@ -96,7 +101,9 @@ describe('fileRowLabel selected', () => {
     expect(fileRowLabel('notes.txt', 'SYNCED', true)).toBe(
       'notes.txt, Synced, selected',
     );
-    expect(fileRowLabel('notes.txt', 'SYNCED', false)).toBe('notes.txt, Synced');
+    expect(fileRowLabel('notes.txt', 'SYNCED', false)).toBe(
+      'notes.txt, Synced',
+    );
   });
 });
 
@@ -112,9 +119,9 @@ describe('selectionDetailsLabel', () => {
     expect(selectionDetailsLabel('2 hidden by filter')).toBe(
       'Selection details 2 hidden by filter',
     );
-    expect(
-      selectionDetailsLabel('1 of unknown size, 2 hidden by filter'),
-    ).toBe('Selection details 1 of unknown size, 2 hidden by filter');
+    expect(selectionDetailsLabel('1 of unknown size, 2 hidden by filter')).toBe(
+      'Selection details 1 of unknown size, 2 hidden by filter',
+    );
   });
 });
 
@@ -122,5 +129,42 @@ describe('breadcrumbLabel', () => {
   it('names the crumb', () => {
     expect(breadcrumbLabel('All folders')).toBe('Breadcrumb All folders');
     expect(breadcrumbLabel('Gallery')).toBe('Breadcrumb Gallery');
+  });
+});
+
+describe('sort labels (FR-017, contracts/maestro-polish.md#selectors)', () => {
+  it('gives every sort its option text', () => {
+    expect(FILE_SORTS.map(sortOptionText)).toEqual([
+      'Name (A–Z)',
+      'Name (Z–A)',
+      'Date (newest first)',
+      'Date (oldest first)',
+      'Size (largest first)',
+      'Size (smallest first)',
+    ]);
+  });
+
+  it('labels the sort drop-down with its current choice', () => {
+    expect(sortMenuLabel('NAME_ASC')).toBe('Sort: Name, A to Z');
+    expect(sortMenuLabel('NAME_DESC')).toBe('Sort: Name, Z to A');
+    expect(sortMenuLabel('TIME_DESC')).toBe('Sort: Date, newest first');
+    expect(sortMenuLabel('TIME_ASC')).toBe('Sort: Date, oldest first');
+    expect(sortMenuLabel('SIZE_DESC')).toBe('Sort: Size, largest first');
+    expect(sortMenuLabel('SIZE_ASC')).toBe('Sort: Size, smallest first');
+  });
+
+  it('keeps one table entry per sort, all distinct', () => {
+    expect(Object.keys(SORT_LABEL).sort()).toEqual([...FILE_SORTS].sort());
+    const options = FILE_SORTS.map(sortOptionText);
+    const menus = FILE_SORTS.map(sortMenuLabel);
+    expect(new Set(options).size).toBe(6);
+    expect(new Set(menus).size).toBe(6);
+  });
+});
+
+describe('viewMenuLabel', () => {
+  it('labels the view drop-down with its current choice', () => {
+    expect(viewMenuLabel('GALLERY')).toBe('View: Gallery');
+    expect(viewMenuLabel('LIST')).toBe('View: List');
   });
 });

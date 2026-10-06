@@ -112,7 +112,7 @@ export type SourceErrorCode =
  * same text; CloudSyncContractsParityTest fails on any drift.
  */
 export const SOURCE_ERROR_TEXT: Readonly<
-  Record<SourceErrorCode, {message: string; action: string}>
+  Record<SourceErrorCode, { message: string; action: string }>
 > = {
   SOURCE_OVERLAP: {
     message: 'This folder overlaps a folder you already added.',
@@ -149,7 +149,7 @@ export type ScanErrorCode =
  * NO_SOURCES_SELECTED action at the "Device folders" section (research R16).
  */
 export const SCAN_ERROR_TEXT: Readonly<
-  Record<ScanErrorCode, {message: string; action: string}>
+  Record<ScanErrorCode, { message: string; action: string }>
 > = {
   NO_SOURCES_SELECTED: {
     message: 'No folders are selected to check.',
@@ -177,7 +177,7 @@ export type ImageErrorCode = 'IMAGE_UNAVAILABLE';
  * checked by CloudSyncContractsParityTest.
  */
 export const IMAGE_ERROR_TEXT: Readonly<
-  Record<ImageErrorCode, {message: string; action: string}>
+  Record<ImageErrorCode, { message: string; action: string }>
 > = {
   IMAGE_UNAVAILABLE: {
     message: 'This image could not be read on the device.',
@@ -198,7 +198,7 @@ export type MvpErrorCode =
  * entries and checked by CloudSyncContractsParityTest.
  */
 export const MVP_ERROR_TEXT: Readonly<
-  Record<MvpErrorCode, {message: string; action: string}>
+  Record<MvpErrorCode, { message: string; action: string }>
 > = {
   TLS_UNTRUSTED: {
     message: "The server's certificate is not trusted by this phone.",
@@ -262,7 +262,7 @@ export interface CloudSyncError {
    * overlaps, carried as structured data so the alias never passes through
    * message redaction.
    */
-  conflictingSource?: {sourceId: string; alias: string} | null;
+  conflictingSource?: { sourceId: string; alias: string } | null;
   /**
    * saveRepository rejections (INVALID_QUERY) only: the form field to fix
    * (contract version 5). The rejected value is never echoed.
@@ -488,6 +488,23 @@ export interface BrowsePreferencesDto {
   listSort: FileSort;
 }
 
+/** First-run browse choices, also used for any unknown stored value (research R10). */
+export const DEFAULT_BROWSE_PREFERENCES: Readonly<BrowsePreferencesDto> = {
+  view: 'GALLERY',
+  gallerySort: 'TIME_DESC',
+  listSort: 'NAME_ASC',
+};
+
+/** Every `FileSort`, in the order the sort menu lists them. */
+export const FILE_SORTS: readonly FileSort[] = [
+  'NAME_ASC',
+  'NAME_DESC',
+  'TIME_DESC',
+  'TIME_ASC',
+  'SIZE_DESC',
+  'SIZE_ASC',
+];
+
 export interface BrowsePreferencesOk {
   contractVersion: number;
   status: 'ok';
@@ -626,7 +643,9 @@ export interface ListSelectableEntriesOk {
   selectable: SelectableEntriesDto;
 }
 
-export type ListSelectableEntriesResult = ListSelectableEntriesOk | OperationError;
+export type ListSelectableEntriesResult =
+  | ListSelectableEntriesOk
+  | OperationError;
 
 /**
  * `SelectableEntriesDto` as the `listSelectableEntries` wrapper returns it:
@@ -651,11 +670,11 @@ export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
 export interface DeletionPlanDto {
   planToken: string;
   /** Backed up, confirmed on the server. `bytes` sums known sizes only. */
-  toDelete: {count: number; bytes: number};
+  toDelete: { count: number; bytes: number };
   /** Not backed up, including files the re-check moved out of toDelete. */
-  unsynced: {count: number; bytes: number};
+  unsynced: { count: number; bytes: number };
   /** Unknown state, never deleted (D006). */
-  refused: {count: number; scanTooOld: number};
+  refused: { count: number; scanTooOld: number };
   /** SYNCED rows the re-check moved out of toDelete. */
   movedByRecheck: number;
   /** IDs that are not FILE rows of the snapshot. */
@@ -672,7 +691,9 @@ export interface PrepareLocalDeletionOk {
   plan: DeletionPlanDto;
 }
 
-export type PrepareLocalDeletionResult = PrepareLocalDeletionOk | OperationError;
+export type PrepareLocalDeletionResult =
+  | PrepareLocalDeletionOk
+  | OperationError;
 
 export type DeletionFailureReason =
   | 'ALREADY_GONE'
@@ -703,7 +724,9 @@ export interface ExecuteLocalDeletionOk {
   result: DeletionResultDto;
 }
 
-export type ExecuteLocalDeletionResult = ExecuteLocalDeletionOk | OperationError;
+export type ExecuteLocalDeletionResult =
+  | ExecuteLocalDeletionOk
+  | OperationError;
 
 export type ScanMode = 'FULL' | 'LOCAL_REFRESH';
 
@@ -718,7 +741,11 @@ export type ScanPhase =
   | 'FAILED'
   | 'ABORTED';
 
-export type ScanTerminalState = 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'ABORTED';
+export type ScanTerminalState =
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED'
+  | 'ABORTED';
 
 export interface ScanProgressDto {
   remoteDirectoriesListed: number;

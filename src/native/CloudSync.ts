@@ -1,9 +1,11 @@
-import {TurboModuleRegistry} from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
   CLOUD_SYNC_MODULE_NAME,
   CloudSyncErrorCode,
+  DEFAULT_BROWSE_PREFERENCES,
+  FILE_SORTS,
   REPOSITORY_FIELDS,
   clampImageEdge,
   clampPageSize,
@@ -30,6 +32,9 @@ import {
   type RepositorySummaryDto,
   type RepositorySummaryResult,
   type ActiveSnapshotDto,
+  type BrowsePreferencesDto,
+  type BrowsePreferencesResult,
+  type FileSort,
   type ScanMode,
   type ScanRunDto,
   type ScanStateResult,
@@ -40,7 +45,7 @@ import {
   type StartScanResult,
   type TestRepositoryResult,
 } from './CloudSyncContracts';
-import type {Spec} from './specs/NativeCloudSync';
+import type { Spec } from './specs/NativeCloudSync';
 
 /**
  * Typed client for the single generated CloudSync TurboModule. Presentation
@@ -72,7 +77,7 @@ export async function queryFiles(
 ): Promise<QueryFilesResult> {
   const result = await nativeModule().queryFiles(
     snapshotId,
-    {...querySpec, pageSize: clampPageSize(querySpec.pageSize)},
+    { ...querySpec, pageSize: clampPageSize(querySpec.pageSize) },
     pageToken ?? null,
   );
   return normalizePageResult(result);
@@ -87,7 +92,7 @@ export async function queryTreeChildren(
   const result = await nativeModule().queryTreeChildren(
     snapshotId,
     parentId,
-    {...querySpec, pageSize: clampPageSize(querySpec.pageSize)},
+    { ...querySpec, pageSize: clampPageSize(querySpec.pageSize) },
     pageToken ?? null,
   );
   return normalizePageResult(result);
@@ -97,7 +102,7 @@ function normalizePageResult(result: {
   contractVersion: number;
   status: string;
   page?: unknown;
-  error?: {code: string; message: string; action?: string | null} | null;
+  error?: { code: string; message: string; action?: string | null } | null;
 }): QueryFilesResult {
   // The generated bridge returns plain objects; re-tag them into the
   // discriminated union without trusting arbitrary fields.
@@ -145,13 +150,14 @@ type NativeEnvelope = {
   connection?: unknown;
   plan?: unknown;
   result?: unknown;
+  preferences?: unknown;
 };
 
 type NativeErrorShape = {
   code?: unknown;
   message?: unknown;
   action?: unknown;
-  conflictingSource?: {sourceId?: unknown; alias?: unknown} | null;
+  conflictingSource?: { sourceId?: unknown; alias?: unknown } | null;
   hostKeyChallenge?: unknown;
   field?: unknown;
 };
@@ -214,7 +220,7 @@ function normalizeOperationError(result: NativeEnvelope): OperationError {
       conflict != null &&
       typeof conflict.sourceId === 'string' &&
       typeof conflict.alias === 'string'
-        ? {sourceId: conflict.sourceId, alias: conflict.alias}
+        ? { sourceId: conflict.sourceId, alias: conflict.alias }
         : null,
   };
   // Kept only when typed: an unknown field name never reaches the form.
@@ -225,7 +231,7 @@ function normalizeOperationError(result: NativeEnvelope): OperationError {
   if (challenge != null) {
     error.hostKeyChallenge = challenge;
   }
-  return {contractVersion: contractVersionOf(result), status: 'error', error};
+  return { contractVersion: contractVersionOf(result), status: 'error', error };
 }
 
 export async function listSources(): Promise<ListSourcesResult> {
@@ -274,7 +280,7 @@ export async function removeSource(sourceId: string): Promise<OperationResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /**
@@ -312,8 +318,11 @@ export async function startScan(mode?: ScanMode): Promise<StartScanResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  if (typeof result.runId !== 'string' || typeof result.generation !== 'number') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+  if (
+    typeof result.runId !== 'string' ||
+    typeof result.generation !== 'number'
+  ) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
@@ -333,7 +342,7 @@ export async function cancelScan(runId: string): Promise<OperationResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /** The running run (else the latest one) and the active snapshot; safe to poll. */
@@ -363,7 +372,7 @@ function activeSnapshotOf(value: unknown): ActiveSnapshotDto | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const active = value as ActiveSnapshotDto & {configRevision?: unknown};
+  const active = value as ActiveSnapshotDto & { configRevision?: unknown };
   return {
     ...active,
     configRevision:
@@ -395,19 +404,19 @@ export async function getLocalImageHandle(
     result = null;
   }
   if (result == null || typeof result !== 'object') {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  const handle = result.handle as {uri?: unknown} | null | undefined;
+  const handle = result.handle as { uri?: unknown } | null | undefined;
   if (handle == null || typeof handle.uri !== 'string') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    handle: {uri: handle.uri},
+    handle: { uri: handle.uri },
   };
 }
 
@@ -428,24 +437,28 @@ export async function listSelectableEntries(
   }
   let result: NativeEnvelope | null | undefined;
   try {
-    result = (await module.listSelectableEntries(
-      snapshotId,
-      querySpec,
-    )) as NativeEnvelope | null | undefined;
+    result = (await module.listSelectableEntries(snapshotId, querySpec)) as
+      | NativeEnvelope
+      | null
+      | undefined;
   } catch {
     result = null;
   }
   if (result == null || typeof result !== 'object') {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const selectable = selectableEntriesOf(result.selectable);
   if (selectable == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', selectable};
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    selectable,
+  };
 }
 
 const FILE_STATUSES: readonly unknown[] = [
@@ -458,7 +471,10 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const {entryIds, sizes, statuses, images} = value as Record<string, unknown>;
+  const { entryIds, sizes, statuses, images } = value as Record<
+    string,
+    unknown
+  >;
   if (
     !Array.isArray(entryIds) ||
     !Array.isArray(sizes) ||
@@ -511,11 +527,11 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-function isTotals(value: unknown): value is {count: number; bytes: number} {
+function isTotals(value: unknown): value is { count: number; bytes: number } {
   if (value == null || typeof value !== 'object') {
     return false;
   }
-  const {count, bytes} = value as Record<string, unknown>;
+  const { count, bytes } = value as Record<string, unknown>;
   return isCount(count) && isCount(bytes);
 }
 
@@ -543,9 +559,9 @@ function deletionPlanOf(value: unknown): DeletionPlanDto | null {
   }
   return {
     planToken: v.planToken,
-    toDelete: {count: v.toDelete.count, bytes: v.toDelete.bytes},
-    unsynced: {count: v.unsynced.count, bytes: v.unsynced.bytes},
-    refused: {count: refused.count, scanTooOld: refused.scanTooOld},
+    toDelete: { count: v.toDelete.count, bytes: v.toDelete.bytes },
+    unsynced: { count: v.unsynced.count, bytes: v.unsynced.bytes },
+    refused: { count: refused.count, scanTooOld: refused.scanTooOld },
     movedByRecheck: v.movedByRecheck,
     missing: v.missing,
     unknownSizeCount: v.unknownSizeCount,
@@ -564,7 +580,7 @@ function deletionFailureOf(value: unknown): DeletionFailureDto | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const {entryId, name, reason} = value as Record<string, unknown>;
+  const { entryId, name, reason } = value as Record<string, unknown>;
   if (
     typeof entryId !== 'string' ||
     typeof name !== 'string' ||
@@ -572,7 +588,7 @@ function deletionFailureOf(value: unknown): DeletionFailureDto | null {
   ) {
     return null;
   }
-  return {entryId, name, reason: reason as DeletionFailureReason};
+  return { entryId, name, reason: reason as DeletionFailureReason };
 }
 
 function deletionResultOf(value: unknown): DeletionResultDto | null {
@@ -619,16 +635,16 @@ export async function prepareLocalDeletion(
     module,
   );
   if (result == null) {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const plan = deletionPlanOf(result.plan);
   if (plan == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', plan};
+  return { contractVersion: contractVersionOf(result), status: 'ok', plan };
 }
 
 /**
@@ -649,14 +665,14 @@ export async function executeLocalDeletion(
     module,
   );
   if (result == null) {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const deletion = deletionResultOf(result.result);
   if (deletion == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
@@ -677,9 +693,13 @@ export async function getRepositorySummary(): Promise<RepositorySummaryResult> {
   }
   const repository = repositorySummaryOf(result.repository);
   if (repository == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', repository};
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    repository,
+  };
 }
 
 function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
@@ -688,7 +708,9 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
   }
   const r = value as Record<string, unknown>;
   if (
-    (r.protocol !== 'FTP' && r.protocol !== 'SFTP' && r.protocol !== 'WEBDAV') ||
+    (r.protocol !== 'FTP' &&
+      r.protocol !== 'SFTP' &&
+      r.protocol !== 'WEBDAV') ||
     typeof r.host !== 'string' ||
     typeof r.port !== 'number' ||
     typeof r.username !== 'string' ||
@@ -739,7 +761,7 @@ export async function saveRepository(
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /**
@@ -760,7 +782,7 @@ export async function testRepository(): Promise<TestRepositoryResult> {
     | null
     | undefined;
   if (connection == null || typeof connection.entryCount !== 'number') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
@@ -777,11 +799,13 @@ export async function approveSftpHostKey(
   if (module == null) {
     return moduleUnavailable();
   }
-  const result = (await module.approveSftpHostKey(challengeId)) as NativeEnvelope;
+  const result = (await module.approveSftpHostKey(
+    challengeId,
+  )) as NativeEnvelope;
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /** Rejects the SFTP key of [challengeId]; nothing is trusted. */
@@ -792,11 +816,104 @@ export async function rejectSftpHostKey(
   if (module == null) {
     return moduleUnavailable();
   }
-  const result = (await module.rejectSftpHostKey(challengeId)) as NativeEnvelope;
+  const result = (await module.rejectSftpHostKey(
+    challengeId,
+  )) as NativeEnvelope;
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
+}
+
+const BROWSE_VIEWS: readonly unknown[] = [
+  'GALLERY',
+  'LIST',
+] satisfies BrowsePreferencesDto['view'][];
+
+function sortOr(value: unknown, fallback: FileSort): FileSort {
+  return (FILE_SORTS as readonly unknown[]).includes(value)
+    ? (value as FileSort)
+    : fallback;
+}
+
+/** Each field of [value] that is not a known value reads as its default (contract v6). */
+function browsePreferencesOf(value: unknown): BrowsePreferencesDto {
+  const fields =
+    value != null && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    view: BROWSE_VIEWS.includes(fields.view)
+      ? (fields.view as BrowsePreferencesDto['view'])
+      : DEFAULT_BROWSE_PREFERENCES.view,
+    gallerySort: sortOr(
+      fields.gallerySort,
+      DEFAULT_BROWSE_PREFERENCES.gallerySort,
+    ),
+    listSort: sortOr(fields.listSort, DEFAULT_BROWSE_PREFERENCES.listSort),
+  };
+}
+
+/**
+ * The remembered view mode and each view's sort (contract v6, research R10).
+ * Native never fails this read; an unknown or missing value reads as its
+ * default. A rejected call is INTERNAL_ERROR and a missing module
+ * NATIVE_MODULE_UNAVAILABLE, so the caller can fall back to the defaults.
+ */
+export async function getBrowsePreferences(): Promise<BrowsePreferencesResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.getBrowsePreferences()) as
+      | NativeEnvelope
+      | null
+      | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    preferences: browsePreferencesOf(result.preferences),
+  };
+}
+
+/** Stores the given fields only; an unknown value is INVALID_QUERY and stores nothing. */
+export async function setBrowsePreferences(
+  preferences: Partial<BrowsePreferencesDto>,
+): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const given = Object.fromEntries(
+    Object.entries(preferences).filter(([, value]) => value !== undefined),
+  );
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.setBrowsePreferences(given)) as
+      | NativeEnvelope
+      | null
+      | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 export const CloudSync = {
@@ -819,4 +936,6 @@ export const CloudSync = {
   testRepository,
   approveSftpHostKey,
   rejectSftpHostKey,
+  getBrowsePreferences,
+  setBrowsePreferences,
 };

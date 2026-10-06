@@ -442,12 +442,13 @@ class SnapshotStoreTest {
 
     val inD1 = store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, parentId = "d1"), null)
     // d2's descendants are all UNSYNCED, yet the directory is returned; f6 (UNKNOWN) is narrowed away.
-    assertEquals(listOf("d2", "f3"), inD1.entries.map { it.entryId })
+    // Name order is case-insensitive (`a.png` before `Old`, research R1).
+    assertEquals(listOf("f3", "d2"), inD1.entries.map { it.entryId })
     assertEquals(0L, inD1.entries.single { it.entryId == "d2" }.matchingFileCount)
 
     val top =
       store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.SYNCED, sourceId = "src-1"), null, topLevelOnly = true)
-    assertEquals(listOf("dLegacy", "d1", "f7"), top.entries.map { it.entryId })
+    assertEquals(listOf("f7", "dLegacy", "d1"), top.entries.map { it.entryId })
 
     val unsyncedTop =
       store.queryFilePage("snap-1", SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"), null, topLevelOnly = true)
@@ -578,17 +579,18 @@ class SnapshotStoreTest {
   }
 
   @Test
-  fun aPageTokenMintedUnderTheOldRulesIsStillAccepted() = runBlocking {
+  fun aPageTokenInTheContractFiveFormatIsAMismatch() = runBlocking<Unit> {
     seedBrowseFixture()
     val query = SnapshotQuery(view = FileView.GALLERY, sort = FileSort.NAME_ASC, pageSize = 2)
-    // The fingerprint did not change in contract 4, so a token written by 004 replays as-is.
-    assertEquals("f=ALL|v=GALLERY|s=NAME_ASC|src=|p=|q=", query.fingerprint())
-    val legacyToken =
-      PageTokenCodec.encode(snapshotId = "snap-1", queryFingerprint = query.fingerprint(), sortKey = "Case.png", lastEntryId = "f8")
+    // Contract 5 wrote `v1.<b64 snapshot>.<b64 fingerprint>.<b64 sortKey>.<b64 entryId>`; contract 6 has no
+    // `sortName` in it, so it cannot resume a page and is rejected (research R1).
+    val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+    fun enc(value: String) = b64.encodeToString(value.toByteArray())
+    val legacyToken = listOf("v1", enc("snap-1"), enc(query.fingerprint()), enc("Case.png"), enc("f8")).joinToString(".")
 
-    val page = store.queryFilePage("snap-1", query, legacyToken)
-
-    assertEquals(listOf("f3", "g1"), page.entries.map { it.entryId })
+    assertThrows(PageTokenMismatchException::class.java) {
+      runBlocking { store.queryFilePage("snap-1", query, legacyToken) }
+    }
   }
 
   @Test
@@ -958,6 +960,191 @@ class SnapshotStoreTest {
       store.recordDeletions("snap-1", batch.map { DeletionOutcome(it.toDeletionRow(), states.random(random), 9_000L) })
       assertDeletionInvariant("snap-1")
     }
+  }
+
+  // --- Feature 007 sort contract (research R1, R3; data-model "Sort keys and ordering") ---------------
+
+  @Test
+  fun eachSortOrdersByItsKeyThenSortNameThenEntryIdWithUnknownValuesLast() = runBlocking {
+    seedSortFixture()
+    val expected =
+      mapOf(
+        FileSort.NAME_ASC to listOf("s6", "s0", "s1", "s2", "s4", "s5", "s3", "s8", "s9"),
+        FileSort.NAME_DESC to listOf("s9", "s8", "s3", "s5", "s4", "s2", "s1", "s0", "s6"),
+        FileSort.SIZE_ASC to listOf("s9", "s2", "s5", "s3", "s6", "s0", "s1", "s4", "s8"),
+        FileSort.SIZE_DESC to listOf("s1", "s0", "s6", "s3", "s5", "s2", "s9", "s8", "s4"),
+        FileSort.TIME_ASC to listOf("s8", "s2", "s5", "s3", "s6", "s0", "s1", "s4", "s9"),
+        FileSort.TIME_DESC to listOf("s1", "s0", "s6", "s3", "s5", "s2", "s8", "s9", "s4"),
+      )
+    assertEquals(FileSort.entries.toSet(), expected.keys)
+    for ((sort, order) in expected) {
+      for (view in FileView.entries) {
+        val query = SnapshotQuery(view = view, sort = sort, sourceId = "src-1")
+        val whole = store.queryFilePage("snap-1", query.copy(pageSize = 200), null)
+        assertEquals("$sort $view", order, whole.entries.map { it.entryId })
+        // Two rows per page crosses every tie, so the keyset predicate must agree with the ORDER BY.
+        assertEquals("$sort $view paged", order, readAll(query.copy(pageSize = 2)).map { it.entryId })
+      }
+    }
+  }
+
+  @Test
+  fun nameSortsAreCaseAndAccentInsensitive() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        localNode("snap-1", "src-1", "e1", "Éclair"),
+        localNode("snap-1", "src-1", "b1", "Banana"),
+        localNode("snap-1", "src-1", "a1", "apple"),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val ascending = store.queryFilePage("snap-1", SnapshotQuery(sort = FileSort.NAME_ASC), null)
+    assertEquals(listOf("apple", "Banana", "Éclair"), ascending.entries.map { it.name })
+    val descending = store.queryFilePage("snap-1", SnapshotQuery(sort = FileSort.NAME_DESC), null)
+    assertEquals(listOf("Éclair", "Banana", "apple"), descending.entries.map { it.name })
+  }
+
+  @Test
+  fun unknownSizesAndTimesComeLastInBothDirections() = runBlocking {
+    seedSortFixture()
+    for (sort in listOf(FileSort.SIZE_ASC, FileSort.SIZE_DESC)) {
+      val rows = readAll(SnapshotQuery(sort = sort, sourceId = "src-1", pageSize = 3))
+      assertEquals("$sort", setOf("s4", "s8"), rows.takeLast(2).map { it.entryId }.toSet())
+      assertTrue("$sort", rows.dropLast(2).all { it.sizeBytes != null })
+    }
+    for (sort in listOf(FileSort.TIME_ASC, FileSort.TIME_DESC)) {
+      val rows = readAll(SnapshotQuery(sort = sort, sourceId = "src-1", pageSize = 3))
+      assertEquals("$sort", setOf("s4", "s9"), rows.takeLast(2).map { it.entryId }.toSet())
+      assertTrue("$sort", rows.dropLast(2).all { it.modifiedUtcMillis != null })
+    }
+  }
+
+  @Test
+  fun equalKeysBreakBySortNameThenEntryId() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        localNode("snap-1", "src-1", "z2", "Same.jpg", sizeBytes = 5L, modifiedUtcMillis = 7L),
+        localNode("snap-1", "src-1", "z1", "same.jpg", sizeBytes = 5L, modifiedUtcMillis = 7L),
+        localNode("snap-1", "src-1", "y1", "Alpha.jpg", sizeBytes = 5L, modifiedUtcMillis = 7L),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    for (sort in FileSort.entries) {
+      val ascending = sort.name.endsWith("_ASC")
+      val expected = if (ascending) listOf("y1", "z1", "z2") else listOf("z2", "z1", "y1")
+      assertEquals("$sort", expected, readAll(SnapshotQuery(sort = sort, pageSize = 1)).map { it.entryId })
+    }
+  }
+
+  @Test
+  fun kindNarrowsTheRowsAndBindsTheToken() = runBlocking<Unit> {
+    seedBrowseFixture()
+    val folder = SnapshotQuery(sourceId = "src-1")
+
+    val directories = store.queryFilePage("snap-1", folder.copy(kind = FileKind.DIRECTORY), null, topLevelOnly = true)
+    assertEquals(listOf("dLegacy", "d1"), directories.entries.map { it.entryId })
+    val files =
+      store.queryFilePage("snap-1", folder.copy(kind = FileKind.FILE, sort = FileSort.SIZE_DESC), null, topLevelOnly = true)
+    assertEquals(setOf("f1", "f7", "f8"), files.entries.map { it.entryId }.toSet())
+    assertTrue(files.entries.all { it.kind == "FILE" })
+    val both = store.queryFilePage("snap-1", folder, null, topLevelOnly = true)
+    assertEquals(5, both.entries.size)
+
+    val first = store.queryFilePage("snap-1", folder.copy(kind = FileKind.FILE, pageSize = 1), null, topLevelOnly = true)
+    assertThrows(PageTokenMismatchException::class.java) {
+      runBlocking {
+        store.queryFilePage("snap-1", folder.copy(kind = FileKind.DIRECTORY, pageSize = 1), first.nextPageToken, topLevelOnly = true)
+      }
+    }
+  }
+
+  @Test
+  fun pagingIsTotalForEachSortWhenRowsAreDeletedBetweenPages() = runBlocking {
+    for (sort in FileSort.entries) {
+      db.clearAllTables()
+      seedSortFixture()
+      val query = SnapshotQuery(sort = sort, sourceId = "src-1", pageSize = 3)
+      val order = readAll(query).map { it.entryId }
+
+      val first = store.queryFilePage("snap-1", query, null)
+      val read = first.entries.map { it.entryId }.toMutableList()
+      // Delete the row the cursor points at and one row not read yet (006 R14).
+      val cursorRow = read.last()
+      val unread = order[5]
+      val nodes = nodesById()
+      store.recordDeletions(
+        "snap-1",
+        listOf(outcome(nodes, cursorRow, DeletionState.DELETED), outcome(nodes, unread, DeletionState.DELETED)),
+      )
+      var token = first.nextPageToken
+      while (token != null) {
+        val page = store.queryFilePage("snap-1", query, token)
+        read += page.entries.map { it.entryId }
+        token = page.nextPageToken
+        assertTrue("$sort never ends", read.size <= order.size)
+      }
+      assertEquals("$sort", order - unread, read)
+    }
+  }
+
+  @Test
+  fun aPageIsClampedToTwoHundredRows() = runBlocking {
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes((0 until 250).map { localNode("snap-1", "src-1", "e$it", "file-$it.txt") })
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+
+    val first = store.queryFilePage("snap-1", SnapshotQuery(sort = FileSort.SIZE_DESC, pageSize = 10_000), null)
+    assertEquals(SnapshotQuery.MAX_PAGE_SIZE, first.entries.size)
+    val second = store.queryFilePage("snap-1", SnapshotQuery(sort = FileSort.SIZE_DESC, pageSize = 10_000), first.nextPageToken)
+    assertEquals(50, second.entries.size)
+    assertNull(second.nextPageToken)
+  }
+
+  /** Every page of [query] from the first, following the tokens. */
+  private suspend fun readAll(query: SnapshotQuery, topLevelOnly: Boolean = false): List<FileEntry> {
+    val rows = mutableListOf<FileEntry>()
+    var token: String? = null
+    do {
+      val page = store.queryFilePage("snap-1", query, token, topLevelOnly)
+      rows += page.entries
+      token = page.nextPageToken
+      assertTrue("$query never ends", rows.size <= 1_000)
+    } while (token != null)
+    return rows
+  }
+
+  /**
+   * Nine top-level image files in src-1 with ties on every key and unknown values (sortName in brackets):
+   * ```
+   * s0 apple.jpg  [1apple.jpg]   300  3000      s5 date.jpg   [1date.jpg]   100  1000
+   * s1 apple.jpg  [1apple.jpg]   300  3000      s6 _x.jpg     [0_x.jpg]     300  3000
+   * s2 Banana.jpg [1banana.jpg]  100  1000      s8 fig.jpg    [1fig.jpg]    NULL  500
+   * s3 Éclair.jpg [1eclair.jpg]  200  2000      s9 grape.jpg  [1grape.jpg]    50  NULL
+   * s4 cherry.jpg [1cherry.jpg] NULL  NULL
+   * ```
+   */
+  private suspend fun seedSortFixture() {
+    seedRun("run-1", 1L, "snap-1")
+    fun file(id: String, name: String, size: Long?, at: Long?) =
+      localNode("snap-1", "src-1", id, name, sizeBytes = size, modifiedUtcMillis = at, mimeType = "image/jpeg")
+    store.stageLocalNodes(
+      listOf(
+        file("s0", "apple.jpg", 300L, 3_000L),
+        file("s1", "apple.jpg", 300L, 3_000L),
+        file("s2", "Banana.jpg", 100L, 1_000L),
+        file("s3", "Éclair.jpg", 200L, 2_000L),
+        file("s4", "cherry.jpg", null, null),
+        file("s5", "date.jpg", 100L, 1_000L),
+        file("s6", "_x.jpg", 300L, 3_000L),
+        file("s8", "fig.jpg", null, 500L),
+        file("s9", "grape.jpg", 50L, null),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
   }
 
   /**

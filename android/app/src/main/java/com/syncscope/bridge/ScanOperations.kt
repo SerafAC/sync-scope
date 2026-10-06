@@ -7,6 +7,7 @@ import com.syncscope.image.ImageUnavailable
 import com.syncscope.image.LocalImageStore
 import com.syncscope.persistence.FileFilter
 import com.syncscope.persistence.FilePage
+import com.syncscope.persistence.FileKind
 import com.syncscope.persistence.FileSort
 import com.syncscope.persistence.FileView
 import com.syncscope.persistence.PageTokenMismatchException
@@ -348,6 +349,11 @@ class ScanOperations(
     val filter = enumField(spec, "filter", FileFilter.ALL) ?: return ParsedQuery.Invalid("filter")
     val view = enumField(spec, "view", FileView.LIST) ?: return ParsedQuery.Invalid("view")
     val sort = enumField(spec, "sort", FileSort.NAME_ASC) ?: return ParsedQuery.Invalid("sort")
+    // Optional, and null reads both kinds (contract version 6, research R3).
+    val kind =
+      if (!spec.hasKey("kind") || spec.isNull("kind")) null
+      // The key is present and non-null here, so the default is never taken.
+      else enumField(spec, "kind", FileKind.FILE) ?: return ParsedQuery.Invalid("kind")
     val search = stringField(spec, "search")
     if (search != null && search.length > SnapshotQuery.MAX_SEARCH_LENGTH) return ParsedQuery.Invalid("search")
     val pageSize =
@@ -363,6 +369,7 @@ class ScanOperations(
         parentId = stringField(spec, "parentId"),
         search = search,
         pageSize = pageSize,
+        kind = kind,
       )
     )
   }

@@ -1,10 +1,11 @@
-import {TurboModuleRegistry} from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
 import {
   CloudSync,
   approveSftpHostKey,
   cancelScan,
   executeLocalDeletion,
+  getBrowsePreferences,
   getLocalImageHandle,
   getRepositorySummary,
   getScanState,
@@ -16,18 +17,20 @@ import {
   rejectSftpHostKey,
   removeSource,
   saveRepository,
+  setBrowsePreferences,
   startScan,
   testRepository,
 } from '../CloudSync';
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
+  DEFAULT_BROWSE_PREFERENCES,
   GALLERY_THUMBNAIL_EDGE_PX,
   IMAGE_ERROR_TEXT,
   LOCAL_IMAGE_MAX_EDGE_PX,
   LOCAL_IMAGE_MIN_EDGE_PX,
   MAX_PAGE_SIZE,
 } from '../CloudSyncContracts';
-import type {Spec} from '../specs/NativeCloudSync';
+import type { Spec } from '../specs/NativeCloudSync';
 
 describe('CloudSync typed wrapper', () => {
   afterEach(() => {
@@ -43,21 +46,44 @@ describe('CloudSync typed wrapper', () => {
     const queryFilesMock = jest.fn().mockResolvedValue({
       contractVersion: 1,
       status: 'ok',
-      page: {entries: [], nextPageToken: null, counts: null},
+      page: { entries: [], nextPageToken: null, counts: null },
     });
     jest
       .spyOn(TurboModuleRegistry, 'get')
-      .mockReturnValue({queryFiles: queryFilesMock} as unknown as Spec);
+      .mockReturnValue({ queryFiles: queryFilesMock } as unknown as Spec);
 
     await queryFiles(
       'snapshot-1',
-      {filter: 'ALL', view: 'LIST', sort: 'NAME_ASC', pageSize: 100000},
+      { filter: 'ALL', view: 'LIST', sort: 'NAME_ASC', pageSize: 100000 },
       null,
     );
 
     expect(queryFilesMock).toHaveBeenCalledWith(
       'snapshot-1',
-      expect.objectContaining({pageSize: MAX_PAGE_SIZE}),
+      expect.objectContaining({ pageSize: MAX_PAGE_SIZE }),
+      null,
+    );
+  });
+
+  it('passes kind through to the native query (contract v6)', async () => {
+    const queryFilesMock = jest.fn().mockResolvedValue({
+      contractVersion: 6,
+      status: 'ok',
+      page: { entries: [], nextPageToken: null, counts: null },
+    });
+    jest
+      .spyOn(TurboModuleRegistry, 'get')
+      .mockReturnValue({ queryFiles: queryFilesMock } as unknown as Spec);
+
+    await queryFiles(
+      'snapshot-1',
+      { filter: 'ALL', view: 'LIST', sort: 'SIZE_DESC', kind: 'FILE' },
+      null,
+    );
+
+    expect(queryFilesMock).toHaveBeenCalledWith(
+      'snapshot-1',
+      expect.objectContaining({ sort: 'SIZE_DESC', kind: 'FILE' }),
       null,
     );
   });
@@ -141,7 +167,7 @@ describe('CloudSync source wrappers', () => {
       mockNative({
         listSources: jest
           .fn()
-          .mockResolvedValue({contractVersion: 2, status: 'ok'}),
+          .mockResolvedValue({ contractVersion: 2, status: 'ok' }),
       });
 
       const result = await listSources();
@@ -157,7 +183,7 @@ describe('CloudSync source wrappers', () => {
         listSources: jest.fn().mockResolvedValue({
           contractVersion: 2,
           status: 'error',
-          error: {code: 'INTERNAL_ERROR', message: 'Unexpected failure.'},
+          error: { code: 'INTERNAL_ERROR', message: 'Unexpected failure.' },
         }),
       });
 
@@ -179,7 +205,7 @@ describe('CloudSync source wrappers', () => {
       mockNative({
         listSources: jest
           .fn()
-          .mockResolvedValue({contractVersion: 2, status: 'error'}),
+          .mockResolvedValue({ contractVersion: 2, status: 'error' }),
       });
 
       const result = await listSources();
@@ -199,7 +225,7 @@ describe('CloudSync source wrappers', () => {
         outcome: 'ADDED',
         source: cameraSource,
       });
-      mockNative({launchSourcePicker: launch});
+      mockNative({ launchSourcePicker: launch });
 
       const result = await launchSourcePicker();
 
@@ -219,7 +245,7 @@ describe('CloudSync source wrappers', () => {
         outcome: 'REGRANTED',
         source: cameraSource,
       });
-      mockNative({launchSourcePicker: launch});
+      mockNative({ launchSourcePicker: launch });
 
       const result = await launchSourcePicker('source-1');
 
@@ -256,7 +282,7 @@ describe('CloudSync source wrappers', () => {
             message: 'This folder overlaps a folder you already added.',
             action:
               'Pick a folder that is not inside, or around, an existing one.',
-            conflictingSource: {sourceId: 'source-1', alias: 'Camera'},
+            conflictingSource: { sourceId: 'source-1', alias: 'Camera' },
           },
         }),
       });
@@ -271,7 +297,7 @@ describe('CloudSync source wrappers', () => {
           message: 'This folder overlaps a folder you already added.',
           action:
             'Pick a folder that is not inside, or around, an existing one.',
-          conflictingSource: {sourceId: 'source-1', alias: 'Camera'},
+          conflictingSource: { sourceId: 'source-1', alias: 'Camera' },
         },
       });
     });
@@ -303,13 +329,13 @@ describe('CloudSync source wrappers', () => {
     it('normalises a plain ok envelope', async () => {
       const remove = jest
         .fn()
-        .mockResolvedValue({contractVersion: 2, status: 'ok', error: null});
-      mockNative({removeSource: remove});
+        .mockResolvedValue({ contractVersion: 2, status: 'ok', error: null });
+      mockNative({ removeSource: remove });
 
       const result = await removeSource('source-1');
 
       expect(remove).toHaveBeenCalledWith('source-1');
-      expect(result).toEqual({contractVersion: 2, status: 'ok'});
+      expect(result).toEqual({ contractVersion: 2, status: 'ok' });
     });
 
     it('normalises SOURCE_NOT_FOUND', async () => {
@@ -400,7 +426,7 @@ describe('CloudSync scan wrappers', () => {
         generation: 4,
         stray: 'ignored',
       });
-      mockNative({startScan: native});
+      mockNative({ startScan: native });
 
       const result = await startScan();
 
@@ -420,7 +446,7 @@ describe('CloudSync scan wrappers', () => {
         runId: 'run-2',
         generation: 5,
       });
-      mockNative({startScan: native});
+      mockNative({ startScan: native });
 
       await startScan('LOCAL_REFRESH');
       await startScan('FULL');
@@ -430,7 +456,7 @@ describe('CloudSync scan wrappers', () => {
     });
 
     it('normalises an error envelope', async () => {
-      mockNative({startScan: jest.fn().mockResolvedValue(scanInProgress)});
+      mockNative({ startScan: jest.fn().mockResolvedValue(scanInProgress) });
 
       expect(await startScan('FULL')).toEqual({
         contractVersion: 3,
@@ -448,7 +474,7 @@ describe('CloudSync scan wrappers', () => {
       mockNative({
         startScan: jest
           .fn()
-          .mockResolvedValue({contractVersion: 3, status: 'ok'}),
+          .mockResolvedValue({ contractVersion: 3, status: 'ok' }),
       });
 
       const result = await startScan();
@@ -464,8 +490,8 @@ describe('CloudSync scan wrappers', () => {
     it('passes the run ID and normalises ok', async () => {
       const native = jest
         .fn()
-        .mockResolvedValue({contractVersion: 3, status: 'ok'});
-      mockNative({cancelScan: native});
+        .mockResolvedValue({ contractVersion: 3, status: 'ok' });
+      mockNative({ cancelScan: native });
 
       expect(await cancelScan('run-1')).toEqual({
         contractVersion: 3,
@@ -522,7 +548,7 @@ describe('CloudSync scan wrappers', () => {
           contractVersion: 5,
           status: 'ok',
           run: null,
-          active: {...activeSnapshot, configRevision: 7},
+          active: { ...activeSnapshot, configRevision: 7 },
         }),
       });
 
@@ -541,7 +567,7 @@ describe('CloudSync scan wrappers', () => {
             contractVersion: 5,
             status: 'ok',
             run: null,
-            active: {...activeSnapshot, configRevision},
+            active: { ...activeSnapshot, configRevision },
           }),
         });
 
@@ -558,7 +584,7 @@ describe('CloudSync scan wrappers', () => {
       mockNative({
         getScanState: jest
           .fn()
-          .mockResolvedValue({contractVersion: 3, status: 'ok'}),
+          .mockResolvedValue({ contractVersion: 3, status: 'ok' }),
       });
 
       expect(await getScanState()).toEqual({
@@ -574,7 +600,7 @@ describe('CloudSync scan wrappers', () => {
         getScanState: jest.fn().mockResolvedValue({
           contractVersion: 3,
           status: 'error',
-          error: {code: 'INTERNAL_ERROR', message: 'Something failed.'},
+          error: { code: 'INTERNAL_ERROR', message: 'Something failed.' },
         }),
       });
 
@@ -615,20 +641,20 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     const native = jest.fn().mockResolvedValue({
       contractVersion: v,
       status: 'ok',
-      handle: {uri: 'file:///cache/thumbnails/e-1_256.jpg', stray: 'ignored'},
+      handle: { uri: 'file:///cache/thumbnails/e-1_256.jpg', stray: 'ignored' },
       stray: 'ignored',
     });
-    mockNative({getLocalImageHandle: native});
+    mockNative({ getLocalImageHandle: native });
 
     const result = await getLocalImageHandle('snap-1', 'e-1', {
       maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX,
     });
 
-    expect(native).toHaveBeenCalledWith('snap-1', 'e-1', {maxEdgePx: 256});
+    expect(native).toHaveBeenCalledWith('snap-1', 'e-1', { maxEdgePx: 256 });
     expect(result).toEqual({
       contractVersion: v,
       status: 'ok',
-      handle: {uri: 'file:///cache/thumbnails/e-1_256.jpg'},
+      handle: { uri: 'file:///cache/thumbnails/e-1_256.jpg' },
     });
   });
 
@@ -645,7 +671,7 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     });
 
     expect(
-      await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256}),
+      await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 256 }),
     ).toEqual({
       contractVersion: v,
       status: 'error',
@@ -659,18 +685,23 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
   });
 
   it.each([
-    ['an ok envelope without a handle', {contractVersion: v, status: 'ok'}],
+    ['an ok envelope without a handle', { contractVersion: v, status: 'ok' }],
     [
       'an ok envelope with a non-string uri',
-      {contractVersion: v, status: 'ok', handle: {uri: 42}},
+      { contractVersion: v, status: 'ok', handle: { uri: 42 } },
     ],
-    ['an error envelope without a code', {contractVersion: v, status: 'error'}],
+    [
+      'an error envelope without a code',
+      { contractVersion: v, status: 'error' },
+    ],
     ['a null result', null],
     ['a non-object result', 'ok'],
   ])('turns %s into a typed INTERNAL_ERROR', async (_label, envelope) => {
-    mockNative({getLocalImageHandle: jest.fn().mockResolvedValue(envelope)});
+    mockNative({ getLocalImageHandle: jest.fn().mockResolvedValue(envelope) });
 
-    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+    const result = await getLocalImageHandle('snap-1', 'e-1', {
+      maxEdgePx: 256,
+    });
 
     expect(result.status).toBe('error');
     if (result.status === 'error') {
@@ -684,7 +715,9 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
       getLocalImageHandle: jest.fn().mockRejectedValue(new Error('boom')),
     });
 
-    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+    const result = await getLocalImageHandle('snap-1', 'e-1', {
+      maxEdgePx: 256,
+    });
 
     expect(result.status).toBe('error');
     if (result.status === 'error') {
@@ -696,27 +729,29 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     const native = jest.fn().mockResolvedValue({
       contractVersion: v,
       status: 'ok',
-      handle: {uri: 'file:///cache/thumbnails/e-1.jpg'},
+      handle: { uri: 'file:///cache/thumbnails/e-1.jpg' },
     });
-    mockNative({getLocalImageHandle: native});
+    mockNative({ getLocalImageHandle: native });
 
-    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 10});
-    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 9999});
-    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: Number.NaN});
-    await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 512.7});
+    await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 10 });
+    await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 9999 });
+    await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: Number.NaN });
+    await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 512.7 });
 
     expect(native.mock.calls.map(call => call[2])).toEqual([
-      {maxEdgePx: LOCAL_IMAGE_MIN_EDGE_PX},
-      {maxEdgePx: LOCAL_IMAGE_MAX_EDGE_PX},
-      {maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX},
-      {maxEdgePx: 512},
+      { maxEdgePx: LOCAL_IMAGE_MIN_EDGE_PX },
+      { maxEdgePx: LOCAL_IMAGE_MAX_EDGE_PX },
+      { maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX },
+      { maxEdgePx: 512 },
     ]);
   });
 
   it('resolves NATIVE_MODULE_UNAVAILABLE when the module is missing', async () => {
     jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
 
-    const result = await getLocalImageHandle('snap-1', 'e-1', {maxEdgePx: 256});
+    const result = await getLocalImageHandle('snap-1', 'e-1', {
+      maxEdgePx: 256,
+    });
 
     expect(result.status).toBe('error');
     if (result.status === 'error') {
@@ -731,7 +766,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
   });
 
   const v = CLOUD_SYNC_CONTRACT_VERSION;
-  const gallery = {filter: 'ALL', view: 'GALLERY', sort: 'NAME_ASC'} as const;
+  const gallery = { filter: 'ALL', view: 'GALLERY', sort: 'NAME_ASC' } as const;
   const wire = {
     entryIds: ['e-1', 'e-2', 'e-3'],
     sizes: [70, -1, 0],
@@ -743,9 +778,9 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     const native = jest.fn().mockResolvedValue({
       contractVersion: v,
       status: 'ok',
-      selectable: {...wire, stray: 'ignored'},
+      selectable: { ...wire, stray: 'ignored' },
     });
-    mockNative({listSelectableEntries: native});
+    mockNative({ listSelectableEntries: native });
 
     const result = await listSelectableEntries('snap-1', gallery);
 
@@ -767,7 +802,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
       listSelectableEntries: jest.fn().mockResolvedValue({
         contractVersion: v,
         status: 'ok',
-        selectable: {entryIds: [], sizes: [], statuses: [], images: []},
+        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
       }),
     });
 
@@ -805,20 +840,29 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
   });
 
   it.each([
-    ['sizes shorter than entryIds', {...wire, sizes: [70, -1]}],
-    ['statuses longer than entryIds', {...wire, statuses: [...wire.statuses, 'SYNCED']}],
-    ['images shorter than entryIds', {...wire, images: [true]}],
-    ['a missing array', {entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses}],
-    ['an unknown status', {...wire, statuses: ['SYNCED', 'DELETED', 'UNSYNCED']}],
-    ['a non-numeric size', {...wire, sizes: [70, '1', 0]}],
-    ['a non-string entryId', {...wire, entryIds: ['e-1', 2, 'e-3']}],
-    ['a non-boolean image flag', {...wire, images: [true, 1, false]}],
+    ['sizes shorter than entryIds', { ...wire, sizes: [70, -1] }],
+    [
+      'statuses longer than entryIds',
+      { ...wire, statuses: [...wire.statuses, 'SYNCED'] },
+    ],
+    ['images shorter than entryIds', { ...wire, images: [true] }],
+    [
+      'a missing array',
+      { entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses },
+    ],
+    [
+      'an unknown status',
+      { ...wire, statuses: ['SYNCED', 'DELETED', 'UNSYNCED'] },
+    ],
+    ['a non-numeric size', { ...wire, sizes: [70, '1', 0] }],
+    ['a non-string entryId', { ...wire, entryIds: ['e-1', 2, 'e-3'] }],
+    ['a non-boolean image flag', { ...wire, images: [true, 1, false] }],
     ['no selectable payload', undefined],
   ])('turns %s into a typed INTERNAL_ERROR', async (_label, selectable) => {
     mockNative({
       listSelectableEntries: jest
         .fn()
-        .mockResolvedValue({contractVersion: v, status: 'ok', selectable}),
+        .mockResolvedValue({ contractVersion: v, status: 'ok', selectable }),
     });
 
     const result = await listSelectableEntries('snap-1', gallery);
@@ -874,8 +918,10 @@ describe('CloudSync repository wrappers (contract v5)', () => {
   };
 
   it('saveRepository sends webdavHttps and the typed password', async () => {
-    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
-    mockNative({saveRepository: save});
+    const save = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: 5, status: 'ok' });
+    mockNative({ saveRepository: save });
 
     const result = await saveRepository(
       {
@@ -889,7 +935,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
       'secret',
     );
 
-    expect(result).toEqual({contractVersion: 5, status: 'ok'});
+    expect(result).toEqual({ contractVersion: 5, status: 'ok' });
     expect(save).toHaveBeenCalledWith(
       {
         protocol: 'WEBDAV',
@@ -904,16 +950,18 @@ describe('CloudSync repository wrappers (contract v5)', () => {
   });
 
   it('saveRepository sends webdavHttps false when absent and null for an empty password', async () => {
-    const save = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
-    mockNative({saveRepository: save});
+    const save = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: 5, status: 'ok' });
+    mockNative({ saveRepository: save });
 
     await saveRepository(
-      {protocol: 'FTP', host: 'h', port: 21, username: 'u', remoteRoot: '/'},
+      { protocol: 'FTP', host: 'h', port: 21, username: 'u', remoteRoot: '/' },
       '',
     );
 
     expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({webdavHttps: false}),
+      expect.objectContaining({ webdavHttps: false }),
       null,
     );
   });
@@ -933,7 +981,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
       .fn()
       .mockResolvedValueOnce(error('port'))
       .mockResolvedValueOnce(error('webdavHttps'));
-    mockNative({saveRepository: save});
+    mockNative({ saveRepository: save });
     const config = {
       protocol: 'FTP' as const,
       host: 'h',
@@ -956,23 +1004,31 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     mockNative({
       getRepositorySummary: jest
         .fn()
-        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: summary}),
+        .mockResolvedValue({
+          contractVersion: 5,
+          status: 'ok',
+          repository: summary,
+        }),
     });
 
     const result = await getRepositorySummary();
 
-    expect(result).toEqual({contractVersion: 5, status: 'ok', repository: summary});
+    expect(result).toEqual({
+      contractVersion: 5,
+      status: 'ok',
+      repository: summary,
+    });
   });
 
   it('getRepositorySummary defaults a missing revision and webdavHttps', async () => {
-    const older: Record<string, unknown> = {...summary};
+    const older: Record<string, unknown> = { ...summary };
     delete older.revision;
     delete older.webdavHttps;
     mockNative({
       getRepositorySummary: jest.fn().mockResolvedValue({
         contractVersion: 5,
         status: 'ok',
-        repository: {...older, protocol: 'SFTP', hostKeyTrusted: false},
+        repository: { ...older, protocol: 'SFTP', hostKeyTrusted: false },
       }),
     });
 
@@ -1010,12 +1066,18 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     mockNative({
       getRepositorySummary: jest
         .fn()
-        .mockResolvedValue({contractVersion: 5, status: 'ok', repository: {}}),
+        .mockResolvedValue({
+          contractVersion: 5,
+          status: 'ok',
+          repository: {},
+        }),
     });
 
     const result = await getRepositorySummary();
 
-    expect(result.status === 'error' && result.error.code).toBe('INTERNAL_ERROR');
+    expect(result.status === 'error' && result.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
   });
 
   it('testRepository returns the connection and carries a host-key challenge', async () => {
@@ -1038,7 +1100,7 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     mockNative({
       testRepository: jest
         .fn()
-        .mockResolvedValueOnce({contractVersion: 5, status: 'ok', connection})
+        .mockResolvedValueOnce({ contractVersion: 5, status: 'ok', connection })
         .mockResolvedValueOnce({
           contractVersion: 5,
           status: 'error',
@@ -1054,16 +1116,20 @@ describe('CloudSync repository wrappers (contract v5)', () => {
     const ok = await testRepository();
     const prompt = await testRepository();
 
-    expect(ok).toEqual({contractVersion: 5, status: 'ok', connection});
+    expect(ok).toEqual({ contractVersion: 5, status: 'ok', connection });
     expect(prompt.status === 'error' && prompt.error.hostKeyChallenge).toEqual(
       challenge,
     );
   });
 
   it('approve and reject pass the challenge ID through', async () => {
-    const approve = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
-    const reject = jest.fn().mockResolvedValue({contractVersion: 5, status: 'ok'});
-    mockNative({approveSftpHostKey: approve, rejectSftpHostKey: reject});
+    const approve = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: 5, status: 'ok' });
+    const reject = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: 5, status: 'ok' });
+    mockNative({ approveSftpHostKey: approve, rejectSftpHostKey: reject });
 
     expect((await approveSftpHostKey('c-1')).status).toBe('ok');
     expect((await rejectSftpHostKey('c-2')).status).toBe('ok');
@@ -1102,9 +1168,9 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
   const v = CLOUD_SYNC_CONTRACT_VERSION;
   const plan = {
     planToken: 'tok-1',
-    toDelete: {count: 2, bytes: 300},
-    unsynced: {count: 1, bytes: 0},
-    refused: {count: 3, scanTooOld: 1},
+    toDelete: { count: 2, bytes: 300 },
+    unsynced: { count: 1, bytes: 0 },
+    refused: { count: 3, scanTooOld: 1 },
     movedByRecheck: 1,
     missing: 0,
     unknownSizeCount: 1,
@@ -1113,7 +1179,7 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
   const deletion = {
     deleted: 1,
     freedBytes: 120,
-    failures: [{entryId: 'e-2', name: 'beach.png', reason: 'ALREADY_GONE'}],
+    failures: [{ entryId: 'e-2', name: 'beach.png', reason: 'ALREADY_GONE' }],
     removedEntryIds: ['e-1', 'e-2'],
   };
 
@@ -1121,14 +1187,14 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
     const native = jest.fn().mockResolvedValue({
       contractVersion: v,
       status: 'ok',
-      plan: {...plan, stray: 1},
+      plan: { ...plan, stray: 1 },
     });
-    mockNative({prepareLocalDeletion: native});
+    mockNative({ prepareLocalDeletion: native });
 
     const result = await prepareLocalDeletion('snap-1', ['e-1', 'e-2']);
 
     expect(native).toHaveBeenCalledWith('snap-1', ['e-1', 'e-2']);
-    expect(result).toEqual({contractVersion: v, status: 'ok', plan});
+    expect(result).toEqual({ contractVersion: v, status: 'ok', plan });
   });
 
   it('prepare normalises a typed error and keeps a host-key action', async () => {
@@ -1157,21 +1223,21 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
   });
 
   it.each([
-    ['an empty token', {...plan, planToken: ''}],
-    ['a missing token', {...plan, planToken: undefined}],
-    ['toDelete without bytes', {...plan, toDelete: {count: 2}}],
-    ['negative unsynced bytes', {...plan, unsynced: {count: 1, bytes: -1}}],
-    ['refused without scanTooOld', {...plan, refused: {count: 3}}],
-    ['a fractional movedByRecheck', {...plan, movedByRecheck: 1.5}],
-    ['a string missing', {...plan, missing: '0'}],
-    ['no unknownSizeCount', {...plan, unknownSizeCount: undefined}],
-    ['a NaN listing time', {...plan, remoteListedAtMillis: Number.NaN}],
+    ['an empty token', { ...plan, planToken: '' }],
+    ['a missing token', { ...plan, planToken: undefined }],
+    ['toDelete without bytes', { ...plan, toDelete: { count: 2 } }],
+    ['negative unsynced bytes', { ...plan, unsynced: { count: 1, bytes: -1 } }],
+    ['refused without scanTooOld', { ...plan, refused: { count: 3 } }],
+    ['a fractional movedByRecheck', { ...plan, movedByRecheck: 1.5 }],
+    ['a string missing', { ...plan, missing: '0' }],
+    ['no unknownSizeCount', { ...plan, unknownSizeCount: undefined }],
+    ['a NaN listing time', { ...plan, remoteListedAtMillis: Number.NaN }],
     ['no plan payload', undefined],
   ])('prepare turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
     mockNative({
       prepareLocalDeletion: jest
         .fn()
-        .mockResolvedValue({contractVersion: v, status: 'ok', plan: bad}),
+        .mockResolvedValue({ contractVersion: v, status: 'ok', plan: bad }),
     });
 
     const result = await prepareLocalDeletion('snap-1', ['e-1']);
@@ -1188,7 +1254,7 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
       status: 'ok',
       result: deletion,
     });
-    mockNative({executeLocalDeletion: native});
+    mockNative({ executeLocalDeletion: native });
 
     const result = await executeLocalDeletion('tok-1', true);
 
@@ -1222,27 +1288,27 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
   });
 
   it.each([
-    ['a missing deleted count', {...deletion, deleted: undefined}],
-    ['negative freedBytes', {...deletion, freedBytes: -5}],
-    ['failures that are not an array', {...deletion, failures: {}}],
+    ['a missing deleted count', { ...deletion, deleted: undefined }],
+    ['negative freedBytes', { ...deletion, freedBytes: -5 }],
+    ['failures that are not an array', { ...deletion, failures: {} }],
     [
       'an unknown failure reason',
       {
         ...deletion,
-        failures: [{entryId: 'e', name: 'n', reason: 'SKIPPED_UNSYNCED'}],
+        failures: [{ entryId: 'e', name: 'n', reason: 'SKIPPED_UNSYNCED' }],
       },
     ],
     [
       'a failure without a name',
-      {...deletion, failures: [{entryId: 'e', reason: 'FAILED'}]},
+      { ...deletion, failures: [{ entryId: 'e', reason: 'FAILED' }] },
     ],
-    ['a non-string removed ID', {...deletion, removedEntryIds: ['e-1', 2]}],
+    ['a non-string removed ID', { ...deletion, removedEntryIds: ['e-1', 2] }],
     ['no result payload', undefined],
   ])('execute turns %s into a typed INTERNAL_ERROR', async (_label, bad) => {
     mockNative({
       executeLocalDeletion: jest
         .fn()
-        .mockResolvedValue({contractVersion: v, status: 'ok', result: bad}),
+        .mockResolvedValue({ contractVersion: v, status: 'ok', result: bad }),
     });
 
     const result = await executeLocalDeletion('tok-1', false);
@@ -1281,6 +1347,141 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
     );
     expect(executed.status === 'error' && executed.error.code).toBe(
       'NATIVE_MODULE_UNAVAILABLE',
+    );
+  });
+});
+
+describe('CloudSync browse preference wrappers (contract v6)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('has the first-run defaults of research R10', () => {
+    expect(DEFAULT_BROWSE_PREFERENCES).toEqual({
+      view: 'GALLERY',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    });
+  });
+
+  it('getBrowsePreferences returns the stored values', async () => {
+    mockNative({
+      getBrowsePreferences: jest.fn().mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: {
+          view: 'LIST',
+          gallerySort: 'SIZE_DESC',
+          listSort: 'SIZE_ASC',
+        },
+      }),
+    });
+
+    await expect(getBrowsePreferences()).resolves.toEqual({
+      contractVersion: 6,
+      status: 'ok',
+      preferences: {
+        view: 'LIST',
+        gallerySort: 'SIZE_DESC',
+        listSort: 'SIZE_ASC',
+      },
+    });
+  });
+
+  it('getBrowsePreferences reads each unknown or missing value as its default', async () => {
+    const cases: unknown[] = [
+      { view: 'TREE', gallerySort: 'COLOUR_ASC', listSort: 7 },
+      {},
+      null,
+      'GALLERY',
+    ];
+    for (const preferences of cases) {
+      mockNative({
+        getBrowsePreferences: jest
+          .fn()
+          .mockResolvedValue({ contractVersion: 6, status: 'ok', preferences }),
+      });
+      const result = await getBrowsePreferences();
+      expect(result).toEqual({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: DEFAULT_BROWSE_PREFERENCES,
+      });
+      jest.restoreAllMocks();
+    }
+
+    mockNative({
+      getBrowsePreferences: jest.fn().mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: { view: 'LIST', gallerySort: 'NOPE' },
+      }),
+    });
+    const partial = await getBrowsePreferences();
+    expect(partial.status === 'ok' && partial.preferences).toEqual({
+      view: 'LIST',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    });
+  });
+
+  it('getBrowsePreferences returns a typed error instead of throwing', async () => {
+    mockNative({
+      getBrowsePreferences: jest.fn().mockRejectedValue(new Error('boom')),
+    });
+    const rejected = await getBrowsePreferences();
+    expect(rejected.status).toBe('error');
+    if (rejected.status === 'error') {
+      expect(rejected.error.code).toBe('INTERNAL_ERROR');
+    }
+
+    jest.restoreAllMocks();
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+    const missing = await getBrowsePreferences();
+    expect(missing.status === 'error' && missing.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
+  });
+
+  it('setBrowsePreferences sends only the given fields', async () => {
+    const set = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: 6, status: 'ok' });
+    mockNative({ setBrowsePreferences: set });
+
+    const result = await setBrowsePreferences({ listSort: 'SIZE_DESC' });
+    await setBrowsePreferences({ view: 'LIST', gallerySort: undefined });
+
+    expect(result).toEqual({ contractVersion: 6, status: 'ok' });
+    expect(set).toHaveBeenNthCalledWith(1, { listSort: 'SIZE_DESC' });
+    expect(set).toHaveBeenNthCalledWith(2, { view: 'LIST' });
+  });
+
+  it('setBrowsePreferences normalises INVALID_QUERY and a rejected call', async () => {
+    mockNative({
+      setBrowsePreferences: jest.fn().mockResolvedValue({
+        contractVersion: 6,
+        status: 'error',
+        error: {
+          code: 'INVALID_QUERY',
+          message: 'The browse preference view is invalid.',
+          action: 'Pick the option again.',
+          field: 'view',
+        },
+      }),
+    });
+    const invalid = await setBrowsePreferences({ view: 'LIST' });
+    expect(invalid.status === 'error' && invalid.error.code).toBe(
+      'INVALID_QUERY',
+    );
+
+    jest.restoreAllMocks();
+    mockNative({
+      setBrowsePreferences: jest.fn().mockRejectedValue(new Error('x')),
+    });
+    const rejected = await setBrowsePreferences({ view: 'LIST' });
+    expect(rejected.status === 'error' && rejected.error.code).toBe(
+      'INTERNAL_ERROR',
     );
   });
 });

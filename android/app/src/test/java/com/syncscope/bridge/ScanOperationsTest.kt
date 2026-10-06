@@ -295,7 +295,8 @@ class ScanOperationsTest {
     assertEquals(listOf("inner.jpg"), names(children.getMap("page")!!.getArray("entries")!!))
 
     val all = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!
-    assertEquals(listOf("Photos", "inner.jpg", "top.txt"), names(all.getArray("entries")!!))
+    // Name order is case-insensitive (contract version 6, research R1).
+    assertEquals(listOf("inner.jpg", "Photos", "top.txt"), names(all.getArray("entries")!!))
     assertNotNull(all.getArray("counts"))
   }
 
@@ -319,6 +320,42 @@ class ScanOperationsTest {
     val invalid = ops.queryFiles(snapshotId, JavaOnlyMap.of("filter", "SIDEWAYS"), null)
     assertEquals("INVALID_QUERY", invalid.getMap("error")!!.getString("code"))
     assertTrue(invalid.isNull("page"))
+  }
+
+  @Test
+  fun theQuerySpecAcceptsTheSizeSortsAndAKind() = runBlocking<Unit> {
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Photos"),
+      localDir("d2", "archive"),
+      localFile("d3", "small.txt", size = 5L),
+      localFile("d4", "Big.txt", size = 500L),
+      localFile("d5", "unknown.txt", size = null),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    suspend fun read(vararg pairs: Any?): ReadableMap = ops.queryTreeChildren(snapshotId, null, JavaOnlyMap.of(*pairs), null)
+    fun namesOf(result: ReadableMap): List<String> {
+      assertEquals("ok", result.getString("status"))
+      return names(result.getMap("page")!!.getArray("entries")!!)
+    }
+
+    assertEquals(listOf("Big.txt", "small.txt", "unknown.txt"), namesOf(read("sort", "SIZE_DESC", "kind", "FILE")))
+    assertEquals(listOf("small.txt", "Big.txt", "unknown.txt"), namesOf(read("sort", "SIZE_ASC", "kind", "FILE")))
+    assertEquals(listOf("archive", "Photos"), namesOf(read("sort", "NAME_ASC", "kind", "DIRECTORY")))
+    // No kind, or a null one, reads both.
+    assertEquals(5, namesOf(read("sort", "NAME_ASC")).size)
+    assertEquals(5, namesOf(read("sort", "NAME_ASC", "kind", null)).size)
+
+    for (kind in listOf<Any>("FOLDER", "file", 1.0)) {
+      val invalid = read("sort", "NAME_ASC", "kind", kind)
+      val error = assertError(invalid, "INVALID_QUERY")
+      assertEquals("$kind", "The query kind is invalid.", error.getString("message"))
+      assertTrue(invalid.isNull("page"))
+    }
+    assertEquals("The query sort is invalid.", assertError(read("sort", "SIZE_SIDEWAYS"), "INVALID_QUERY").getString("message"))
   }
 
   @Test
