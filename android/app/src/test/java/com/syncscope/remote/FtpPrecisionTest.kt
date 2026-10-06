@@ -231,7 +231,7 @@ class FtpPrecisionTest {
   @Test
   fun remoteFailureCrossesTheBridgeWithItsCodeAndConfiguredValuesScrubbed() {
     val envelope = CloudSyncEnvelope({ JavaOnlyMap() }, { JavaOnlyArray() })
-    val config = RemoteConfig(RemoteProtocol.FTP, "nas", 32120, "dave", "/Photos")
+    val config = RemoteConfig(RemoteProtocol.FTP, "nas", 32120, "dave", listOf("/Photos"))
     val e =
       RemoteClientException(
         CloudSyncErrorCode.DIRECTORY_UNREADABLE,

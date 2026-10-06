@@ -291,7 +291,8 @@ interface RemoteAmbiguityDao {
 
   /**
    * LOCAL_REFRESH: copies the remote-scope rows ([RemoteAmbiguityEntity.SCOPE_REMOTE_DIRECTORY],
-   * [RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING]) of [fromSnapshotId] into [toSnapshotId]. `SOURCE` rows
+   * [RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING], [RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER]) of
+   * [fromSnapshotId] into [toSnapshotId], so an unread-folder warning survives the refresh. `SOURCE` rows
    * are recomputed by the refresh, never copied. Remote-scope rows carry no match key, so none dangles;
    * `remotePath` is copied with the row.
    */
@@ -300,7 +301,7 @@ interface RemoteAmbiguityDao {
     INSERT INTO remote_ambiguity (snapshotId, scope, sourceId, entryId, matchKeyId, reason, remotePath)
     SELECT :toSnapshotId, scope, sourceId, entryId, NULL, reason, remotePath
       FROM remote_ambiguity
-     WHERE snapshotId = :fromSnapshotId AND scope IN ('REMOTE_DIRECTORY', 'REMOTE_LISTING')
+     WHERE snapshotId = :fromSnapshotId AND scope IN ('REMOTE_DIRECTORY', 'REMOTE_LISTING', 'REMOTE_FOLDER')
      ORDER BY id
     """
   )

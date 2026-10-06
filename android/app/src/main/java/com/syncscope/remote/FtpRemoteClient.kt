@@ -83,7 +83,7 @@ class FtpRemoteClient(
   override suspend fun discoverPrecision(): PrecisionFinding =
     withContext(dispatcher) {
       val client = session()
-      val root = config?.rootPath ?: "/"
+      val root = config?.rootPaths?.firstOrNull() ?: "/"
       guarded(client) {
         val (directory, samples) =
           findSampleDirectory(client, root) ?: return@guarded FtpPrecision.NO_SAMPLE

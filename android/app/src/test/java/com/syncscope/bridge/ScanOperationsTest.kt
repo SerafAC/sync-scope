@@ -232,6 +232,7 @@ class ScanOperationsTest {
     assertEquals("unknown is the UNKNOWN file count", 2.0, summary.getDouble("unknown"), 0.0)
     assertEquals(1.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
     assertTrue(summary.isNull("remoteListingInterruptedBy"))
+    assertEquals("every folder was read", 0, summary.getArray("unreadRemoteFolders")!!.size())
     val skipped = summary.getArray("skippedSources")!!
     assertEquals(1, skipped.size())
     assertEquals("src-2", skipped.getMap(0)!!.getString("sourceId"))
@@ -268,6 +269,31 @@ class ScanOperationsTest {
 
     assertEquals("CONNECTION_LOST", summary.getString("remoteListingInterruptedBy"))
     assertEquals(0.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
+  }
+
+  @Test
+  fun unreadRemoteFoldersListsTheUnreadFoldersInFolderOrder() = runBlocking<Unit> {
+    h.configure(roots = listOf("/a", "/b", "/c"))
+    h.addSource("src-1")
+    h.remote.fail("/a", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    h.remote.dir("/b", remoteDir("restricted"), remoteFile("exact.txt", 22))
+    h.remote.fail("/b/restricted", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.remote.fail("/c", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "elsewhere.txt", size = 3))
+    ops.start(null)
+    coordinator.awaitIdle()
+
+    val active = ops.state().getMap("active")!!
+    val summary = active.getMap("summary")!!
+
+    assertEquals("INCOMPLETE", active.getString("coverage"))
+    val unread = summary.getArray("unreadRemoteFolders")!!
+    assertEquals(listOf("/a", "/c"), (0 until unread.size()).map { unread.getString(it) })
+    assertEquals("non-root directories only", 1.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
+    assertTrue(summary.isNull("remoteListingInterruptedBy"))
+    assertEquals(1.0, summary.getDouble("synced"), 0.0)
+    assertEquals(0.0, summary.getDouble("unsynced"), 0.0)
+    assertEquals(1.0, summary.getDouble("unknown"), 0.0)
   }
 
   // --- queryFiles / queryTreeChildren ---

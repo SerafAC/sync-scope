@@ -81,6 +81,31 @@ class MatcherTest {
   }
 
   @Test
+  fun rule4WithAnUnreadFolderIsRemoteFolderUnreadNeverUnsynced() {
+    val folderGap = ListingState.Incomplete(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, folderUnread = true)
+    assertEquals(
+      Verdict(FileStatus.UNKNOWN, FileIssueCode.REMOTE_FOLDER_UNREAD.name),
+      Matcher.verdict(local("only-here.txt", 19, MTIME), PRECISION, index(), folderGap),
+    )
+    // A subdirectory gap seen first does not hide the unread folder: the folder decides the issue.
+    val mixed = ListingState.Incomplete(CloudSyncErrorCode.DIRECTORY_UNREADABLE, folderUnread = true)
+    assertEquals(
+      Verdict(FileStatus.UNKNOWN, FileIssueCode.REMOTE_FOLDER_UNREAD.name),
+      Matcher.verdict(local("only-here.txt", 19, MTIME), PRECISION, index(remote("other.txt", 1, MTIME)), mixed),
+    )
+  }
+
+  @Test
+  fun anUnreadFolderKeepsExactMatchesSyncedAndRule3First() {
+    val folderGap = ListingState.Incomplete(CloudSyncErrorCode.DIRECTORY_UNREADABLE, folderUnread = true)
+    assertEquals(SYNCED, Matcher.verdict(local("exact.txt", 22, MTIME), PRECISION, index(remote("exact.txt", 22, MTIME)), folderGap))
+    assertEquals(
+      Verdict(FileStatus.UNKNOWN, FileIssueCode.REMOTE_MTIME_MISSING.name),
+      Matcher.verdict(local("exact.txt", 22, MTIME), PRECISION, index(remote("exact.txt", 22, null)), folderGap),
+    )
+  }
+
+  @Test
   fun rule5NoKeyOnACompleteListingIsUnsynced() {
     val index = index(remote("exact.txt", 22, MTIME))
     assertEquals(

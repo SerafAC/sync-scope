@@ -236,6 +236,12 @@ data class RemoteAmbiguityEntity(
     /** The remote walk stopped after its retries; `reason` is the error code. */
     const val SCOPE_REMOTE_LISTING: String = "REMOTE_LISTING"
 
+    /**
+     * A configured remote folder could not be listed after the retry policy (research R14); `reason` is the
+     * error code and `remotePath` the folder. Only configured folders are recorded, never walked paths (D011).
+     */
+    const val SCOPE_REMOTE_FOLDER: String = "REMOTE_FOLDER"
+
     /** A source was skipped or failed mid-walk; `reason` is `GRANT_REVOKED`, `STORAGE_MISSING` or `LOCAL_UNAVAILABLE`. */
     const val SCOPE_SOURCE: String = "SOURCE"
   }

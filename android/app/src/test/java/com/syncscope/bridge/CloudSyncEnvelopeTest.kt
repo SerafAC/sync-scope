@@ -253,6 +253,51 @@ class CloudSyncEnvelopeTest {
     assertEquals("remoteRoot", body.getString("field"))
   }
 
+  // --- remoteRoots field errors and the per-folder test (contract version 6, research R11, R12) ---
+
+  @Test
+  fun fieldIndexIsWrittenOnlyWhenGiven() {
+    val with =
+      envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad.", field = "remoteRoots", fieldIndex = 2).getMap("error")!!
+    assertEquals(2, with.getInt("fieldIndex"))
+
+    val without = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad.", field = "port").getMap("error")!!
+    assertFalse(without.hasKey("fieldIndex"))
+  }
+
+  @Test
+  fun aRemoteRootsErrorNamesTheFieldTheIndexAndKeepsTheConfiguredFolder() {
+    val body =
+      envelope
+        .remoteRootsError(1, "This folder is the same as, inside or around /scan/clean/a.")
+        .getMap("error")!!
+
+    assertEquals("INVALID_QUERY", body.getString("code"))
+    assertEquals("remoteRoots", body.getString("field"))
+    assertEquals(1, body.getInt("fieldIndex"))
+    assertEquals("This folder is the same as, inside or around /scan/clean/a.", body.getString("message"))
+    assertEquals("Correct the folder and save again.", body.getString("action"))
+  }
+
+  @Test
+  fun aFolderResultCarriesItsPathAndEitherACountOrARedactedError() {
+    val read = envelope.folderResult("/photos", 12, null)
+    assertEquals("/photos", read.getString("path"))
+    assertEquals(12, read.getInt("entryCount"))
+    assertTrue(read.isNull("error"))
+
+    val failure =
+      RemoteClientException(CloudSyncErrorCode.DIRECTORY_UNREADABLE, "alice may not list /backup on nas.example.test", "Ask the admin.")
+    val failed = envelope.folderResult("/backup", null, failure, sensitive = listOf("alice", "/backup"))
+    assertEquals("/backup", failed.getString("path"))
+    assertTrue(failed.isNull("entryCount"))
+    val error = failed.getMap("error")!!
+    assertEquals("DIRECTORY_UNREADABLE", error.getString("code"))
+    assertEquals("Ask the admin.", error.getString("action"))
+    val message = error.getString("message")!!
+    for (secret in listOf("alice", "/backup", "nas.example.test")) assertFalse(message, message.contains(secret))
+  }
+
   // --- deletion envelopes (contracts/cloudsync-mvp.md, T066) ---
 
   @Test

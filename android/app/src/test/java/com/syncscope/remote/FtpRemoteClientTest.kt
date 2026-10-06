@@ -10,6 +10,7 @@ import org.apache.commons.net.ftp.FTPClientConfig
 import org.apache.commons.net.ftp.FTPFile
 import org.apache.commons.net.ftp.parser.DefaultFTPFileEntryParserFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,6 +75,18 @@ class FtpRemoteClientTest {
 
     assertEquals(PrecisionBasis.LIST_GRANULARITY, finding.basis)
     assertEquals(60_000L, finding.precisionMillis)
+  }
+
+  @Test
+  fun precisionDiscoverySamplesTheFirstFolder() {
+    val listing = arrayOf(parseList("-rw-r--r--    1 1000     1000           23 Jan 01 10:30 recent.txt"))
+    val fake = FakeFtp(listings = mapOf("/first" to listing))
+
+    val finding = runBlocking { connected(fake, roots = listOf("/first", "/second")).discoverPrecision() }
+
+    assertEquals(PrecisionBasis.LIST_GRANULARITY, finding.basis)
+    assertTrue(fake.listCalls.toString(), "LIST /first" in fake.listCalls)
+    assertFalse(fake.listCalls.toString(), fake.listCalls.any { it.contains("/second") })
   }
 
   // --- Empty-LIST CWD probe (decision log 2026-09-30) ---
@@ -158,7 +171,7 @@ class FtpRemoteClientTest {
     }
   }
 
-  private fun connected(fake: FakeFtp): FtpRemoteClient {
+  private fun connected(fake: FakeFtp, roots: List<String> = listOf("/")): FtpRemoteClient {
     val client = FtpRemoteClient(dispatcher = Dispatchers.Unconfined, clientFactory = { fake })
     val config =
       RemoteConfig(
@@ -166,7 +179,7 @@ class FtpRemoteClientTest {
         host = "127.0.0.1",
         port = 21,
         username = "u",
-        rootPath = "/",
+        rootPaths = roots,
       )
     runBlocking { client.connect(config, "p".toCharArray()) }
     return client

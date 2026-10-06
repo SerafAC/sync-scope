@@ -170,6 +170,105 @@ class ScanEngineTest {
     assertTrue(h.remote.created.all { it.closed })
   }
 
+  // --- several remote folders (research R14) ---
+
+  @Test
+  fun everyFolderIsWalkedAndMatched() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("one.jpg", 1))
+    h.remote.dir("/b", remoteFile("two.jpg", 2))
+    h.enumerator.files("src-1", localFile("d1", "one.jpg", size = 1), localFile("d2", "two.jpg", size = 2), localFile("d3", "new.jpg", size = 3))
+
+    val snapshotId = (h.scan() as ScanOutcome.Published).snapshotId
+
+    assertEquals("COMPLETE", h.db.snapshotDao().byId(snapshotId)!!.coverage)
+    val nodes = h.nodes(snapshotId).associateBy { it.name }
+    assertVerdict(nodes, "one.jpg", "SYNCED", null)
+    assertVerdict(nodes, "two.jpg", "SYNCED", null)
+    assertVerdict(nodes, "new.jpg", "UNSYNCED", null)
+    assertTrue(h.store.ambiguities(snapshotId).isEmpty())
+    assertEquals(listOf("/a", "/b"), h.remote.created.first().connectedTo!!.rootPaths)
+  }
+
+  @Test
+  fun anUnreadFolderPublishesAnIncompleteSnapshotWithRemoteFolderUnreadVerdicts() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "elsewhere.txt", size = 3))
+
+    val outcome = h.scan()
+
+    val snapshotId = (outcome as ScanOutcome.Published).snapshotId
+    assertEquals(snapshotId, h.store.activeSnapshot()!!.snapshotId)
+    assertEquals("INCOMPLETE", h.db.snapshotDao().byId(snapshotId)!!.coverage)
+    val nodes = h.nodes(snapshotId).associateBy { it.name }
+    assertVerdict(nodes, "exact.txt", "SYNCED", null)
+    assertVerdict(nodes, "elsewhere.txt", "UNKNOWN", "REMOTE_FOLDER_UNREAD")
+    assertFalse("never UNSYNCED (D006)", nodes.values.any { it.status == "UNSYNCED" })
+    val gap = h.store.ambiguities(snapshotId).single()
+    assertEquals(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, gap.scope)
+    assertEquals("DIRECTORY_UNREADABLE", gap.reason)
+    assertEquals("/b", gap.remotePath)
+  }
+
+  @Test
+  fun withoutAnUnreadFolderTheFirstFailureCodeStays() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteDir("restricted"))
+    h.remote.fail("/a/restricted", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.remote.dir("/b", remoteFile("exact.txt", 22))
+    h.enumerator.files("src-1", localFile("d1", "only-here.txt", size = 3))
+
+    val snapshotId = (h.scan() as ScanOutcome.Published).snapshotId
+
+    assertVerdict(h.nodes(snapshotId).associateBy { it.name }, "only-here.txt", "UNKNOWN", "DIRECTORY_UNREADABLE")
+    assertNull(h.store.ambiguities(snapshotId).single().remotePath)
+  }
+
+  @Test
+  fun everyFolderFailingFailsTheRunWithTheFirstFoldersCodeAndKeepsThePreviousSnapshot() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.dir("/b")
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22))
+    val previous = (h.scan() as ScanOutcome.Published).snapshotId
+
+    h.remote.fail("/a", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    val outcome = h.scan()
+
+    assertEquals(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, (outcome as ScanOutcome.Failed).code)
+    assertEquals(previous, h.store.activeSnapshot()!!.snapshotId)
+  }
+
+  @Test
+  fun refreshCopiesRemoteFolderGapsWithTheirPathsAndKeepsTheVerdicts() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22))
+    h.scan()
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "brand-new.txt", size = 4))
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    val gaps = h.store.ambiguities(refreshed)
+    assertEquals(
+      listOf(Triple(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, "DIRECTORY_UNREADABLE", "/b")),
+      gaps.map { Triple(it.scope, it.reason, it.remotePath) },
+    )
+    assertEquals("INCOMPLETE", h.db.snapshotDao().byId(refreshed)!!.coverage)
+    val nodes = h.nodes(refreshed).associateBy { it.name }
+    assertVerdict(nodes, "exact.txt", "SYNCED", null)
+    assertVerdict(nodes, "brand-new.txt", "UNKNOWN", "REMOTE_FOLDER_UNREAD")
+  }
+
   @Test
   fun connectFailureFailsTheRunWithTheTypedCodeAndARedactedMessage() = runBlocking {
     h.configure()

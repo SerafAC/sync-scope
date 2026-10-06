@@ -26,8 +26,11 @@ class RemoteSession(initial: RemoteClient, private val connect: suspend () -> Re
   }
 }
 
-/** A remote-scope gap in the listing; [reason] never carries a path or host (D011). */
-data class WalkAmbiguity(val scope: String, val reason: CloudSyncErrorCode) {
+/**
+ * A remote-scope gap in the listing; [reason] never carries a path or host (D011). [remotePath] is set for
+ * `REMOTE_FOLDER` gaps only, and is always a configured folder, never a path found by the walk.
+ */
+data class WalkAmbiguity(val scope: String, val reason: CloudSyncErrorCode, val remotePath: String? = null) {
   fun toEntity(snapshotId: String): RemoteAmbiguityEntity =
     RemoteAmbiguityEntity(
       id = 0,
@@ -37,12 +40,16 @@ data class WalkAmbiguity(val scope: String, val reason: CloudSyncErrorCode) {
       entryId = null,
       matchKeyId = null,
       reason = reason.name,
+      remotePath = remotePath,
     )
 
   companion object {
     fun remoteDirectory(reason: CloudSyncErrorCode) = WalkAmbiguity(RemoteAmbiguityEntity.SCOPE_REMOTE_DIRECTORY, reason)
 
     fun remoteListing(reason: CloudSyncErrorCode) = WalkAmbiguity(RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING, reason)
+
+    fun remoteFolder(reason: CloudSyncErrorCode, folder: String) =
+      WalkAmbiguity(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, reason, folder)
   }
 }
 
@@ -50,7 +57,10 @@ data class WalkProgress(val directoriesListed: Int, val filesListed: Long)
 
 data class WalkResult(val index: MatchIndex, val listing: ListingState, val ambiguities: List<WalkAmbiguity>)
 
-/** The root itself could not be listed: the run ends FAILED with [code] (FR-006, clarification 4). */
+/**
+ * No configured folder could be listed: the run ends FAILED with the first folder's [code] (FR-006,
+ * clarification 4, research R14).
+ */
 class RootListingFailed(val code: CloudSyncErrorCode, cause: RemoteClientException) : Exception(cause.message, cause)
 
 /**
@@ -58,7 +68,11 @@ class RootListingFailed(val code: CloudSyncErrorCode, cause: RemoteClientExcepti
  * was listed in (R11); directories are queued and `OTHER` entries are never followed; hidden entries are
  * included (R8). Every listing goes through [listWithRetry].
  *
- * - The root failing after the retry policy raises [RootListingFailed].
+ * - Every configured folder ([roots][walk]) is queued first, in order, so they are all listed before any
+ *   subdirectory (research R14).
+ * - A folder failing after the retry policy, with any code, adds a `REMOTE_FOLDER` gap carrying the folder
+ *   and the walk continues with the others. Every folder failing raises [RootListingFailed] with the first
+ *   folder's code, so with one folder this is the old "root failed" rule.
  * - A non-root [CloudSyncErrorCode.DIRECTORY_UNREADABLE] / [CloudSyncErrorCode.SERVER_ERROR] /
  *   [CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND] adds a `REMOTE_DIRECTORY` gap and the walk continues.
  * - Transient codes reconnect and retry the same directory, [MAX_ATTEMPTS] attempts in total with
@@ -69,23 +83,39 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
 
   suspend fun walk(
     session: RemoteSession,
-    root: String,
+    roots: List<String>,
     precisionMillis: Long,
     onProgress: (WalkProgress) -> Unit = {},
   ): WalkResult {
+    require(roots.isNotEmpty()) { "at least one remote folder is required" }
     val index = MatchIndex(precisionMillis)
     val ambiguities = mutableListOf<WalkAmbiguity>()
-    val pending = ArrayDeque<String>().apply { add(root) }
+    val pending = ArrayDeque(roots)
+    // The roots are at the head of the queue, so the first roots.size iterations list exactly them.
+    var rootsLeft = roots.size
+    var firstRootFailure: RemoteClientException? = null
+    var rootFailures = 0
     var directoriesListed = 0
     var filesListed = 0L
 
     while (pending.isNotEmpty()) {
       val directory = pending.removeFirst()
+      val isRoot = rootsLeft > 0
+      if (isRoot) rootsLeft--
       val entries =
         try {
           listWithRetry(session, directory, delay)
         } catch (failure: RemoteClientException) {
-          if (directory == root) throw RootListingFailed(failure.code, failure)
+          if (isRoot) {
+            if (firstRootFailure == null) firstRootFailure = failure
+            rootFailures++
+            if (rootFailures == roots.size) {
+              val first = checkNotNull(firstRootFailure)
+              throw RootListingFailed(first.code, first)
+            }
+            ambiguities += WalkAmbiguity.remoteFolder(failure.code, directory)
+            continue
+          }
           if (failure.code in DIRECTORY_CODES) {
             ambiguities += WalkAmbiguity.remoteDirectory(failure.code)
             continue
@@ -107,7 +137,10 @@ class RemoteWalker(private val delay: suspend (Long) -> Unit = { kotlinx.corouti
       onProgress(WalkProgress(directoriesListed, filesListed))
     }
 
-    val listing = ambiguities.firstOrNull()?.let { ListingState.Incomplete(it.reason) } ?: ListingState.Complete
+    val listing =
+      ambiguities.firstOrNull()?.let { first ->
+        ListingState.Incomplete(first.reason, folderUnread = ambiguities.any { it.scope == RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER })
+      } ?: ListingState.Complete
     return WalkResult(index, listing, ambiguities.toList())
   }
 

@@ -423,7 +423,7 @@ class ProtocolConnectInstrumentedTest {
 
     fun path(relative: String): String = if (root.endsWith("/")) "$root$relative" else "$root/$relative"
 
-    fun config(user: String) = RemoteConfig(protocol, HOST, port, user, root)
+    fun config(user: String) = RemoteConfig(protocol, HOST, port, user, listOf(root))
 
     fun configMap(user: String): JavaOnlyMap =
       JavaOnlyMap().apply {
@@ -431,7 +431,7 @@ class ProtocolConnectInstrumentedTest {
         putString("host", HOST)
         putDouble("port", port.toDouble())
         putString("username", user)
-        putString("remoteRoot", root)
+        putArray("remoteRoots", JavaOnlyArray.of(root))
       }
   }
 

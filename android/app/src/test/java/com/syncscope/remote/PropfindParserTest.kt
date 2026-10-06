@@ -239,6 +239,29 @@ class PropfindParserTest {
   }
 
   @Test
+  fun oneReadableFolderIsEnoughToConnectWithSeveralFolders() = runBlocking {
+    val notFound = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+    val partly =
+      FakeDavServer(listOf(optionsOk(), notFound, multistatusReply(multistatus(response("/other/", collection = true)))))
+    server = partly
+    val client = WebDavRemoteClient()
+
+    assertEquals(ConnectOutcome.Connected, client.connect(config(partly.port, listOf("/webdav", "/other")), "pw".toCharArray()))
+    assertEquals(listOf("OPTIONS", "PROPFIND", "PROPFIND"), partly.requests.map { it.method })
+    assertEquals(listOf("/webdav/", "/webdav/", "/other/"), partly.requests.map { it.path })
+    client.close()
+    partly.close()
+
+    val none = FakeDavServer(listOf(optionsOk(), notFound, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"))
+    server = none
+    val failure =
+      assertThrows(RemoteClientException::class.java) {
+        runBlocking { WebDavRemoteClient().connect(config(none.port, listOf("/webdav", "/other")), "pw".toCharArray()) }
+      }
+    assertEquals("the first folder's code", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, failure.code)
+  }
+
+  @Test
   fun unconnectedClientReportsConnectionLostAndRejectsOtherProtocols() = runBlocking {
     val client = WebDavRemoteClient()
 
@@ -257,7 +280,8 @@ class PropfindParserTest {
 
   private fun parse(xml: String): List<PropfindResponse> = PropfindParser.parse(xml.byteInputStream())
 
-  private fun config(port: Int) = RemoteConfig(RemoteProtocol.WEBDAV, "127.0.0.1", port, "dave", "/webdav")
+  private fun config(port: Int, roots: List<String> = listOf("/webdav")) =
+    RemoteConfig(RemoteProtocol.WEBDAV, "127.0.0.1", port, "dave", roots)
 
   private fun optionsOk() = "HTTP/1.1 200 OK\r\nDAV: 1,2\r\nContent-Length: 0\r\n\r\n"
 

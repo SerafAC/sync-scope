@@ -161,8 +161,8 @@ class RepositoryConfigBoundaryTest {
         "port" to config(port = 21.5),
         "username" to config(username = "  "),
         "username" to config(username = "bad\nname"),
-        "remoteRoot" to config(root = "relative/dir"),
-        "remoteRoot" to config(root = "/photos/../etc"),
+        "remoteRoots" to config(root = "bad\nfolder"),
+        "remoteRoots" to config(root = "/photos/../etc"),
       )
     for ((field, map) in cases) {
       val error = call { module.saveRepository(map, PASSWORD, it) }.getMap("error")!!
@@ -201,14 +201,45 @@ class RepositoryConfigBoundaryTest {
   }
 
   @Test
-  fun defaultsApplyForOmittedPortAndRoot() = runBlocking {
-    val map = JavaOnlyMap.of("protocol", "ftp", "host", HOST, "username", USER)
+  fun anOmittedPortTakesTheDefaultButTheFoldersAreRequired() = runBlocking {
+    val map = JavaOnlyMap.of("protocol", "ftp", "host", HOST, "username", USER, "remoteRoots", JavaOnlyArray.of("/"))
 
     call { module.saveRepository(map, PASSWORD, it) }
 
     val row = db.repositoryConfigDao().get()!!
     assertEquals(21, row.port)
-    assertEquals("/", RemoteRoots.decode(row.remoteRoots).first())
+    assertEquals(listOf("/"), RemoteRoots.decode(row.remoteRoots))
+
+    val noFolders = JavaOnlyMap.of("protocol", "ftp", "host", HOST, "username", USER)
+    val error = call { module.saveRepository(noFolders, PASSWORD, it) }.getMap("error")!!
+    assertEquals("remoteRoots", error.getString("field"))
+    assertEquals(0, error.getInt("fieldIndex"))
+    assertEquals("Add at least one remote folder.", error.getString("message"))
+  }
+
+  @Test
+  fun severalFoldersAreSavedNormalizedAndReturnedInOrderWithoutThePassword() = runBlocking {
+    val result = call { module.saveRepository(config(roots = listOf("/photos", "backup/phone/")), PASSWORD, it) }
+
+    assertEquals("ok", result.getString("status"))
+    assertEquals(listOf("/photos", "/backup/phone"), RemoteRoots.decode(db.repositoryConfigDao().get()!!.remoteRoots))
+    val repo = call { module.getRepositorySummary(it) }.getMap("repository")!!
+    val roots = repo.getArray("remoteRoots")!!
+    assertEquals(listOf("/photos", "/backup/phone"), (0 until roots.size()).map { roots.getString(it) })
+    assertFalse(repo.toHashMap().toString().contains(PASSWORD))
+    assertNoPasswordInRoom()
+  }
+
+  @Test
+  fun anOverlappingFolderIsRefusedAtItsIndexAndNothingIsStored() = runBlocking {
+    val error =
+      call { module.saveRepository(config(roots = listOf("/photos", "/photos/2024")), PASSWORD, it) }.getMap("error")!!
+
+    assertEquals("remoteRoots", error.getString("field"))
+    assertEquals(1, error.getInt("fieldIndex"))
+    assertEquals("This folder is the same as, inside or around /photos.", error.getString("message"))
+    assertNull(db.repositoryConfigDao().get())
+    assertFalse(credentials.isCurrent(1L))
   }
 
   // --- getRepositorySummary ---
@@ -280,7 +311,7 @@ class RepositoryConfigBoundaryTest {
     call { module.saveRepository(config(), PASSWORD, it) }
     nextClient = {
       FakeClient(
-        listFailure =
+        connectFailure =
           RemoteClientException(CloudSyncErrorCode.AUTH_FAILED, "Login to $HOST as $USER refused", "Check the password."),
       )
     }
@@ -294,6 +325,35 @@ class RepositoryConfigBoundaryTest {
     assertTrue(client.closed)
     assertTrue(client.passwordArray!!.all { it == '\u0000' })
     assertEquals(0L, db.repositoryConfigDao().get()!!.precisionMillis)
+  }
+
+  @Test
+  fun aFolderThatCannotBeListedIsReportedPerFolderAndTheTestPasses() = runBlocking {
+    call { module.saveRepository(config(roots = listOf("/photos", "/gone")), PASSWORD, it) }
+    nextClient = {
+      FakeClient(
+        failingDirectory = "/gone",
+        listFailure =
+          RemoteClientException(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, "No /gone on $HOST for $USER", "Check the folder."),
+      )
+    }
+
+    val result = call { module.testRepository(it) }
+
+    assertEquals("ok", result.getString("status"))
+    val connection = result.getMap("connection")!!
+    assertEquals(2, connection.getInt("entryCount"))
+    val folders = connection.getArray("folders")!!
+    assertEquals("/photos", folders.getMap(0)!!.getString("path"))
+    assertEquals(2, folders.getMap(0)!!.getInt("entryCount"))
+    val gone = folders.getMap(1)!!
+    assertEquals("/gone", gone.getString("path"))
+    assertTrue(gone.isNull("entryCount"))
+    val error = gone.getMap("error")!!
+    assertEquals("REMOTE_ROOT_NOT_FOUND", error.getString("code"))
+    for (secret in listOf(HOST, USER, "/gone")) assertFalse(error.getString("message")!!.contains(secret))
+    assertTrue(clients.single().closed)
+    assertTrue(clients.single().passwordArray!!.all { it == '\u0000' })
   }
 
   @Test
@@ -380,13 +440,14 @@ class RepositoryConfigBoundaryTest {
     port: Double = 2222.0,
     username: String = USER,
     root: String = "/photos",
+    roots: List<String> = listOf(root),
   ): JavaOnlyMap =
     JavaOnlyMap().apply {
       if (protocol == null) putNull("protocol") else putString("protocol", protocol)
       putString("host", host)
       putDouble("port", port)
       putString("username", username)
-      putString("remoteRoot", root)
+      putArray("remoteRoots", JavaOnlyArray.from(roots))
     }
 
   private fun hostKey() = Buffer.PlainBuffer(Base64.getDecoder().decode(KEY_BLOB)).readPublicKey()
@@ -394,6 +455,9 @@ class RepositoryConfigBoundaryTest {
   private class FakeClient(
     private val outcome: ConnectOutcome = ConnectOutcome.Connected,
     private val listFailure: Throwable? = null,
+    /** When set, only this directory fails with [listFailure]. */
+    private val failingDirectory: String? = null,
+    private val connectFailure: RemoteClientException? = null,
   ) : RemoteClient {
     var protocol: RemoteProtocol? = null
     var passwordArray: CharArray? = null
@@ -404,11 +468,12 @@ class RepositoryConfigBoundaryTest {
     override suspend fun connect(config: RemoteConfig, password: CharArray): ConnectOutcome {
       passwordArray = password
       passwordSeen = String(password)
+      connectFailure?.let { throw it }
       return outcome
     }
 
     override suspend fun list(directory: String): List<RemoteEntry> {
-      listFailure?.let { throw it }
+      if (failingDirectory == null || failingDirectory == directory) listFailure?.let { throw it }
       listed = directory
       return listOf(
         RemoteEntry("a.jpg", 10, 0L, RemoteEntryType.REGULAR_FILE),

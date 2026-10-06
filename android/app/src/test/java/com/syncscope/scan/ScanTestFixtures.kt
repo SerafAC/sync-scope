@@ -204,6 +204,7 @@ class ScanHarness(context: Context) {
     credentialVersion: Long? = null,
     protocol: String = "SFTP",
     webdavHttps: Boolean = false,
+    roots: List<String> = listOf(REMOTE_ROOT),
   ): RepositoryConfigEntity {
     val version = credentialVersion ?: credentials.store("secret-password".toCharArray())
     val row =
@@ -212,7 +213,7 @@ class ScanHarness(context: Context) {
         host = REMOTE_HOST,
         port = 2222,
         username = "alice",
-        remoteRoots = RemoteRoots.encode(listOf(REMOTE_ROOT)),
+        remoteRoots = RemoteRoots.encode(roots),
         precisionMillis = 0L,
         credentialVersion = version,
         revision = revision,

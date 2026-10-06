@@ -91,6 +91,21 @@ class DeletionRecheckTest {
   }
 
   @Test
+  fun aFileMatchedInTheSecondFolderIsConfirmedThere() = runBlocking {
+    // FR-012, D020: with several folders the re-check follows the stored directory, whichever folder it is in.
+    val twoFolders = repository.copy(remoteRoots = RemoteRoots.encode(listOf("/scan/clean/a", "/scan/clean/b")))
+    key("only-in-b.jpg", 64, "/scan/clean/b")
+    server.ok("/scan/clean/b", file("only-in-b.jpg", 64))
+    val row = row("e1", "only-in-b.jpg", 64)
+
+    val result = recheck.recheck(SNAPSHOT, twoFolders, listOf(row))
+
+    assertEquals(listOf(row), result.toDelete)
+    assertEquals(listOf("/scan/clean/b"), server.listed)
+    assertEquals(1, server.connects)
+  }
+
+  @Test
   fun aNameInNfdOnTheServerStillConfirms() = runBlocking {
     key("é.png", 5, "/backup")
     server.ok("/backup", file(java.text.Normalizer.normalize("é.png", java.text.Normalizer.Form.NFD), 5))

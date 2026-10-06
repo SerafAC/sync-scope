@@ -279,6 +279,15 @@ class ScanOperations(
             gaps.firstOrNull { it.scope == RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING }?.reason,
           )
           putArray("skippedSources", skipped)
+          // Configured folders only, which already cross the bridge in the repository summary (D011).
+          putArray(
+            "unreadRemoteFolders",
+            envelope.emptyArray().apply {
+              gaps.filter { it.scope == RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER }.forEach { gap ->
+                gap.remotePath?.let(::pushString)
+              }
+            },
+          )
         },
       )
     }

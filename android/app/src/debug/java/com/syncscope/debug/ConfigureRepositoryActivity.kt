@@ -136,7 +136,7 @@ class ConfigureRepositoryActivity : Activity() {
         uri?.getQueryParameter("protocol")?.let { config.putString("protocol", it) }
         uri?.getQueryParameter("host")?.let { config.putString("host", it) }
         uri?.getQueryParameter("username")?.let { config.putString("username", it) }
-        uri?.getQueryParameter("root")?.let { config.putString("remoteRoot", it) }
+        uri?.getQueryParameter("root")?.let { config.putArray("remoteRoots", JavaOnlyArray.of(it)) }
         uri?.getQueryParameter("port")?.let { port ->
           // A non-numeric port is passed as text so the production validation rejects it.
           port.toIntOrNull()?.let { config.putDouble("port", it.toDouble()) } ?: config.putString("port", port)

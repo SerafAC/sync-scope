@@ -23,7 +23,10 @@ import kotlinx.coroutines.sync.withLock
 /**
  * saveRepository / testRepository / getRepositorySummary.
  *
- * Room's `repository_config` holds only protocol, host, port, username, root, `webdavHttps`,
+ * The repository holds one or more remote folders (`remoteRoots`, research R11), validated by
+ * [RemoteRoots]; the connection test lists each of them on one connection (research R12).
+ *
+ * Room's `repository_config` holds only protocol, host, port, username, the folders, `webdavHttps`,
  * precision, and the `credentialVersion` pointer; the password lives in [CredentialStore] and is
  * wiped from memory on every path. v1 has exactly one profile: saving replaces it.
  * Save and test are serialised so a test never races a save of a different endpoint.
@@ -47,7 +50,8 @@ class RepositoryOperations(
     try {
       val parsed =
         when (val result = parse(config)) {
-          is Parsed.Invalid -> return envelope.invalidField(result.field, result.reason)
+          is Parsed.Invalid -> return envelope.invalidField(result.field, result.reason, result.fieldIndex)
+          is Parsed.InvalidFolder -> return envelope.remoteRootsError(result.fieldIndex, result.message)
           is Parsed.Valid -> result.config
         }
       if (password != null && password.isEmpty()) return envelope.invalidField("password", "it is empty")
@@ -58,7 +62,7 @@ class RepositoryOperations(
         val credentialVersion =
           when {
             password != null -> credentials().store(password)
-            // Re-saving the same endpoint (e.g. a new root) may keep the stored password,
+            // Re-saving the same endpoint (e.g. new folders) may keep the stored password,
             // but a password is never carried over to a different server or account.
             existing != null && sameAccount(existing, parsed) &&
               credentials().isCurrent(existing.credentialVersion) -> existing.credentialVersion
@@ -71,7 +75,7 @@ class RepositoryOperations(
               host = parsed.host,
               port = parsed.port,
               username = parsed.username,
-              remoteRoots = RemoteRoots.encode(listOf(parsed.rootPath)),
+              remoteRoots = RemoteRoots.encode(parsed.rootPaths),
               precisionMillis = UNKNOWN_PRECISION,
               credentialVersion = credentialVersion,
               revision = (existing?.revision ?: 0L) + 1,
@@ -106,20 +110,37 @@ class RepositoryOperations(
           }
           ConnectOutcome.Connected -> Unit
         }
-        val entries = client.list(config.rootPath)
+        // Each folder on the same connection; a folder that cannot be listed is reported on its own line
+        // and does not fail the test (research R12). Only connect, login and host-key failures do.
+        val folders =
+          config.rootPaths.map { path ->
+            try {
+              FolderOutcome(path, client.list(path).size, null)
+            } catch (e: RemoteClientException) {
+              Log.w(TAG, "testRepository: a folder failed code=${e.code} reply=${e.replyCode}")
+              FolderOutcome(path, null, e)
+            }
+          }
+        val entryCount = folders.sumOf { it.entryCount ?: 0 }
         val precision = client.discoverPrecision()
         val persisted = repositories().updatePrecision(row.revision, precision.precisionMillis) == 1
         Log.i(
           TAG,
-          "testRepository ok: protocol=${config.protocol} entries=${entries.size} " +
+          "testRepository ok: protocol=${config.protocol} folders=${folders.size} " +
+            "unread=${folders.count { it.failure != null }} entries=$entryCount " +
             "precisionMillis=${precision.precisionMillis} basis=${precision.basis} persisted=$persisted",
         )
+        val folderLines = envelope.emptyArray()
+        for (folder in folders) {
+          folderLines.pushMap(envelope.folderResult(folder.path, folder.entryCount, folder.failure, config.sensitiveValues))
+        }
         envelope.ok(
           "connection",
           envelope.map().apply {
             putString("protocol", config.protocol.name)
             putBoolean("reachable", true)
-            putInt("entryCount", entries.size)
+            putInt("entryCount", entryCount)
+            putArray("folders", folderLines)
             putDouble("precisionMillis", precision.precisionMillis.toDouble())
             putString("precisionBasis", precision.basis.name)
             putBoolean("precisionPersisted", persisted)
@@ -145,7 +166,7 @@ class RepositoryOperations(
         putString("host", row.host)
         putInt("port", row.port)
         putString("username", row.username)
-        putString("remoteRoot", RemoteRoots.decode(row.remoteRoots).first())
+        putArray("remoteRoots", envelope.emptyArray().apply { RemoteRoots.decode(row.remoteRoots).forEach(::pushString) })
         putBoolean("webdavHttps", row.webdavHttps)
         putDouble("revision", row.revision.toDouble())
         if (row.precisionMillis > UNKNOWN_PRECISION) {
@@ -176,10 +197,17 @@ class RepositoryOperations(
       row.port == config.port &&
       row.username == config.username
 
+  /** One configured folder's line in the connection test. */
+  private class FolderOutcome(val path: String, val entryCount: Int?, val failure: RemoteClientException?)
+
   internal sealed interface Parsed {
     data class Valid(val config: RemoteConfig) : Parsed
 
-    data class Invalid(val field: String, val reason: String) : Parsed
+    /** [fieldIndex] names the element of a list field (`remoteRoots`), when the problem is one element. */
+    data class Invalid(val field: String, val reason: String, val fieldIndex: Int? = null) : Parsed
+
+    /** A `remoteRoots` rule from [RemoteRoots.validate], with the save table's text. */
+    data class InvalidFolder(val fieldIndex: Int, val message: String) : Parsed
   }
 
   companion object {
@@ -195,7 +223,6 @@ class RepositoryOperations(
 
     private const val MAX_HOST = 253
     private const val MAX_USERNAME = 256
-    private const val MAX_ROOT = 1024
     private val HOST_FORBIDDEN = Regex("""[\s/\\@?#]""")
     private val CONTROL = Regex("""\p{Cntrl}""")
 
@@ -248,21 +275,29 @@ class RepositoryOperations(
         return Parsed.Invalid("username", "it contains unsupported characters")
       }
 
-      val root =
-        if (!map.hasKey("remoteRoot") || map.isNull("remoteRoot")) {
-          "/"
-        } else {
-          map.string("remoteRoot")?.trim() ?: return Parsed.Invalid("remoteRoot", "it must be text")
+      // Absent is an empty list: at least one folder is required (contract version 6).
+      val given =
+        when {
+          !map.hasKey(REMOTE_ROOTS) || map.isNull(REMOTE_ROOTS) -> emptyList()
+          map.getType(REMOTE_ROOTS) != ReadableType.Array -> return Parsed.Invalid(REMOTE_ROOTS, "it must be a list of folders")
+          else -> {
+            val array = requireNotNull(map.getArray(REMOTE_ROOTS))
+            (0 until array.size()).map { i ->
+              if (array.getType(i) != ReadableType.String) return Parsed.Invalid(REMOTE_ROOTS, "every folder must be text", i)
+              array.getString(i) ?: ""
+            }
+          }
         }
-      if (!root.startsWith("/") || root.length > MAX_ROOT || CONTROL.containsMatchIn(root)) {
-        return Parsed.Invalid("remoteRoot", "it must be an absolute folder path")
-      }
-      if (root.split('/').any { it == "." || it == ".." }) {
-        return Parsed.Invalid("remoteRoot", "it must not contain relative segments")
-      }
+      val roots =
+        when (val folders = RemoteRoots.validate(given)) {
+          is RemoteRoots.Validation.Invalid -> return Parsed.InvalidFolder(folders.fieldIndex, folders.message)
+          is RemoteRoots.Validation.Valid -> folders.roots
+        }
 
-      return Parsed.Valid(RemoteConfig(protocol, host, port, username, root, webdavHttps))
+      return Parsed.Valid(RemoteConfig(protocol, host, port, username, roots, webdavHttps))
     }
+
+    private const val REMOTE_ROOTS = CloudSyncEnvelope.REMOTE_ROOTS_FIELD
 
     private fun ReadableMap.string(key: String): String? =
       if (hasKey(key) && getType(key) == ReadableType.String) getString(key) else null
@@ -273,7 +308,7 @@ internal fun RepositoryConfigEntity.protocol(): RemoteProtocol? = RemoteProtocol
 
 /** The non-secret connection parameters of the saved repository; null for an unknown protocol. */
 internal fun RepositoryConfigEntity.toRemoteConfig(): RemoteConfig? =
-  protocol()?.let { RemoteConfig(it, host, port, username, RemoteRoots.decode(remoteRoots).first(), webdavHttps) }
+  protocol()?.let { RemoteConfig(it, host, port, username, RemoteRoots.decode(remoteRoots), webdavHttps) }
 
 /**
  * A fresh, authenticated client for the saved repository, shared by the scan and the pre-delete re-check
