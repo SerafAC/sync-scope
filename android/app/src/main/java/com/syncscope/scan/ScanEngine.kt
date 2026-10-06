@@ -342,6 +342,9 @@ class ScanEngine(
           precisionMillis = acc.precisionMillis,
           status = FileStatus.SYNCED.name,
           issueCode = null,
+          // Every FILE and DIRECTORY row, FULL and LOCAL_REFRESH alike, so a refresh over a snapshot
+          // migrated from schema 4 replaces its ASCII-only key (research R2).
+          sortName = SortName.of(file.name),
         )
       if (file.isDirectory) {
         directoryIds[file.documentId] = entryId

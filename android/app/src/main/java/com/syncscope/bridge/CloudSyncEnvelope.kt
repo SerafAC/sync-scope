@@ -6,6 +6,7 @@ import com.facebook.react.bridge.WritableMap
 import com.syncscope.deletion.DeletionPlanView
 import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
+import com.syncscope.persistence.FileEntry
 import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
@@ -112,6 +113,35 @@ class CloudSyncEnvelope(
         },
       )
     }
+
+  /**
+   * One `FileEntryDto` of a `queryFiles` / `queryTreeChildren` page. `sortName` (contract v6, research R2)
+   * lets a view build its scroll anchor without a second read.
+   */
+  fun fileEntry(entry: FileEntry): WritableMap =
+    newMap().apply {
+      putString("entryId", entry.entryId)
+      putString("sourceId", entry.sourceId)
+      putNullableString("parentId", entry.parentId)
+      putString("kind", entry.kind)
+      putString("name", entry.name)
+      putNullableString("mimeType", entry.mimeType)
+      putNullableNumber("sizeBytes", entry.sizeBytes)
+      putNullableNumber("modifiedUtcMillis", entry.modifiedUtcMillis)
+      putString("status", entry.status)
+      putNullableString("issueCode", entry.issueCode)
+      putBoolean("nameInOtherSource", entry.nameInOtherSource)
+      putNullableNumber("matchingFileCount", entry.matchingFileCount)
+      putString("sortName", entry.sortName)
+    }
+
+  private fun WritableMap.putNullableString(key: String, value: String?) {
+    if (value == null) putNull(key) else putString(key, value)
+  }
+
+  private fun WritableMap.putNullableNumber(key: String, value: Long?) {
+    if (value == null) putNull(key) else putDouble(key, value.toDouble())
+  }
 
   /**
    * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for

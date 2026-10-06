@@ -319,22 +319,7 @@ class ScanOperations(
       }
     val entries = envelope.emptyArray()
     for (entry in result.entries) {
-      entries.pushMap(
-        envelope.map().apply {
-          putString("entryId", entry.entryId)
-          putString("sourceId", entry.sourceId)
-          putNullableString("parentId", entry.parentId)
-          putString("kind", entry.kind)
-          putString("name", entry.name)
-          putNullableString("mimeType", entry.mimeType)
-          putNullableNumber("sizeBytes", entry.sizeBytes)
-          putNullableNumber("modifiedUtcMillis", entry.modifiedUtcMillis)
-          putString("status", entry.status)
-          putNullableString("issueCode", entry.issueCode)
-          putBoolean("nameInOtherSource", entry.nameInOtherSource)
-          putNullableNumber("matchingFileCount", entry.matchingFileCount)
-        }
-      )
+      entries.pushMap(envelope.fileEntry(entry))
     }
     val counts =
       result.counts?.let { rows ->

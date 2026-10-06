@@ -3,6 +3,7 @@ package com.syncscope.scan
 import androidx.test.core.app.ApplicationProvider
 import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.persistence.LocalNodeEntity
+import com.syncscope.persistence.Migration4To5
 import com.syncscope.persistence.RemoteAmbiguityEntity
 import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.remote.HostKeyChallenge
@@ -451,6 +452,72 @@ class ScanEngineTest {
       assertNull("${file.name}.descUnsynced", file.descUnsynced)
       assertNull("${file.name}.descUnknown", file.descUnknown)
     }
+  }
+
+  // --- sortName (schema version 5, research R2) ---
+
+  @Test
+  fun fullAndRefreshScansWriteSortNameOnEveryFileAndDirectory() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+    h.enumerator.files(
+      "src-1",
+      localFile("d-exact", "exact.txt", size = 22),
+      localFile("d-accent", "Émile.jpg", size = 3),
+      localFile("d-digit", "2024 trip.png", size = 4),
+      localDir("d-photos", "Photos"),
+      localDir("d-umlaut", "Älter", parent = "d-photos"),
+      localFile("d-inner", "Zebra.JPG", size = 5, parent = "d-umlaut"),
+    )
+
+    val full = (h.scan() as ScanOutcome.Published).snapshotId
+    assertSortNames(full, 6)
+    val byName = h.nodes(full).associateBy { it.name }
+    assertEquals("1emile.jpg", byName.getValue("Émile.jpg").sortName)
+    assertEquals("1alter", byName.getValue("Älter").sortName)
+    assertEquals("02024 trip.png", byName.getValue("2024 trip.png").sortName)
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+    assertTrue(full != refreshed)
+    assertSortNames(refreshed, 6)
+  }
+
+  @Test
+  fun refreshOverASnapshotMigratedFromVersion4RewritesSortNameOnEveryRow() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+    h.enumerator.files(
+      "src-1",
+      localFile("d-exact", "exact.txt", size = 22),
+      localFile("d-accent", "Émile.jpg", size = 3),
+      localDir("d-umlaut", "Älter"),
+      localFile("d-inner", "Zebra.JPG", size = 5, parent = "d-umlaut"),
+    )
+    val migrated = (h.scan() as ScanOutcome.Published).snapshotId
+    // Stand in for a version-4 snapshot: the migration's SQL key does not fold accents, so `É` and `Ä` sit
+    // under `#` (whether SQLite lowercases them depends on its build, so only the band is checked).
+    Migration4To5().onPostMigrate(h.db.openHelper.writableDatabase)
+    val before = h.nodes(migrated).associate { it.name to it.sortName }
+    assertTrue(before.getValue("Émile.jpg"), before.getValue("Émile.jpg").startsWith("0"))
+    assertTrue(before.getValue("Älter"), before.getValue("Älter").startsWith("0"))
+    assertEquals("1zebra.jpg", before.getValue("Zebra.JPG"))
+
+    // Nothing changed on the device: the refresh still rewrites every row of the new snapshot.
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    assertSortNames(refreshed, 4)
+    val after = h.nodes(refreshed).associate { it.name to it.sortName }
+    assertEquals("1emile.jpg", after.getValue("Émile.jpg"))
+    assertEquals("1alter", after.getValue("Älter"))
+    assertEquals("1exact.txt", after.getValue("exact.txt"))
+  }
+
+  private suspend fun assertSortNames(snapshotId: String, expectedRows: Int) {
+    val nodes = h.nodes(snapshotId)
+    assertEquals(expectedRows, nodes.size)
+    for (node in nodes) assertEquals("${node.kind} ${node.name}", SortName.of(node.name), node.sortName)
   }
 
   // --- start preconditions ---

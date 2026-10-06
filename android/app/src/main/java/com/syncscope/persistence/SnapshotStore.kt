@@ -22,6 +22,8 @@ data class FileEntry(
   val nameInOtherSource: Boolean = false,
   /** `DIRECTORY` rows: files beneath it matching the query's filter; null on files and on pre-v3 rows. */
   val matchingFileCount: Long? = null,
+  /** `local_node.sortName`, the name's sort key (`SortName.of`, research R2). */
+  val sortName: String = "",
 )
 
 /**
@@ -610,6 +612,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
       issueCode = node.issueCode,
       nameInOtherSource = nameInOtherSource,
       matchingFileCount = if (node.kind == KIND_DIRECTORY) matchingFileCount(node, filter) else null,
+      sortName = node.sortName,
     )
 
   /** The directory's descendant `FILE` count for [filter]; null when any count predates schema 3. */

@@ -7,6 +7,7 @@ import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
 import com.syncscope.deletion.FailureView
 import com.syncscope.deletion.GroupTotals
+import com.syncscope.persistence.FileEntry
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
@@ -59,6 +60,44 @@ class CloudSyncEnvelopeTest {
     assertEquals(0, page.getArray("entries")!!.size())
     assertTrue(page.isNull("nextPageToken"))
     assertTrue(page.isNull("counts"))
+  }
+
+  @Test
+  fun fileEntryWritesEveryFileEntryDtoFieldIncludingSortName() {
+    val entry =
+      FileEntry(
+        entryId = "e-1",
+        sourceId = "src-1",
+        parentId = null,
+        kind = "FILE",
+        name = "Émile.jpg",
+        mimeType = "image/jpeg",
+        sizeBytes = 3L,
+        modifiedUtcMillis = null,
+        status = "SYNCED",
+        issueCode = null,
+        nameInOtherSource = true,
+        matchingFileCount = null,
+        sortName = "1emile.jpg",
+      )
+
+    val dto = envelope.fileEntry(entry)
+
+    assertEquals("1emile.jpg", dto.getString("sortName"))
+    assertEquals("Émile.jpg", dto.getString("name"))
+    assertEquals("e-1", dto.getString("entryId"))
+    assertEquals(3.0, dto.getDouble("sizeBytes"), 0.0)
+    assertTrue(dto.isNull("parentId"))
+    assertTrue(dto.isNull("modifiedUtcMillis"))
+    assertTrue(dto.isNull("matchingFileCount"))
+    assertTrue(dto.getBoolean("nameInOtherSource"))
+    assertEquals(
+      setOf(
+        "entryId", "sourceId", "parentId", "kind", "name", "mimeType", "sizeBytes", "modifiedUtcMillis", "status",
+        "issueCode", "nameInOtherSource", "matchingFileCount", "sortName",
+      ),
+      dto.toHashMap().keys,
+    )
   }
 
   @Test
