@@ -2012,3 +2012,208 @@ test('release signing comes from SYNCSCOPE_RELEASE_* properties with a fail-fast
   assert.match(whenReady, /Release signing is not configured/);
   assert.match(whenReady, /DEVELOPMENT\.md/, 'the failure message must name DEVELOPMENT.md');
 });
+
+// Feature 007, Story 7 (research R17, FR-018): generate-icons.sh turns one
+// high-resolution image into the adaptive, monochrome and legacy launcher
+// icons and the 512 px store image. The test feeds it a generated image and
+// checks the output set and every pixel size; it needs ImageMagick 7.
+const GENERATE_ICONS = new URL('scripts/icon/generate-icons.sh', root);
+const DENSITIES = [
+  ['mdpi', 1],
+  ['hdpi', 1.5],
+  ['xhdpi', 2],
+  ['xxhdpi', 3],
+  ['xxxhdpi', 4],
+];
+
+function hasMagick() {
+  return spawnSync('magick', ['-version'], {encoding: 'utf8'}).status === 0;
+}
+
+async function pngSize(path) {
+  const bytes = await readFile(path);
+  assert.equal(
+    bytes.subarray(1, 4).toString('latin1'),
+    'PNG',
+    `${path} must be a PNG`,
+  );
+  return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
+}
+
+function magickFormat(path, format) {
+  const run = spawnSync('magick', [path, '-format', format, 'info:'], {
+    encoding: 'utf8',
+  });
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout.trim();
+}
+
+test('generate-icons.sh is a strict POSIX sh script', async () => {
+  assert.ok(
+    (await lstat(GENERATE_ICONS)).mode & 0o111,
+    'generate-icons.sh must be executable',
+  );
+  const source = await readFile(GENERATE_ICONS, 'utf8');
+  assert.match(source, /^#!\/bin\/sh\n/);
+  assert.match(source, /^set -eu$/m);
+});
+
+test('generate-icons.sh fails clearly without ImageMagick', async t => {
+  const scratch = await mkdtemp(join(tmpdir(), 'syncscope-icon-nomagick-'));
+  t.after(() => rm(scratch, {recursive: true, force: true}));
+  const emptyBin = join(scratch, 'bin');
+  await mkdir(emptyBin);
+  const run = spawnSync(
+    '/bin/sh',
+    [GENERATE_ICONS.pathname, join(scratch, 'source.png')],
+    {encoding: 'utf8', env: {PATH: emptyBin}},
+  );
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /ImageMagick/);
+  assert.match(run.stderr, /magick/);
+});
+
+test('generate-icons.sh produces every launcher icon and the store image', async t => {
+  if (!hasMagick()) {
+    t.skip('ImageMagick 7 (`magick`) is not installed; the icon script test is skipped');
+    return;
+  }
+  const scratch = await mkdtemp(join(tmpdir(), 'syncscope-icon-test-'));
+  t.after(() => rm(scratch, {recursive: true, force: true}));
+  const res = join(scratch, 'res');
+  const assets = join(scratch, 'assets', 'icon');
+  const source = join(scratch, 'source.png');
+
+  const copy = spawnSync(
+    'cp',
+    ['-R', new URL('android/app/src/main/res', root).pathname, res],
+    {encoding: 'utf8'},
+  );
+  assert.equal(copy.status, 0, copy.stderr);
+  const draw = spawnSync(
+    'magick',
+    [
+      '-size',
+      '1024x1024',
+      'xc:none',
+      '-fill',
+      '#3366cc',
+      '-draw',
+      'roundrectangle 0,0 1023,1023 160,160',
+      `png32:${source}`,
+    ],
+    {encoding: 'utf8'},
+  );
+  assert.equal(draw.status, 0, draw.stderr);
+
+  const run = spawnSync(
+    GENERATE_ICONS.pathname,
+    [source, '--background', '#1A2B3C', '--res', res, '--assets', assets],
+    {encoding: 'utf8'},
+  );
+  assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
+
+  for (const name of ['ic_launcher.xml', 'ic_launcher_round.xml']) {
+    const xml = await readFile(join(res, 'mipmap-anydpi', name), 'utf8');
+    assert.match(xml, /<adaptive-icon\b/, `${name} must be an adaptive icon`);
+    assert.match(
+      xml,
+      /<background\s+android:drawable="@color\/ic_launcher_background"\s*\/>/,
+    );
+    assert.match(
+      xml,
+      /<foreground\s+android:drawable="@mipmap\/ic_launcher_foreground"\s*\/>/,
+    );
+    assert.match(
+      xml,
+      /<monochrome\s+android:drawable="@mipmap\/ic_launcher_monochrome"\s*\/>/,
+    );
+  }
+  const colors = await readFile(
+    join(res, 'values', 'ic_launcher_background.xml'),
+    'utf8',
+  );
+  assert.match(
+    colors,
+    /<color name="ic_launcher_background">#1A2B3C<\/color>/i,
+  );
+
+  for (const [density, scale] of DENSITIES) {
+    const dir = join(res, `mipmap-${density}`);
+    for (const [name, dp] of [
+      ['ic_launcher.png', 48],
+      ['ic_launcher_round.png', 48],
+      ['ic_launcher_foreground.png', 108],
+      ['ic_launcher_monochrome.png', 108],
+    ]) {
+      const px = dp * scale;
+      assert.deepEqual(
+        await pngSize(join(dir, name)),
+        [px, px],
+        `${density}/${name} must be ${px} × ${px}`,
+      );
+    }
+
+    // The foreground stays inside the central 66 dp safe zone.
+    const foreground = join(dir, 'ic_launcher_foreground.png');
+    const [w, h, x, y] = magickFormat(foreground, '%@')
+      .match(/^(\d+)x(\d+)\+(\d+)\+(\d+)$/)
+      .slice(1)
+      .map(Number);
+    const zone = 66 * scale;
+    const inset = (108 * scale - zone) / 2;
+    assert.ok(w <= zone + 1 && h <= zone + 1, `${density} foreground fits 66 dp`);
+    assert.ok(x >= inset - 1 && y >= inset - 1, `${density} foreground is centred`);
+    assert.ok(w >= zone - 2, `${density} foreground fills the safe zone`);
+
+    // The monochrome layer is the foreground's alpha, filled white.
+    const mono = join(dir, 'ic_launcher_monochrome.png');
+    assert.equal(
+      magickFormat(mono, '%[fx:minima.r==1 && minima.g==1 && minima.b==1]'),
+      '1',
+      `${density} monochrome must be white`,
+    );
+    const alphaDiff = spawnSync(
+      'magick',
+      [
+        'compare',
+        '-metric',
+        'AE',
+        '(',
+        foreground,
+        '-alpha',
+        'extract',
+        ')',
+        '(',
+        mono,
+        '-alpha',
+        'extract',
+        ')',
+        'null:',
+      ],
+      {encoding: 'utf8'},
+    );
+    assert.equal(
+      Number.parseFloat(alphaDiff.stderr),
+      0,
+      `${density} monochrome alpha must match the foreground`,
+    );
+
+    // The round legacy icon is transparent in its corners; the square one is not.
+    assert.equal(
+      magickFormat(join(dir, 'ic_launcher_round.png'), '%[fx:p{0,0}.a]'),
+      '0',
+    );
+    assert.equal(
+      magickFormat(join(dir, 'ic_launcher.png'), '%[fx:p{0,0}.a]'),
+      '1',
+    );
+  }
+
+  assert.deepEqual(await pngSize(join(assets, 'play-store-512.png')), [512, 512]);
+  assert.deepEqual(
+    await readFile(join(assets, 'source.png')),
+    await readFile(source),
+    'the source image is kept beside the outputs',
+  );
+});
