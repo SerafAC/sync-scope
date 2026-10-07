@@ -787,12 +787,16 @@ describe('GalleryScreen with the scroll index (Story 2, research R7)', () => {
   });
 
   it('passes the a11y sweep with placeholders and the scrollbar', async () => {
-    const counts = [600, 600, 600, 600, 600];
+    // The first band holds 5 photos, so the second band's unread tiles are
+    // placeholders inside the first screenful (FR-017).
+    const counts = [5, 600, 600, 600, 600];
     getScrollIndexMock.mockResolvedValue(scrollIndex(counts));
     queryFilesMock.mockImplementation(bandReader(counts));
     const result = renderGallery();
     await screen.findByTestId('files.scroller.thumb');
 
+    expect(screen.getAllByLabelText('Loading file').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Scrollbar')).toBeOnTheScreen();
     expect(() => a11ySweep(result)).not.toThrow();
   });
 });

@@ -470,6 +470,24 @@ describe('FilesScreen', () => {
       );
     });
 
+    it('passes the a11y sweep with each drop-down open, in both views (FR-017)', async () => {
+      const result = render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
+      expect(await screen.findByLabelText('Size (largest first)')).toBeOnTheScreen();
+      expect(() => a11ySweep(result)).not.toThrow();
+      fireEvent.press(screen.getByLabelText('Date (newest first)'));
+
+      fireEvent.press(screen.getByLabelText('View: Gallery'));
+      expect(() => a11ySweep(result)).not.toThrow();
+      fireEvent.press(await screen.findByLabelText('List'));
+
+      expect(await screen.findByLabelText('View: List')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Sort: Name, A to Z')).toBeOnTheScreen();
+      expect(() => a11ySweep(result)).not.toThrow();
+    });
+
     it('mounts the views only after the remembered choices are read', async () => {
       let resolve: (preferences: BrowsePreferencesDto) => void = () => {};
       getBrowsePreferencesMock.mockReturnValue(

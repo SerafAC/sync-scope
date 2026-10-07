@@ -13,11 +13,32 @@ Messages are fixed strings; host, username, password and path appear only in the
 
 ## How a scan uses the clients
 
-The scan walks the remote root breadth-first with `list` (metadata only). Remote **hidden entries**
+The scan walks every configured remote folder breadth-first with `list` (metadata only), all of them in
+one connection (feature 007, [D022](./decisions/0022-several-remote-folders-partial-scan.md)). A
+configured folder that still fails after the retry policy is recorded as unread and the walk goes on with
+the others; only when none can be read does the scan fail. Precision discovery samples the first folder. Remote **hidden entries**
 (names starting with `.`) are included in matching: unlike local hidden files, which the scan skips, they
 can only turn a false UNSYNCED into a correct SYNCED. `OTHER` entries (symlinks, FIFOs) are never
 followed. How listing failures affect file status is in
 [sync and deletion safety](./sync-and-deletion-safety.md#partial-scans-are-shown-as-partial).
+
+## How the connection test and the folder browser use the clients
+
+**Connection test** (feature 007, research R12). `testRepository` connects once, then lists each
+configured folder once. It reports the total entry count and, per folder, its entry count or the error
+and its fix action. It succeeds when the server connected, even if some folders failed; only connect,
+login and host-key failures fail the test as a whole. WebDAV's connect checks the folders in order and
+connects on the first one that is a readable collection.
+
+**Server folder browser** (`browseRemoteFolders`, feature 007, research R13). Each **Browse** request is
+one `connect`, one `list` of the folder shown, and a `close`; there is no browse session. It uses the
+details in the form, saved or not: the typed password, or the saved one when the account is the saved
+account, else `CREDENTIAL_UNAVAILABLE`. The answer holds the folder, its parent and the names of its
+subfolders only (sorted case-insensitively); files and `OTHER` entries are dropped and nothing is saved.
+A start folder that is missing or unreadable (`REMOTE_ROOT_NOT_FOUND`, `DIRECTORY_UNREADABLE`) falls back
+to listing `/`, and the answer says so (`fellBackToRoot`). An unknown SFTP host key returns the usual
+challenge, and the form retries after approval. Errors use the same codes and fix actions as the
+connection test. The browser only lists, so the read-only audit below covers it too.
 
 ## How the pre-delete re-check uses the clients
 
@@ -44,7 +65,10 @@ container was checked against `scan/partial/restricted` (`0700`, owned by anothe
 | FTP | vsftpd 3.0.3 | `LIST` answers `150` then `226` with **no entries**, like an empty folder; `CWD` into it answers `550 Failed to change directory.` | `DIRECTORY_UNREADABLE`, through the CWD probe described under FTP |
 
 All three are detected, and the partial-listing flow (`scan/02-partial-listing-*`) proves it on each
-protocol. A failure on the remote root itself fails the whole scan instead (FR-006).
+protocol. A failure on a configured remote folder itself makes that folder unread
+([D022](./decisions/0022-several-remote-folders-partial-scan.md), proven on FTP by flow
+`polish/05-remote-folder-unread-ftp`); when every configured folder fails, the whole scan fails instead
+(004 FR-006).
 
 ## FTP (Apache Commons Net)
 
@@ -89,6 +113,12 @@ So a listing with no child entries is confirmed with `PWD`, `CWD <dir>` and `CWD
 is `DIRECTORY_UNREADABLE`, any other refusal keeps the empty listing, and failing to go back is
 `CONNECTION_LOST`. `PWD` and `CWD` are navigation, not content transfer.
 
+**An unreadable folder listed as itself (feature 007).** vsftpd can also answer LIST on such a directory,
+when its parent is readable, with the parent's listing filtered to that name: one directory entry named
+like the folder (LIST `/scan/partial/restricted` returned `restricted`). A listing that is exactly one
+directory named like the folder listed is therefore confirmed with the same CWD probe
+(`FtpListing.couldBeSelfEntry`), so the folder is reported as unreadable instead of being walked into.
+
 Known limits: LIST dates are read as UTC, so a server configured to print local time (vsftpd
 `use_localtime=YES`) is off by its zone offset;
 hidden files are not requested via `LIST -a` (MLSD returns them); the FTP password must be passed to Commons
@@ -123,8 +153,10 @@ Precision is 1000 ms (`SFTP_V3_WHOLE_SECONDS`), because SFTP v3 reports mtime in
 
 A hand-written client on OkHttp 4.12.0 using only `OPTIONS` and `PROPFIND`, with Basic auth.
 
-- **Connect** issues `OPTIONS` on the root collection and requires DAV class 1, then `PROPFIND Depth: 0` to
-  prove the root exists and is a collection.
+- **Connect** issues `OPTIONS` on the first configured folder and requires DAV class 1, then `PROPFIND
+  Depth: 0` on each configured folder in turn until one is proven to exist as a collection. A folder that
+  is missing or unreadable does not stop the connect, since another may be readable; when every folder
+  fails, the first folder's error fails the connect, as with one folder.
 - **Multi-value `DAV` header.** Apache `mod_dav` answers `OPTIONS` with two `DAV` headers (`DAV: 1,2` and
   `DAV: <http://apache.org/dav/propset/fs/1>`), and OkHttp's `Response.header("DAV")` returns only the last
   one, which names no class. The class check must read `response.headers("DAV")` and flatten every value,
@@ -138,7 +170,7 @@ A hand-written client on OkHttp 4.12.0 using only `OPTIONS` and `PROPFIND`, with
   trailing slash so `mod_dav` never needs to redirect.
 - **Precision is structural**: 1000 ms (`RFC1123_WHOLE_SECONDS`), because `getlastmodified` is an RFC 1123
   date with no sub-second field. No network probe is made.
-- A 404 on connect or on the root is `REMOTE_ROOT_NOT_FOUND`; a 404 on a subdirectory is
+- A 404 on connect or on a configured folder is `REMOTE_ROOT_NOT_FOUND`; a 404 on a subdirectory is
   `DIRECTORY_UNREADABLE`; a 5xx is `SERVER_ERROR`.
 
 **HTTPS** (feature 006, [D021](./decisions/0021-release-signing-and-cleartext-policy.md)). The repository's

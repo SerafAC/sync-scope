@@ -1169,4 +1169,42 @@ describe('ListScreen with the scroll index (Story 2, research R7)', () => {
     await screen.findByLabelText('forest.png, Synced');
     expect(screen.queryByTestId('files.scroller.thumb')).toBeNull();
   });
+
+  it('passes the a11y sweep with folders, placeholders and the scrollbar (FR-017)', async () => {
+    // The first band holds 3 files, so the second band's unread rows are
+    // placeholders inside the first screenful, right after the folders.
+    getScrollIndexMock.mockImplementation(async (_snapshotId, query) =>
+      query.parentId == null ? scrollIndex([3, 600, 600]) : scrollIndex([1]),
+    );
+    queryTreeChildrenMock.mockImplementation(
+      async (snapshotId, parentId, query, pageToken) => {
+        const read = await bandTree(snapshotId, parentId, query, pageToken);
+        if (
+          parentId !== null ||
+          query.kind !== 'FILE' ||
+          query.pageSize === 1 ||
+          pageToken != null ||
+          read.status !== 'ok'
+        ) {
+          return read;
+        }
+        // The first band is complete after its 3 files.
+        return {
+          ...read,
+          page: { ...read.page, entries: read.page.entries.slice(0, 3), nextPageToken: null },
+        };
+      },
+    );
+    const result = renderList();
+    fireEvent.press(await screen.findByLabelText('Folder Gallery, 6 matching'));
+    await screen.findByLabelText('0-0.png, Synced');
+    fireEvent(screen.getByTestId('list-body'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 600 } },
+    });
+    await screen.findByTestId('files.scroller.thumb');
+
+    expect(screen.getByLabelText('Folder album')).toBeOnTheScreen();
+    expect(screen.getAllByLabelText('Loading file').length).toBeGreaterThan(0);
+    expect(() => a11ySweep(result)).not.toThrow();
+  });
 });

@@ -49,7 +49,7 @@ record that holds its rationale, which this page does not repeat.
   background dispatcher, and any throwable becomes a redacted `INTERNAL_ERROR` envelope, so no Kotlin
   exception crosses the bridge. The Kotlin and TypeScript error-code lists are kept in the same order, and a
   parity test compares them.
-- The contract is at version 5 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
+- The contract is at version 6 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
   Kotlin); the parity test checks that both sides carry the same version. Version 2 added the optional
   re-grant source ID to `launchSourcePicker`. Version 3 (feature 004) made `startScan` take an optional
   mode (`FULL` or `LOCAL_REFRESH`), implemented `startScan`, `cancelScan`, `getScanState`, `queryFiles`
@@ -64,7 +64,16 @@ record that holds its rationale, which this page does not repeat.
   summary, `configRevision` to the active snapshot and an optional `field` to error envelopes, mirrored
   `REPOSITORY_DEFAULT_PORTS` and `MAX_DELETION_PLAN_AGE_MILLIS`, and added the error codes `TLS_UNTRUSTED`,
   `DELETION_IN_PROGRESS`, `REPOSITORY_CHANGED`, `PLAN_NOT_FOUND` and `PLAN_STALE`; the details are in the
-  [006 contract](../specs/006-mvp/contracts/cloudsync-mvp.md).
+  [006 contract](../specs/006-mvp/contracts/cloudsync-mvp.md). Version 6 (feature 007) added four
+  methods: `getScrollIndex(snapshotId, querySpec, anchor?)` (the scrollbar's bands and the anchor
+  position, below), `browseRemoteFolders(config, transientPassword?, path?)` (the server folder browser),
+  and `getBrowsePreferences` / `setBrowsePreferences` (the view and each view's sort, kept in Android
+  `SharedPreferences` by `BrowsePreferences`). It also added the `SIZE_ASC` and `SIZE_DESC` sorts,
+  `FileKind` and the query's optional `kind`, `ScrollUnit` with `SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX`,
+  `FileEntryDto.sortName`, the file issue code `REMOTE_FOLDER_UNREAD`, the summary's
+  `unreadRemoteFolders`, a per-folder connection test result, `remoteRoots` in place of `remoteRoot`, and
+  an optional `fieldIndex` on error envelopes; the details are in the
+  [007 contract](../specs/007-sort-scroll-remote-folders/contracts/cloudsync-polish.md).
 
 ### Room scan store; credentials never touch it
 
@@ -78,7 +87,7 @@ full persistence surface — entities, DAOs, `SyncScopeDatabase`, `SnapshotQuery
 are reviewed source for migrations, and a mismatched on-disk schema fails rather than falling back to a
 destructive migration.
 
-The schema is at **version 4** (feature 006). Each step is a Room `@AutoMigration`, covered by
+The schema is at **version 5** (feature 007). Each step is a Room `@AutoMigration`, covered by
 `MigrationTest`:
 
 - Version 2 (feature 004) added `scan_run.mode` (`FULL` or `LOCAL_REFRESH`, default `FULL`) and the
@@ -92,6 +101,14 @@ The schema is at **version 4** (feature 006). Each step is a Room `@AutoMigratio
   (at most 16, newline-separated) of the files collapsed into a key, which the pre-delete re-check lists
   ([D020](./decisions/0020-pre-delete-server-recheck.md)), and `repository_config.webdavHttps` (default
   `false`) ([006 data model](../specs/006-mvp/data-model.md)).
+- Version 5 (feature 007) renamed `repository_config.remoteRoot` to `remoteRoots`, the remote folders one
+  per line in the user's order (`@RenameColumn`, so a saved folder becomes a one-element list,
+  [D022](./decisions/0022-several-remote-folders-partial-scan.md)); added `local_node.sortName`, the
+  case- and accent-folded name every name sort and letter band reads (`SortName`), with the indexes
+  `(snapshotId, kind, sizeBytes)` and `(snapshotId, kind, sortName)`; and added the nullable
+  `remote_ambiguity.remotePath`, the configured folder a `REMOTE_FOLDER` gap could not read. The
+  migration fills `sortName` from `lower(name)` in SQL; the next scan or refresh rewrites it with accents
+  folded ([007 data model](../specs/007-sort-scroll-remote-folders/data-model.md#schema-change-version-4--5)).
 
 The password never enters Room: `repository_config` refers to it only by `credentialVersion`, and the
 secret itself lives in `CredentialStore` (Android Keystore-backed `EncryptedSharedPreferences`,
@@ -116,8 +133,10 @@ feeding `precisionMillis` is measured per server at connect time
 The `scan` package turns the repository and the selected folders into a snapshot. One `ScanEngine` runs
 both modes ([004 research R2](../specs/004-scan-engine-matching/research.md#r2-scan-modes-full-and-local_refresh-are-the-same-engine)):
 
-- **`FULL`** (Scan and Rescan from scratch) connects, discovers precision, lists the remote breadth-first
-  through `RemoteWalker` into an in-memory `MatchIndex`, enumerates each source through
+- **`FULL`** (Scan and Rescan from scratch) connects, discovers precision, lists every configured remote
+  folder breadth-first through `RemoteWalker` into an in-memory `MatchIndex` (a folder that cannot be
+  read becomes a `REMOTE_FOLDER` gap and the walk goes on; only when none can be read does the scan fail,
+  [D022](./decisions/0022-several-remote-folders-partial-scan.md)), enumerates each source through
   `LocalSourceEnumerator`, applies the `Matcher` rule table to each file, rolls statuses up to
   directories (`DirectoryRollup`) and publishes.
 - **`LOCAL_REFRESH`** (on app open) copies the active snapshot's remote keys and remote-side failures, and
@@ -137,7 +156,9 @@ All three views read one consistent snapshot ([D010](./decisions/0010-snapshot-p
 - `queryFiles` is flat, for the gallery.
 - `queryTreeChildren` is parent-scoped, for list and tree.
 - Page tokens are opaque (`PageTokenCodec`) and are rejected on snapshot, query or sort mismatch, which
-  prevents torn reads during a rescan.
+  prevents torn reads during a rescan. Since contract version 6 the token's cursor holds the sort key,
+  the `sortName` and the entry ID behind a format version byte, so a token from an older version is a
+  `PAGE_TOKEN_MISMATCH`.
 - Page size is clamped to `MAX_PAGE_SIZE = 200` on both sides. `clampPageSize` in TypeScript and its Kotlin
   mirror share the same edge cases (null, NaN or Infinity → 50; below 1 → 1; truncate; cap 200), and
   `SnapshotQueryTest` pins the Kotlin side to the same table.
@@ -155,9 +176,33 @@ The read rules since contract version 4 (feature 005,
   the snapshot (one indexed `EXISTS` probe per row). It drives the origin badge
   ([D010](./decisions/0010-snapshot-paging-and-origin-badge.md)) and is always false in list reads.
 
-On the JS side, `src/files/usePagedQuery.ts` holds the pages of one snapshot. When the active snapshot
-changes, or a read fails with `STALE_GENERATION`, `SNAPSHOT_NOT_FOUND` or `PAGE_TOKEN_MISMATCH`, it drops
-its rows and reloads from page 1 with the same query, and drops any response that belongs to an older
+The sort rules since contract version 6 (feature 007,
+[data model](../specs/007-sort-scroll-remote-folders/data-model.md#sort-keys-and-ordering)):
+
+- Six sorts: `NAME_*` on `sortName`, `TIME_*` on the modified time and `SIZE_*` on the size, each
+  ordered by `(key, sortName, entryId)` in the sort's direction, so every sort is total. A `NULL` size or
+  time reads as a sentinel that puts it last in both directions. `SnapshotStore.sortKeyOf` is the only
+  place the keys are defined.
+- A query's `kind` narrows the rows to `DIRECTORY` or `FILE`. List view reads its folders as their own
+  segment, by name, before the files in the chosen sort.
+- **Scroll index.** `getScrollIndex` returns the bands of a result in one read, each with its count, its
+  first row's position and a page token that starts at it: letters (`#`, `a`–`z`) for a name sort; years,
+  months or days for a date sort (the coarsest unit that gives at least `SCROLL_BANDS_MIN` bands); and
+  size ranges cut from the percentiles of the sizes shown and snapped to 1-2-5 values for a size sort,
+  between `SCROLL_BANDS_MIN` and `SCROLL_BANDS_MAX` bands; files with an unknown key form a last
+  `Unknown` band. The band rules live only in `ScrollBands`. Given an anchor (a sort value and a
+  `sortName`), the index also returns `anchorIndex`, the position that row has, or would have, in the
+  result.
+
+On the JS side, `src/files/usePagedQuery.ts` holds the pages of one snapshot. Since feature 007 it is
+**band-segmented** ([research R7](../specs/007-sort-scroll-remote-folders/research.md#r7-band-segmented-paging-in-the-views)):
+it requests page 1 and the scroll index at once, then keeps one segment per band, each read from its
+band's start token and padded with placeholder rows up to the band's count, so the list has its full
+length and the `FastScroller` can jump to any band; a band is read when it comes into view. When new
+results arrive, the view passes the anchor of its first visible file, and the hook scrolls to the
+returned `anchorIndex` instead of the top ([R8](../specs/007-sort-scroll-remote-folders/research.md#r8-keeping-the-place-when-results-update)).
+When the active snapshot changes, or a read fails with `STALE_GENERATION`, `SNAPSHOT_NOT_FOUND` or
+`PAGE_TOKEN_MISMATCH`, it drops its rows and reloads with the same query, and drops any response that belongs to an older
 snapshot or query ([005 research R1](../specs/005-gallery-list-filtering/research.md#r1-how-a-view-notices-a-new-snapshot-the-stale_generation-recovery-of-fr-005)).
 `useListNavigation.ts` finds the list view's folder again by name in the new snapshot, falling back to the
 nearest ancestor that still exists ([R2](../specs/005-gallery-list-filtering/research.md#r2-re-locating-the-current-folder-in-a-new-snapshot)).
@@ -216,7 +261,7 @@ document ID, and a new pick that equals, contains or is nested in an existing ro
 (Available, Access lost, Storage missing) is computed on every `listSources` call and never stored. A
 re-grant must pick the same folder, and removal deletes the row with all its scan data in one transaction
 before releasing the grant. `treeUri` and `canonicalRoot` stay native; no raw path crosses the bridge. The
-user-facing screen is **Settings › Folders** (`src/sources/`).
+user-facing screen is **Settings › Device folders** (`src/sources/`).
 
 ### Verification against real servers, not mocks
 
@@ -230,13 +275,13 @@ All under `android/app/src/main/java/com/syncscope/`:
 
 | Package | Role |
 | --- | --- |
-| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, and `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles`, `queryTreeChildren`, `listSelectableEntries` and `getLocalImageHandle` into envelopes. |
+| `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles`, `queryTreeChildren`, `getScrollIndex`, `listSelectableEntries` and `getLocalImageHandle` into envelopes, and `BrowsePreferences` (feature 007), the remembered view and sorts in `SharedPreferences`. `RepositoryOperations` also serves `browseRemoteFolders`. |
 | `deletion` | Feature 006: `DeletionOperations` (the plan store and the prepare and execute orchestration), `DeletionRecheck` (the server re-check of SYNCED files, [D020](./decisions/0020-pre-delete-server-recheck.md)) and `LocalDeleter` (SAF verify-then-delete per file). |
 | `persistence` | The Room database (`SyncScopeDatabase`), its entities and DAOs, `SnapshotStore`, snapshot queries and the opaque page-token codec. |
-| `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
+| `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), `RemoteRoots` (feature 007: the remote folder list's normalization, overlap check and encoding, [D022](./decisions/0022-several-remote-folders-partial-scan.md)), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
 | `credential` | `CredentialStore`: the repository password in `EncryptedSharedPreferences` under an Android Keystore `AES256_GCM` master key. |
 | `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract the scan consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
-| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first remote listing with retries and the `FAILED` boundary), `DirectoryRollup` (worst-of directory status and per-status descendant file counts), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation, and `runExclusive` for deletions) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
+| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first listing of every remote folder with retries, `REMOTE_FOLDER` gaps and the `FAILED` boundary), `SortName` (the one name folding, feature 007), `ScrollBands` (the letter, date and size band rules of the scroll index, feature 007), `DirectoryRollup` (worst-of directory status and per-status descendant file counts), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation, and `runExclusive` for deletions) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
 | `image` | `LocalImageStore` (feature 005): local-only thumbnails for `getLocalImageHandle`, cached under `cacheDir/thumbnails/`; see [Local thumbnails](#local-thumbnails-never-remote-content). |
 
 ## Remote clients
@@ -257,12 +302,12 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | `App.tsx`, `index.js` | App entry point. |
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
 | `src/navigation/`, `src/screens/` | The navigation shell and screens. The root is a native stack (`@react-navigation/native-stack`) with two routes: `Tabs` (the bottom tabs Scan, Files and Settings) and `Repository` (`RepositoryScreen`, the server form, with a discard prompt on `beforeRemove`). The tabs hold `SettingsScreen`, `ScanScreen` and the Files tab's `FilesScreen`, which switches between `GalleryScreen` and `ListScreen` under one set of filter chips. `fixTargets.ts` maps an error code to the place that fixes it, for the "Go there" buttons. |
-| `src/repository/` | The Settings › Repository UI (feature 006): `useRepository` (the save, test and host-key state machine), `RepositorySection` and `HostKeyDialog`. |
+| `src/repository/` | The Settings › Repository UI (feature 006): `useRepository` (the save, test and host-key state machine), `RepositorySection` and `HostKeyDialog`; since feature 007 also `RemoteFolderBrowser`, the modal server folder browser behind each remote folder's **Browse** button. It calls `browseRemoteFolders` with the form's details, so a typed password stays in the form's state, reuses `HostKeyDialog` for an untrusted SFTP key, and ignores the answer for a folder the user already left. |
 | `src/setup/` | `useSetupChecklist`, the derived "server set up, folder available" state behind the Scan tab's checklist and the Files tab's empty state. |
 | `src/selection/` | Multi-select and deletion (feature 006): `SelectionProvider`, `summary.ts`, `formatBytes.ts`, `SelectionBar` and `DeleteFlow`. |
 | `src/theme/` | The Material 3 shell: Paper and navigation themes, spacing and density, status and filter labels. |
-| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list), `usePagedQuery` (paging with snapshot-change recovery), `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 008 reuses the hooks for the tree view. |
-| `src/sources/` | The Settings › Folders UI: `useSources` and `SourcesSection`. |
+| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list, and since feature 007 each view's sort, loaded from and saved to the browse preferences), `usePagedQuery` (band-segmented paging with snapshot-change recovery and anchor restore), `SortMenu` and `ViewMenu` (the two drop-downs, on `ChoiceMenu`), `FastScroller` (the scrollbar, on `PanResponder` and `Animated`, adjustable for TalkBack) with `bandLabel.ts`, `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 008 reuses the hooks for the tree view. |
+| `src/sources/` | The Settings › Device folders UI: `useSources` and `SourcesSection`. |
 | `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
 | `android/app/src/debug/` | Debug-only code, not in the release build: the `ReleaseGrantsActivity` grant-release seam ([D017](./decisions/0017-debug-grant-release-seam.md)), the `ConfigureRepositoryActivity` configure-repository seam ([D018](./decisions/0018-debug-repository-seam.md)) and the debug `ScanPacing`. `android/app/src/release/` holds the release no-op `ScanPacing`. |
@@ -270,7 +315,7 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | `android/app/src/androidTest/` | Instrumented tests, including `ProtocolConnectInstrumentedTest` against the live containers. |
 | `scripts/validation/` | Container, emulator, fixture and audit orchestration, with its `node --test` suites. |
 | `validation/services/` | The Compose file and server configs for the protocol containers. |
-| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`, `browse/`, `mvp/`), with shared `subflows/` and a pinned `config.yaml` order, plus the `staged/` pairs, which run outside the workspace. |
+| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`, `browse/`, `mvp/`, `polish/`), with shared `subflows/` and a pinned `config.yaml` order, plus the `staged/` pairs, which run outside the workspace. |
 
 ## Validation infrastructure
 

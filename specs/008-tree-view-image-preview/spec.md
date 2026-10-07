@@ -31,6 +31,28 @@ Consumes from feature 005 (M001/S04 → M001/S05):
 - `queryTreeChildren` returning every directory whatever the filter, each with `matchingFileCount` (the
   directory rule below).
 
+Consumes from feature 007 (spec follow-up, 2026-10-07; [007 plan, Integration closure](../007-sort-scroll-remote-folders/plan.md#integration-closure)):
+
+- **The view drop-down** (`ViewMenu`, on `ChoiceMenu`), where tree view becomes the third choice, and the
+  remembered browse preferences (`getBrowsePreferences` / `setBrowsePreferences`, native
+  `SharedPreferences`), whose `view` gains a tree value; a tree sort, if any, is stored the same way.
+- **The sort contract** (contract version 6): `NAME_*`, `TIME_*` and `SIZE_*` ordered by
+  `(key, sortName, entryId)`, with `sortName` the case- and accent-folded name (`SortName`) and unknown
+  sizes and dates last in both directions; and the query's `kind` (`DIRECTORY` / `FILE`). The tree
+  applies it to each folder's files, with folders first by name, as list view does
+  ([007 research R1–R3](../007-sort-scroll-remote-folders/research.md#r1-sort-contract-six-sorts-unknown-values-last-total-order)).
+- **The scroll index and the segmented reader**: `getScrollIndex(snapshotId, querySpec, anchor?)` and the
+  band-segmented `usePagedQuery`, with placeholders for bands not read yet and the `FastScroller`. The
+  tree may reuse them per expanded folder or skip the scrollbar; decide when this feature is planned
+  ([007 research R4, R7](../007-sort-scroll-remote-folders/research.md#r7-band-segmented-paging-in-the-views)).
+- **Anchor restore on new results** (FR-014 of 007): on a new snapshot a view re-finds its first visible
+  file by sort value and `sortName` (`anchorIndex`) instead of jumping to the top, also when hidden. The
+  tree follows the same rule ([R8](../007-sort-scroll-remote-folders/research.md#r8-keeping-the-place-when-results-update)).
+- **List rows have a fixed height** (`density.rowHeight`, with `getItemLayout`): the segmented reader
+  places placeholder rows and the scrollbar maps the thumb to a row by that height. Tree rows that reuse
+  the reader must keep a fixed height too (an expanded folder's children are rows of the same height,
+  not nested lists of varying size).
+
 Consumes from feature 004 (M001/S03 → M001/S05):
 
 - Working `queryTreeChildren(snapshotId, parentId, querySpec, pageToken)`, backed by

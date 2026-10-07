@@ -2,11 +2,13 @@
 
 ## v1 scope
 
-SyncScope v1 connects to **one remote server** with **one remote root** for all selected folders, through
-**one active connection profile** using username and password. Scanning runs **in the foreground only**,
-with visible progress and cancellation. The app is distributed as a **local debug or release APK** for the
-user's own device, and must install and run the full loop on API 31 and API 36. Everything listed below is
-deliberately outside v1.
+SyncScope v1 connects to **one remote server** with **one or more remote folders** on it, against which
+every selected device folder is checked together, through **one active connection profile** using
+username and password. Several folders on the one server came with feature 007
+([D022](./decisions/0022-several-remote-folders-partial-scan.md)); before it, v1 had one remote root.
+Scanning runs **in the foreground only**, with visible progress and cancellation. The app is distributed
+as a **local debug or release APK** for the user's own device, and must install and run the full loop on
+API 31 and API 36. Everything listed below is deliberately outside v1.
 
 ## Deferred
 
@@ -21,12 +23,15 @@ Wanted eventually, but not in v1.
   (R026), and would make scans dramatically more expensive over FTP. See
   [D003](./decisions/0003-directory-agnostic-sync-matching.md).
 
-### R024 — Multiple connection profiles and per-folder remote root mapping
+### R024 — Multiple connection profiles and per-folder remote folder mapping
 
 - **Class**: core-capability
 - **Why it matters**: A user with both a home NAS and a work server would eventually want to check folders
   against different targets.
-- **Rationale**: The user explicitly scoped v1 to one remote server and one remote root for all folders.
+- **Rationale**: The user explicitly scoped v1 to one remote server for all folders. Several remote
+  folders on that server, all checked together, are in v1 since feature 007
+  ([D022](./decisions/0022-several-remote-folders-partial-scan.md)); a second server, and mapping a
+  device folder to particular server folders, stay deferred.
 
 ### R025 — Background or scheduled scanning with notification
 

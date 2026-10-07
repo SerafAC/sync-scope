@@ -1,6 +1,6 @@
 # Decision records
 
-Append-only: reverse a decision with a new record that supersedes it; new records continue from 0022.
+Append-only: reverse a decision with a new record that supersedes it; new records continue from 0023.
 
 Each record is named `00NN-<kebab-slug>.md` and has the fields Status, Date / context, Scope, Made by and
 Revisable, followed by the sections Context, Decision, Rationale, Alternatives rejected and Related.
@@ -30,3 +30,4 @@ in which the decision was made (the record's "Date / context" field).
 | D019 | [Match names in NFC, case-sensitively; strict precision buckets](./0019-match-name-normalization-and-strict-buckets.md) | Accepted | architecture | 2026-09-30 |
 | D020 | [Pre-delete server re-check of each selected file](./0020-pre-delete-server-recheck.md) | Accepted | architecture | 2026-10-02 |
 | D021 | [Release signing with a personal key; cleartext as the user's choice](./0021-release-signing-and-cleartext-policy.md) | Accepted | security | 2026-10-02 |
+| D022 | [Several remote folders on one server; a scan that cannot read some of them](./0022-several-remote-folders-partial-scan.md) | Accepted | architecture | 2026-10-05 |

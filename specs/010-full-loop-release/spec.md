@@ -53,6 +53,12 @@ Settle these when this feature is specified:
   folders of each selected file from them, and a key without them is refused as `SCAN_TOO_OLD`
   ([D020](../../docs/decisions/0020-pre-delete-server-recheck.md)). A `LOCAL_REFRESH` copies the keys
   forward, so pruning older snapshots is safe as long as the active one keeps its keys.
+  It MUST also keep the active snapshot's `remote_ambiguity` rows with their `remotePath` column (schema
+  version 5, feature 007; spec follow-up, 2026-10-07): they record which configured remote folders could
+  not be read, so the scan summary's unread-folder warning and the `REMOTE_FOLDER_UNREAD` reasons survive
+  until a full scan reads every folder, and a `LOCAL_REFRESH` copies them forward
+  ([D022](../../docs/decisions/0022-several-remote-folders-partial-scan.md)). Keeping the active snapshot
+  whole already does this.
 
 ### Already delivered by feature 006 (spec follow-up, 2026-10-02)
 

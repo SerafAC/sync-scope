@@ -14,6 +14,7 @@ This guide is for people working on the SyncScope code. For what the app does an
 | Docker | 29.x | Protocol validation services |
 | Docker Compose | 5.5.1 (checked by `scripts/validation/`) | Protocol validation services |
 | Maestro | 2.10.0 | End-to-end emulator flows |
+| ImageMagick | 7 (the `magick` command) | Only `scripts/icon/generate-icons.sh`; not needed to build, test or run the app |
 
 The API 31 and API 36 emulators (AVDs `dependency_api31` and `dependency_api36`, each with an SD card)
 are needed for the connected tests, the S01 live gate and the end-to-end flows; see
@@ -39,6 +40,33 @@ Every script in `package.json`, grouped by purpose. Run them with `pnpm <script>
 | `build` | Alias for `assemble:debug`. |
 | `assemble:debug` | Builds `android/app/build/outputs/apk/debug/app-debug.apk` with Gradle. |
 | `assemble:release` | Builds the signed, self-contained `android/app/build/outputs/apk/release/app-release.apk` (needs the [release key](#release-key)). |
+
+### The app icon
+
+The launcher icons are generated from one high-resolution image by `scripts/icon/generate-icons.sh`
+(feature 007, research R17). It is not a `package.json` script, because it runs only when the image
+changes:
+
+```sh
+scripts/icon/generate-icons.sh path/to/source.png --background '#RRGGBB'
+```
+
+It needs ImageMagick 7 (`magick` on `PATH`; for example `pacman -S imagemagick`, `apt install
+imagemagick` on a release that ships version 7, or `brew install imagemagick`) and stops with a clear
+message when it is missing. It writes into `android/app/src/main/res/`:
+
+- `mipmap-anydpi/ic_launcher.xml` and `ic_launcher_round.xml`, the adaptive icon: a background colour
+  (`values/ic_launcher_background.xml`), a foreground layer, and a monochrome layer for Android 13 themed
+  icons;
+- `mipmap-<density>/ic_launcher_foreground.png` and `ic_launcher_monochrome.png` (108 dp, the image
+  scaled into the central 66 dp safe zone) and the legacy `ic_launcher.png` and `ic_launcher_round.png`
+  (48 dp), for every density;
+
+and into `assets/icon/`, `play-store-512.png` and a copy of the source as `source.png`, so the icons can
+be regenerated. `--res` and `--assets` point it elsewhere, which the tests use. Commit every output: the
+build never runs the script. Its contract test in `validation-infrastructure.test.mjs` runs it on a
+generated image when `magick` is installed and is skipped with a notice when it is not; the
+missing-`magick` message is tested either way.
 
 ### Project progress
 
@@ -168,7 +196,7 @@ validation/maestro/
 ├── subflows/        # reusable steps, never run on their own
 │   ├── pick-folder.yaml            # drives the system folder picker; env VOLUME, PATH
 │   ├── open-sources.yaml           # launches the app, opens Settings and scrolls to Add folder (below Repository)
-│   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT
+│   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT, ROOT_2
 │   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true), or the SOURCES list
 │   ├── open-scan.yaml              # opens the Scan tab
 │   ├── setup-repository.yaml       # the Repository form, as a user fills it; env PROTOCOL, PORT, USER, PASSWORD, ROOT, HTTPS, START, EXPECT
@@ -193,6 +221,15 @@ validation/maestro/
 │   ├── 05-delete-synced.yaml
 │   ├── 90-release-smoke.yaml       # also the release-smoke mode's flow
 │   └── 91-release-update.yaml      # release-smoke only: after an in-place update
+├── polish/          # feature 007
+│   ├── 01-sort.yaml
+│   ├── 02-sort-persists.yaml
+│   ├── 03-fast-scroll.yaml
+│   ├── 04-remote-folders-webdav.yaml
+│   ├── 05-remote-folder-unread-ftp.yaml
+│   ├── 06-remote-browse-sftp.yaml
+│   ├── 07-results-updated-keeps-place.yaml
+│   └── 08-add-large-folder.yaml
 └── staged/          # feature 006: a/b(/c) parts with a hook between them; not in config.yaml
     ├── pairs.txt
     ├── 06-recheck-removed-{a,b}.yaml
@@ -253,9 +290,12 @@ reproduce a real OS or app state through production code, never fake app state. 
 - `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`
   saves and tests a repository with the production `RepositoryOperations`, approving an SFTP host-key
   challenge on the way, and shows `Repository configured` or `Repository error: <CODE>`
-  ([D018](./docs/decisions/0018-debug-repository-seam.md)). Feature 006 added the Repository screen, and
-  the `mvp/` flows set up each protocol through it (`subflows/setup-repository.yaml`); the seam stays for
-  flows whose subject is not setup. An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
+  ([D018](./docs/decisions/0018-debug-repository-seam.md)). Since feature 007 `root` may repeat
+  (`&root=/a&root=/b`) to give several remote folders, in order; a single `root` is a one-folder
+  repository, as before. `polish/05` uses it to set one readable and one unreadable folder, then two
+  unreadable ones; `subflows/configure-repository.yaml` takes a second folder in `ROOT_2`. Feature 006
+  added the Repository screen, and the `mvp/` flows set up each protocol through it
+  (`subflows/setup-repository.yaml`); the seam stays for flows whose subject is not setup. An optional `scanDelayMs=<ms>` sets a debug-only pause before each local file is matched
   (`ScanPacing`, a no-op in release builds), which the `01-clean-scan-*` flows use so the progress card
   stays visible; a link without it resets the pause to 0. Flows call it through
   `subflows/configure-repository.yaml`. The password travels in the link, which Android and Maestro may
@@ -314,6 +354,32 @@ The script is idempotent, and it fails with a clear message when no SD card is m
 removable-storage coverage is never skipped silently. New fixtures go in this script, under
 `SyncScopeE2E/`.
 
+For sorting, the scrollbar, several server folders and the picker (feature 007,
+`specs/007-sort-scroll-remote-folders/contracts/maestro-polish.md`, Fixtures) it seeds four more:
+
+| Source | Contents | Used by |
+| --- | --- | --- |
+| `SyncScopeE2E/TwoFolders` | the same names, bytes and mtimes as the remote `scan/clean/a` and `scan/clean/b` (copied by the existing logic), plus `b/b-only-deleted.jpg` and `b/b-only-kept.jpg`, which only `scan/clean/b` holds | `polish/04`, `polish/05` |
+| `SyncScopeE2E/Scroll` | 5 000 padded PNGs from 2 KB to 4 MB, over 30 months, with names covering `#` and every letter `a`–`z` (accented and mixed-case initials included) | `polish/01`–`03`, `polish/07` |
+| `SyncScopeE2E/Narrow` | 200 padded PNGs, all 3–5 MB with at least 8 distinct sizes, within 21 days, so the size bands must be narrow | `polish/03` |
+| `DCIM/Big` | 10 000 empty `.jpg` files, made with one `adb shell` loop | `polish/08` and the picker spike |
+
+`Scroll` and `Big` take a while to create, so they are kept when their file count is already complete (in
+practice once per emulator boot); the others are re-created on each run.
+
+**The scroll manifest.** `scripts/validation/scroll-manifest.sh` is the one definition of the `Scroll` and
+`Narrow` files (Principle III). Sourced, it defines `scroll_name`, `scroll_size` and `scroll_mtime <i>`
+(`i` from 0 to 4 999) and `narrow_name`, `narrow_size` and `narrow_mtime <i>` (0 to 199), pure functions
+of the index that `device-fixtures.sh` uses to write the files. Run as `scroll-manifest.sh print`, it
+prints `KEY=value` lines computed from the same functions: the first file under each sort
+(`FIRST_NAME_ASC`, `FIRST_NAME_DESC`, `FIRST_TIME_DESC`, `FIRST_TIME_ASC`, `FIRST_SIZE_DESC`,
+`FIRST_SIZE_ASC`), `LARGEST_NAME`, a month band about three quarters down the date track
+(`BAND_MONTH_LABEL`, `BAND_MONTH_FIRST`) and `BAND_LETTER_M_FIRST`. `android-flow.sh` evaluates it once and
+passes every line to Maestro as `-e` variables, so the `polish/` flows never hold a literal file name or
+size. The name order follows `SortName` (research R2); `validation-infrastructure.test.mjs` recomputes one
+value independently. To run a `polish/` flow by hand, pass the same variables:
+`$(scripts/validation/scroll-manifest.sh print | sed 's/^/-e /')`.
+
 **Calibrating `BULK_FILES`.** The Bulk source must keep a full scan running for at least 15 s on the API 31
 emulator, so a flow can cancel it or leave the app mid-run. With 20 000 files a FULL scan over SFTP of
 `Scan` and `Bulk` took about 22 s on the reference host (`specs/004-scan-engine-matching/research.md`,
@@ -335,7 +401,8 @@ the first progress frame to the summary and set `BULK_FILES` (an environment var
 
 The browse flows (feature 005) use two more roots, built from the same embedded PNGs:
 
-- `gallery/`: `sunset.png`, `beach.png` and `album/forest.png`. Flows `01`, `02`, `04` and `05` use it.
+- `gallery/`: `sunset.png`, `beach.png` and `album/forest.png`. Flows `01`, `02` and `04` use it
+  (`browse/05-results-updated` was replaced by `polish/07` in feature 007).
 - `gallery-partial/`: the same files plus `restricted/hidden.png` inside `restricted/`, which is `0700`
   and host-owned like `scan/partial/restricted`, so the listing is incomplete and every unmatched file is
   UNKNOWN. Flow `03-gallery-issues-unknown` uses it.
@@ -346,6 +413,12 @@ The expected chip counts per root and view are in
 Feature 006 adds `recheck/`, a copy of `gallery/` that `fixture-seed.sh` re-creates on every seed run,
 because `staged/06-recheck-removed` removes `recheck/beach.png` mid-scenario. The `mvp/` and `staged/`
 flows otherwise use `gallery/` and `gallery-partial/`.
+
+Feature 007 adds `scan/clean/b/b-only-deleted.jpg` and `b-only-kept.jpg`, two files only the second of two
+remote folders holds, so `polish/04` can prove that a file backed up in the second folder is SYNCED and
+passes the server re-check. The `polish/` flows use `scan/clean/a`, `scan/clean/b`,
+`scan/partial/restricted`, `gallery-partial/restricted` (two unreadable folders) and `gallery/` as remote
+folders; the `Scroll` and `Narrow` files are local only.
 
 When the tree changes, update the exact-tree expectations in `ProtocolConnectInstrumentedTest` and
 `scripts/validation/validation-infrastructure.test.mjs` in the same change.
@@ -407,6 +480,23 @@ The `mvp/` flows (feature 006) run after `browse/`. The full scenario mapping is
 | `05-delete-synced` | SFTP, `gallery-partial`, then `gallery`; Delete | real deletion of the SYNCED files, UNKNOWN files survive, folders stay; then the not-backed-up opt-in |
 | `90-release-smoke` | clearState, no seam | setup, folder, scan and results; valid on debug and release |
 | `91-release-update` | after `adb install -r` | the server, folders and results survive an update (release-smoke only) |
+
+### Polish flow order
+
+The `polish/` flows (feature 007) run after `mvp/`. The full scenario mapping, with the recorded
+deviations, is in `specs/007-sort-scroll-remote-folders/contracts/maestro-polish.md`. Expected names,
+sizes and band labels come from the [scroll manifest](#device-fixtures), never from literals.
+
+| Flow | Setup | Proves |
+| --- | --- | --- |
+| `01-sort` | WebDAV, `gallery`; Scroll, Gallery | the sort and view drop-downs, each of the six sorts in both views, sort and filter independent, each view keeping its own sort |
+| `02-sort-persists` | after `01`, a restart | the view and each view's sort survive a restart; the filter does not |
+| `03-fast-scroll` | Scroll, Narrow | the scrollbar: month and letter jumps within 1 s (SC-003), narrow size bands (SC-008), no thumb on a short result; drag points per `API_LEVEL` |
+| `04-remote-folders-webdav` | the form, two folders; TwoFolders | several folders, per-folder test lines, the URL path fills folder 1, a file only the second folder holds is SYNCED and passes the re-check, the overlap refusal |
+| `05-remote-folder-unread-ftp` | the seam, `root` twice; TwoFolders | one unread folder: the scan completes, names it, and unmatched files are UNKNOWN; all folders unread: the scan fails and the result stays |
+| `06-remote-browse-sftp` | the form, never saved | the server folder browser: key approval first, descend, Up, Use this folder, the login error |
+| `07-results-updated-keeps-place` | WebDAV; Scroll | a rescan keeps the first visible file on top in the list and in the hidden gallery, with "Results updated" |
+| `08-add-large-folder` | clearState | the large-folder hint, then `DCIM/Big` (10 000 files) added by opening it and tapping Use this folder at once |
 
 ### Staged pairs and hooks
 
