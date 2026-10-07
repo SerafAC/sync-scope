@@ -1,14 +1,25 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { List, useTheme, type MD3Theme } from 'react-native-paper';
 
 import { Breadcrumb } from '../files/Breadcrumb';
+import { FastScroller } from '../files/FastScroller';
 import {
   FilesMessage,
   NO_MATCHES_TEXT,
@@ -17,17 +28,18 @@ import {
   type FilesViewProps,
 } from '../files/FilesViewParts';
 import { StatusChip } from '../files/StatusChip';
-import { fileRowLabel, folderRowLabel } from '../files/a11y';
+import { fileRowLabel, folderRowLabel, placeholderLabel } from '../files/a11y';
 import { useFiles } from '../files/useFiles';
 import { useListNavigation } from '../files/useListNavigation';
 import {
+  isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
   usePagedQuery,
-  type PagedPhase,
+  type IndexReader,
+  type PagedRow,
   type PageReader,
-  type UsePagedQueryResult,
 } from '../files/usePagedQuery';
-import { queryTreeChildren } from '../native/CloudSync';
+import { getScrollIndex, queryTreeChildren } from '../native/CloudSync';
 import type {
   FileEntryDto,
   FileFilter,
@@ -72,6 +84,16 @@ export function formatSize(bytes: number): string {
 /** `queryTreeChildren` as a {@link PageReader}: the parent travels in `query.parentId`. */
 const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
   queryTreeChildren(snapshotId, query.parentId ?? null, query, pageToken);
+
+/** The scroll index of a folder's files: the query carries the folder (research R4). */
+const readIndex: IndexReader = (snapshotId, query) =>
+  getScrollIndex(snapshotId, query);
+
+const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
+
+function keyOf(row: PagedRow): string {
+  return isPlaceholder(row) ? row.key : row.entryId;
+}
 
 /** Adds up per-status counts; null when any part is not known. */
 function sumCounts(
@@ -239,78 +261,29 @@ const FileRow = memo(function FileRowBody({
   );
 });
 
-/** The two reads of a folder (research R3) as one list: folders first, then files. */
-interface ListReads {
-  entries: FileEntryDto[];
-  counts: StatusCountDto[] | null;
-  /** Nothing to show yet: page 1 of the folders, or of the files of a folder without subfolders, is loading. */
-  loading: boolean;
-  /** Both reads are complete. */
-  complete: boolean;
-  error: UsePagedQueryResult['error'];
-  retry: () => void;
-  loadMore: () => void;
-  snapshotChanged: boolean;
-  acknowledgeSnapshotChange: () => void;
-}
-
-function useListReads(
-  folders: UsePagedQueryResult,
-  files: UsePagedQueryResult,
-  foldersComplete: boolean,
-): ListReads {
-  const entries = useMemo(
-    () =>
-      files.entries.length === 0
-        ? folders.entries
-        : [...folders.entries, ...files.entries],
-    [folders.entries, files.entries],
+/** A row of a band not read yet: the fixed row height, no spinner (research R7). */
+function PlaceholderRow(): React.JSX.Element {
+  return (
+    <View
+      accessibilityLabel={placeholderLabel()}
+      accessible
+      style={styles.row}
+      testID="list-placeholder"
+    />
   );
-  const failed = folders.phase === 'error' ? folders : files;
-  const { loadMore: loadMoreFolders, acknowledgeSnapshotChange: ackFolders } =
-    folders;
-  const { loadMore: loadMoreFiles, acknowledgeSnapshotChange: ackFiles } =
-    files;
-  const loadMore = useCallback(() => {
-    if (foldersComplete) {
-      loadMoreFiles();
-    } else {
-      loadMoreFolders();
-    }
-  }, [foldersComplete, loadMoreFiles, loadMoreFolders]);
-  const acknowledgeSnapshotChange = useCallback(() => {
-    ackFolders();
-    ackFiles();
-  }, [ackFolders, ackFiles]);
-  const startingPhases: readonly PagedPhase[] = ['idle', 'loading-first'];
-  return {
-    entries,
-    // Counts are scoped by source, not by kind: both reads carry the same.
-    counts: folders.counts ?? files.counts,
-    // Once folders are shown, the files' page 1 arrives below them without a spinner.
-    loading:
-      startingPhases.includes(folders.phase) ||
-      (foldersComplete &&
-        folders.entries.length === 0 &&
-        startingPhases.includes(files.phase)),
-    complete: foldersComplete && files.phase === 'ready' && !files.hasMore,
-    error: failed.phase === 'error' ? failed.error : null,
-    retry: failed.retry,
-    loadMore,
-    snapshotChanged: folders.snapshotChanged || files.snapshotChanged,
-    acknowledgeSnapshotChange,
-  };
 }
 
 /**
  * The list view (FR-002): the sources at the top level, then each source's
  * folders through `queryTreeChildren`, with a breadcrumb back up.
  *
- * A folder is read in two parts (007 research R3): its subfolders by name
- * (`kind: 'DIRECTORY'`, always `NAME_ASC`), then, once that read has no next
- * page, its files in the list's sort (`kind: 'FILE'`). Folders are shown
- * above the files under every sort (FR-004). T063 replaces this with the
- * band-segmented reader.
+ * A folder is read by the band-segmented reader (007 research R3, R7): its
+ * subfolders by name (`kind: 'DIRECTORY'`, always `NAME_ASC`) as the leading
+ * segment, then its files in the list's sort (`kind: 'FILE'`), one segment
+ * per band of the folder's scroll index, with placeholder rows of the fixed
+ * `density.rowHeight` for bands not read yet. Folders are shown above the
+ * files under every sort (FR-004). The `FastScroller` runs over the file
+ * bands.
  * Under a filter, every folder stays visible with its matching-file count.
  * File rows are selectable (FR-015); source and directory rows never are,
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
@@ -375,23 +348,15 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     [filter, fileSort, folderSourceId, parentId],
   );
   const readSnapshot = folder != null ? nav.snapshotId : null;
-  const folders = usePagedQuery({
-    snapshotId: readSnapshot,
-    query: folderQuery,
-    read: readTreeChildren,
-    onSnapshotLost,
-    reloadKey,
-  });
-  const foldersComplete = folders.phase === 'ready' && !folders.hasMore;
-  const files = usePagedQuery({
+  const paged = usePagedQuery({
     snapshotId: readSnapshot,
     query: fileQuery,
+    leadingQuery: folderQuery,
     read: readTreeChildren,
+    readIndex,
     onSnapshotLost,
     reloadKey,
-    enabled: foldersComplete,
   });
-  const paged = useListReads(folders, files, foldersComplete);
 
   const totals = useMemo(
     () =>
@@ -416,8 +381,10 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
 
   const { openFolder } = nav;
   const renderEntry = useCallback(
-    ({ item }: { item: FileEntryDto }) =>
-      item.kind === 'DIRECTORY' ? (
+    ({ item }: { item: PagedRow }) =>
+      isPlaceholder(item) ? (
+        <PlaceholderRow />
+      ) : item.kind === 'DIRECTORY' ? (
         <FolderRow
           matching={item.matchingFileCount}
           name={item.name}
@@ -440,6 +407,54 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
       index,
     }),
     [],
+  );
+
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  /** The first visible file among the folder's files: where the scrollbar's thumb rests. */
+  const [firstIndex, setFirstIndex] = useState(0);
+  const listRef = useRef<FlatList<PagedRow>>(null);
+  /** Rows in one screen: the look-ahead of a band load. */
+  const screenful = Math.max(1, Math.ceil(viewportHeight / density.rowHeight));
+  const { loadRange, fileOffset } = paged;
+  const loadVisible = useRef<(first: number, last: number) => void>(() => {});
+  loadVisible.current = (first, last) => {
+    setFirstIndex(Math.max(0, first - fileOffset));
+    loadRange(first, last + screenful);
+  };
+  // FlatList takes one onViewableItemsChanged for its lifetime.
+  const onViewableItemsChanged = useRef(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: readonly { index?: number | null }[];
+    }) => {
+      const indexes = viewableItems
+        .map(token => token.index)
+        .filter((index): index is number => index != null);
+      if (indexes.length > 0) {
+        loadVisible.current(Math.min(...indexes), Math.max(...indexes));
+      }
+    },
+  ).current;
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) =>
+      setViewportHeight(event.nativeEvent.layout.height),
+    [],
+  );
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+      setScrollOffset(event.nativeEvent.contentOffset.y),
+    [],
+  );
+  /** [index] counts the folder's files: the folder rows come before them. */
+  const onJump = useCallback(
+    (index: number) => {
+      const row = fileOffset + index;
+      loadRange(row, row + screenful);
+      listRef.current?.scrollToIndex({ index: row, animated: false });
+    },
+    [fileOffset, loadRange, screenful],
   );
 
   if (snapshotId == null) {
@@ -472,30 +487,55 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     );
   }
 
+  const { phase, rows, scrollIndex } = paged;
+  // Once folders are shown, the files' page 1 arrives below them without a spinner.
+  const loading =
+    phase === 'idle' ||
+    phase === 'loading-first' ||
+    (phase === 'loading-more' && rows.length === 0);
   let body: React.JSX.Element;
-  if (nav.relocating || (paged.error == null && paged.loading)) {
+  if (nav.relocating || loading) {
     body = <FilesMessage loading />;
-  } else if (paged.entries.length === 0 && paged.error != null) {
+  } else if (rows.length === 0 && paged.error != null) {
     body = <FilesMessage error={paged.error} onRetry={paged.retry} />;
-  } else if (paged.entries.length === 0 && paged.complete) {
+  } else if (rows.length === 0 && !paged.hasMore) {
     body = <FilesMessage text={NO_MATCHES_TEXT} />;
   } else {
     body = (
-      <FlatList
-        ListFooterComponent={
-          paged.error != null ? (
-            <FilesMessage error={paged.error} onRetry={paged.retry} />
-          ) : undefined
-        }
-        data={paged.entries}
-        extraData={items}
-        getItemLayout={getItemLayout}
-        keyExtractor={item => item.entryId}
-        onEndReached={paged.loadMore}
-        onEndReachedThreshold={1}
-        renderItem={renderEntry}
-        testID="list-entries"
-      />
+      <View onLayout={onLayout} style={styles.folder} testID="list-body">
+        <FlatList
+          ListFooterComponent={
+            paged.error != null ? (
+              <FilesMessage error={paged.error} onRetry={paged.retry} />
+            ) : undefined
+          }
+          data={rows}
+          extraData={items}
+          getItemLayout={getItemLayout}
+          keyExtractor={keyOf}
+          onEndReached={paged.loadMore}
+          onEndReachedThreshold={1}
+          onScroll={onScroll}
+          onViewableItemsChanged={onViewableItemsChanged}
+          ref={listRef}
+          renderItem={renderEntry}
+          scrollEventThrottle={32}
+          showsVerticalScrollIndicator={scrollIndex == null}
+          testID="list-entries"
+          viewabilityConfig={VIEWABILITY}
+        />
+        {scrollIndex != null ? (
+          <FastScroller
+            bands={scrollIndex.bands}
+            contentHeight={rows.length * density.rowHeight}
+            onJump={onJump}
+            firstIndex={firstIndex}
+            scrollOffset={scrollOffset}
+            unit={scrollIndex.unit}
+            viewportHeight={viewportHeight}
+          />
+        ) : null}
+      </View>
     );
   }
 

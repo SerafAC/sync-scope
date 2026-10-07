@@ -343,6 +343,9 @@ for api in $apis; do
         gallery-partial/restricted/hidden.png)" \
       -e "SIZE_SYNCED_3=$(size_of gallery/sunset.png gallery/beach.png \
         gallery/album/forest.png)"
+    # Feature 007: the API level, for flows whose swipe points depend on the
+    # screen layout (polish/03: API 36 lays out edge to edge).
+    set -- "$@" -e "API_LEVEL=$api"
     # Feature 007: FIRST_SIZE_DESC, BAND_MONTH_LABEL, … from the scroll manifest.
     while IFS= read -r manifest_line; do
       [ -z "$manifest_line" ] || set -- "$@" -e "$manifest_line"

@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { FlatList } from 'react-native';
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 
 import { Button } from 'react-native-paper';
@@ -18,6 +19,7 @@ import { SortMenu } from '../../files/SortMenu';
 import { useFiles } from '../../files/useFiles';
 import {
   getBrowsePreferences,
+  getScrollIndex,
   listSelectableEntries,
   queryTreeChildren,
   setBrowsePreferences,
@@ -29,6 +31,8 @@ import type {
   FileStatus,
   QueryFilesResult,
   QuerySpec,
+  ScrollBandDto,
+  ScrollIndexResult,
   StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import { ScanContext, type ScanState } from '../../scan/useScan';
@@ -45,7 +49,12 @@ jest.mock('../../native/CloudSync', () => ({
   setBrowsePreferences: jest.fn(),
   listSelectableEntries: jest.fn(),
   queryTreeChildren: jest.fn(),
+  getScrollIndex: jest.fn(),
 }));
+
+const getScrollIndexMock = getScrollIndex as jest.MockedFunction<
+  typeof getScrollIndex
+>;
 
 const queryTreeChildrenMock = queryTreeChildren as jest.MockedFunction<
   typeof queryTreeChildren
@@ -307,6 +316,12 @@ beforeEach(() => {
     status: 'ok',
   });
   queryTreeChildrenMock.mockImplementation(fakeTree);
+  // Without an index the list pages linearly (research R7).
+  getScrollIndexMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'error',
+    error: { code: 'INTERNAL_ERROR', message: 'No index.', action: null },
+  });
 });
 
 describe('formatSize', () => {
@@ -841,5 +856,164 @@ describe('ListScreen', () => {
 
       expect(() => a11ySweep(result)).not.toThrow();
     });
+  });
+});
+
+describe('ListScreen with the scroll index (Story 2, research R7)', () => {
+  const BAND_COUNTS = [600, 600, 600];
+
+  /** Letter bands of [counts]; band k starts at token `band-<k>`. */
+  function scrollIndex(counts: number[]): ScrollIndexResult {
+    let start = 0;
+    const bands = counts.map((count, k): ScrollBandDto => {
+      const band = {
+        startIndex: start,
+        count,
+        startToken: k === 0 ? null : `band-${k}`,
+        letter: String.fromCharCode(97 + k),
+      };
+      start += count;
+      return band;
+    });
+    return {
+      contractVersion: 6,
+      status: 'ok',
+      scrollIndex: {
+        unit: 'LETTER',
+        totalCount: start,
+        bands,
+        anchorIndex: null,
+      },
+    };
+  }
+
+  /** Source s-1's root holds two folders and the files of [BAND_COUNTS]; band k's files are `<k>-<i>.png`. */
+  function bandTree(
+    snapshotId: string,
+    parentId: string | null,
+    query: QuerySpec,
+    pageToken?: string | null,
+  ): Promise<QueryFilesResult> {
+    if (parentId !== null || query.pageSize === 1) {
+      return fakeTree(snapshotId, parentId, query);
+    }
+    if (query.kind === 'DIRECTORY') {
+      return Promise.resolve(
+        ok(
+          [
+            dir('d-album', 'album', null, 'ALL'),
+            dir('d-drafts', 'drafts', null, 'ALL'),
+          ],
+          SOURCE_COUNTS['s-1'] ?? null,
+        ),
+      );
+    }
+    const k = pageToken == null ? 0 : Number(pageToken.split('-')[1]);
+    return Promise.resolve({
+      contractVersion: 6,
+      status: 'ok',
+      page: {
+        entries: Array.from({ length: 100 }, (_, i) =>
+          file(`f-${k}-${i}`, `${k}-${i}.png`, 'SYNCED'),
+        ),
+        // Every band holds more than one page.
+        nextPageToken: `more-${k}`,
+        counts: k === 0 ? SOURCE_COUNTS['s-1'] ?? null : null,
+      },
+    });
+  }
+
+  beforeEach(() => {
+    queryTreeChildrenMock.mockImplementation(bandTree);
+    getScrollIndexMock.mockImplementation(async (_snapshotId, query) =>
+      query.parentId == null ? scrollIndex(BAND_COUNTS) : scrollIndex([1]),
+    );
+  });
+
+  async function openGallery() {
+    fireEvent.press(await screen.findByLabelText('Folder Gallery, 6 matching'));
+    await screen.findByLabelText('0-0.png, Synced');
+    fireEvent(screen.getByTestId('list-body'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 600 } },
+    });
+  }
+
+  it('shows the folders first, then the file bands with placeholders past the loaded rows', async () => {
+    renderList();
+    await openGallery();
+
+    const data = screen.getByTestId('list-entries').props.data as unknown[];
+    expect(data).toHaveLength(2 + 1800);
+    expect(screen.getByLabelText('Folder album')).toBeOnTheScreen();
+    expect(getScrollIndexMock).toHaveBeenCalledWith('snap-1', {
+      filter: 'ALL',
+      view: 'LIST',
+      sort: 'NAME_ASC',
+      sourceId: 's-1',
+      parentId: null,
+      kind: 'FILE',
+      pageSize: 100,
+    });
+
+    fireEvent(screen.getByTestId('list-entries'), 'onViewableItemsChanged', {
+      viewableItems: [{ index: 602 }, { index: 603 }],
+      changed: [],
+    });
+
+    await waitFor(() =>
+      expect(queryTreeChildrenMock).toHaveBeenLastCalledWith(
+        'snap-1',
+        null,
+        expect.objectContaining({ kind: 'FILE' }),
+        'band-1',
+      ),
+    );
+  });
+
+  it("jumps with the scrollbar to the band's first file, below the folders", async () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, 'scrollToIndex')
+      .mockImplementation(() => {});
+    try {
+      renderList();
+      await openGallery();
+      const thumb = await screen.findByTestId('files.scroller.thumb');
+
+      fireEvent(thumb, 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+
+      expect(scrollToIndex).toHaveBeenCalledWith({
+        index: 2 + 600,
+        animated: false,
+      });
+      await waitFor(() =>
+        expect(queryTreeChildrenMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          null,
+          expect.objectContaining({ kind: 'FILE' }),
+          'band-1',
+        ),
+      );
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  it('reads the bands of the open folder (Story 2 sc. 8)', async () => {
+    renderList();
+    await openGallery();
+    expect(await screen.findByTestId('files.scroller.thumb')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByLabelText('Folder album'));
+
+    await waitFor(() =>
+      expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+        'snap-1',
+        expect.objectContaining({ parentId: 'd-album', kind: 'FILE' }),
+      ),
+    );
+    await screen.findByLabelText('forest.png, Synced');
+    expect(screen.queryByTestId('files.scroller.thumb')).toBeNull();
   });
 });

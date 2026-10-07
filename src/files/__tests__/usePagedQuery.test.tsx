@@ -5,11 +5,15 @@ import {
   type FileEntryDto,
   type QueryFilesResult,
   type QuerySpec,
+  type ScrollIndexResult,
   type StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import {
+  isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
   usePagedQuery,
+  type IndexReader,
+  type PagedRow,
   type PageReader,
   type UsePagedQueryOptions,
 } from '../usePagedQuery';
@@ -648,5 +652,514 @@ describe('usePagedQuery', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+/**
+ * A fake snapshot of [total] files `f0`…: a token `at-<i>` (or a band's
+ * start token, which is the same) reads from row i, 100 rows per page.
+ */
+function fileRows(total: number): FileEntryDto[] {
+  return Array.from({ length: total }, (_, i) => entry(`f${i}`));
+}
+
+function pagedReader(
+  files: FileEntryDto[],
+  folders: FileEntryDto[] = [],
+): jest.Mock<ReturnType<PageReader>, Parameters<PageReader>> {
+  return jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+    async (_snapshotId, query, pageToken) => {
+      const rows = query.kind === 'DIRECTORY' ? folders : files;
+      const start = pageToken == null ? 0 : Number(pageToken.split('-')[1]);
+      const end = Math.min(rows.length, start + PAGED_QUERY_PAGE_SIZE);
+      return ok(
+        rows.slice(start, end),
+        end < rows.length ? `at-${end}` : null,
+        pageToken == null ? COUNTS : null,
+      );
+    },
+  );
+}
+
+/** An index of consecutive bands with the given counts; band k starts at token `at-<start>`. */
+function index(counts: number[]): ScrollIndexResult {
+  let start = 0;
+  const bands = counts.map((count, k) => {
+    const band = {
+      startIndex: start,
+      count,
+      startToken: k === 0 ? null : `at-${start}`,
+      letter: String.fromCharCode(97 + k),
+    };
+    start += count;
+    return band;
+  });
+  return {
+    contractVersion: 6,
+    status: 'ok',
+    scrollIndex: {
+      unit: 'LETTER',
+      totalCount: start,
+      bands,
+      anchorIndex: null,
+    },
+  };
+}
+
+function idsOf(rows: readonly PagedRow[]): string[] {
+  return rows.map(row => (isPlaceholder(row) ? '_' : row.entryId));
+}
+
+describe('usePagedQuery segments (007 research R7)', () => {
+  it('requests page 1 and the index together, and behaves as today before the index arrives', async () => {
+    const pending = deferred<ScrollIndexResult>();
+    const readIndex = jest.fn<ReturnType<IndexReader>, Parameters<IndexReader>>(
+      () => pending.promise,
+    );
+    const read = pagedReader(fileRows(250));
+    const { result } = setup({ read, readIndex });
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(readIndex).toHaveBeenCalledTimes(1);
+    expect(readIndex).toHaveBeenCalledWith('snap-1', {
+      ...GALLERY,
+      pageSize: PAGED_QUERY_PAGE_SIZE,
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    expect(result.current.scrollIndex).toBeNull();
+    expect(result.current.rows).toHaveLength(100);
+    expect(result.current.rows).toEqual(result.current.entries);
+    expect(result.current.hasMore).toBe(true);
+
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.entries).toHaveLength(200));
+    expect(read).toHaveBeenLastCalledWith(
+      'snap-1',
+      { ...GALLERY, pageSize: 100 },
+      'at-100',
+    );
+  });
+
+  it('gives the result its full length once the index arrives: loaded rows plus placeholders', async () => {
+    const read = pagedReader(fileRows(250));
+    const readIndex = jest.fn(async () => index([30, 120, 100]));
+    const { result } = setup({ read, readIndex });
+
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    const rows = result.current.rows;
+    expect(rows).toHaveLength(250);
+    // Page 1 (100 rows) fills band 0 and the first 70 rows of band 1.
+    expect(idsOf(rows.slice(0, 100))).toEqual(
+      fileRows(100).map(e => e.entryId),
+    );
+    expect(rows.slice(100).every(isPlaceholder)).toBe(true);
+    expect(result.current.entries).toHaveLength(100);
+    expect(result.current.hasMore).toBe(true);
+    expect(result.current.bandStarts).toEqual([0, 30, 150]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('places a page 1 that arrives after the index into the bands', async () => {
+    const page1 = deferred<QueryFilesResult>();
+    const read = jest
+      .fn<ReturnType<PageReader>, Parameters<PageReader>>()
+      .mockReturnValueOnce(page1.promise);
+    const readIndex = jest.fn(async () => index([60, 60]));
+    const { result } = setup({ read, readIndex });
+
+    await act(async () => {});
+    expect(result.current.phase).toBe('loading-first');
+
+    await act(async () => page1.resolve(ok(fileRows(100), 'at-100', COUNTS)));
+
+    expect(result.current.phase).toBe('ready');
+    expect(result.current.rows).toHaveLength(120);
+    expect(idsOf(result.current.rows.slice(95, 105))).toEqual([
+      'f95',
+      'f96',
+      'f97',
+      'f98',
+      'f99',
+      '_',
+      '_',
+      '_',
+      '_',
+      '_',
+    ]);
+    expect(result.current.counts).toEqual(COUNTS);
+  });
+
+  it('loadBand reads a band from its start token until its count is in, and never twice at once', async () => {
+    const read = pagedReader(fileRows(500));
+    const readIndex = jest.fn(async () => index([50, 250, 200]));
+    const { result } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    read.mockClear();
+
+    act(() => {
+      result.current.loadBand(2);
+      result.current.loadBand(2);
+    });
+    act(() => result.current.loadBand(2));
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenLastCalledWith(
+      'snap-1',
+      { ...GALLERY, pageSize: 100 },
+      'at-300',
+    );
+
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    // 200 rows: two pages from the band's start token, then it stops.
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenLastCalledWith(
+      'snap-1',
+      { ...GALLERY, pageSize: 100 },
+      'at-400',
+    );
+    expect(idsOf(result.current.rows.slice(300))).toEqual(
+      fileRows(500)
+        .slice(300)
+        .map(e => e.entryId),
+    );
+    // Band 1 is still placeholders past page 1.
+    expect(idsOf(result.current.rows.slice(150, 150 + 1))[0] === '_').toBe(
+      true,
+    );
+
+    act(() => result.current.loadBand(2));
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('loadRange reads the bands a visible range touches, in rows of the whole result', async () => {
+    const read = pagedReader(fileRows(500));
+    const readIndex = jest.fn(async () => index([50, 250, 200]));
+    const { result } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    read.mockClear();
+
+    act(() => result.current.loadRange(290, 320));
+
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    // Band 1 continues from page 1's next token up to row 290; band 2 reads its first page.
+    expect(read.mock.calls.map(call => call[2]).sort()).toEqual([
+      'at-100',
+      'at-200',
+      'at-300',
+    ]);
+    expect(idsOf(result.current.rows.slice(289, 289 + 1))[0] === '_').toBe(
+      false,
+    );
+    expect(idsOf(result.current.rows.slice(320, 320 + 1))[0] === '_').toBe(
+      false,
+    );
+    expect(idsOf(result.current.rows.slice(450, 450 + 1))[0] === '_').toBe(
+      true,
+    );
+  });
+
+  it('shows placeholders, not an empty list, while a far band read is delayed (Story 2 sc. 6)', async () => {
+    const files = fileRows(400);
+    const far = deferred<QueryFilesResult>();
+    const read = pagedReader(files);
+    const readIndex = jest.fn(async () => index([100, 100, 200]));
+    const { result } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    read.mockReturnValueOnce(far.promise);
+
+    act(() => result.current.loadBand(2));
+
+    expect(result.current.rows).toHaveLength(400);
+    expect(result.current.rows.slice(200).every(isPlaceholder)).toBe(true);
+    expect(result.current.phase).toBe('loading-more');
+
+    await act(async () =>
+      far.resolve(ok(files.slice(200, 300), 'at-300', null)),
+    );
+    expect(idsOf(result.current.rows.slice(200, 202))).toEqual([
+      'f200',
+      'f201',
+    ]);
+  });
+
+  it('drops a late band read after a query change', async () => {
+    const late = deferred<QueryFilesResult>();
+    const read = pagedReader(fileRows(300));
+    const readIndex = jest.fn(async () => index([100, 200]));
+    const { result, rerender } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    read.mockReturnValueOnce(late.promise);
+    act(() => result.current.loadBand(1));
+
+    rerender({ query: { ...GALLERY, filter: 'SYNCED' } });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    await act(async () =>
+      late.resolve(ok([entry('old-1'), entry('old-2')], null)),
+    );
+
+    expect(idsOf(result.current.rows)).not.toContain('old-1');
+    expect(readIndex).toHaveBeenCalledTimes(2);
+    expect(readIndex).toHaveBeenLastCalledWith(
+      'snap-1',
+      expect.objectContaining({ filter: 'SYNCED' }),
+    );
+  });
+
+  it('drops a late index of the old snapshot and reads the new one', async () => {
+    const lateIndex = deferred<ScrollIndexResult>();
+    const readIndex = jest
+      .fn<ReturnType<IndexReader>, Parameters<IndexReader>>()
+      .mockReturnValueOnce(lateIndex.promise)
+      .mockResolvedValueOnce(index([150]));
+    const read = pagedReader(fileRows(150));
+    const { result, rerender } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    rerender({ snapshotId: 'snap-2' });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await act(async () => lateIndex.resolve(index([10, 10, 10])));
+
+    expect(result.current.scrollIndex?.bands).toHaveLength(1);
+    expect(result.current.rows).toHaveLength(150);
+    expect(result.current.snapshotChanged).toBe(true);
+  });
+
+  it.each([
+    CloudSyncErrorCode.STALE_GENERATION,
+    CloudSyncErrorCode.PAGE_TOKEN_MISMATCH,
+  ])(
+    '%s on a band read calls onSnapshotLost and reloads page 1 and the index',
+    async code => {
+      const onSnapshotLost = jest.fn(async () => {});
+      const read = pagedReader(fileRows(300));
+      const readIndex = jest.fn(async () => index([100, 200]));
+      const { result } = setup({ read, readIndex, onSnapshotLost });
+      await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      read.mockResolvedValueOnce(fail(code));
+
+      act(() => result.current.loadBand(1));
+
+      await waitFor(() => expect(onSnapshotLost).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(readIndex).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      expect(read).toHaveBeenLastCalledWith(
+        'snap-1',
+        { ...GALLERY, pageSize: 100 },
+        null,
+      );
+      expect(result.current.rows).toHaveLength(300);
+      expect(result.current.snapshotChanged).toBe(false);
+    },
+  );
+
+  it('reloads page 1 and the index when reloadKey changes', async () => {
+    let files = fileRows(300);
+    const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+      (...args) => pagedReader(files)(...args),
+    );
+    const readIndex = jest
+      .fn<ReturnType<IndexReader>, Parameters<IndexReader>>()
+      .mockResolvedValueOnce(index([100, 200]))
+      .mockResolvedValueOnce(index([100, 199]));
+    const { result, rerender } = setup({ read, readIndex, reloadKey: 0 });
+    await waitFor(() => expect(result.current.rows).toHaveLength(300));
+
+    files = fileRows(299);
+    rerender({ reloadKey: 1 });
+
+    await waitFor(() => expect(result.current.rows).toHaveLength(299));
+    expect(readIndex).toHaveBeenCalledTimes(2);
+    expect(result.current.snapshotChanged).toBe(false);
+  });
+
+  it('keeps paging linearly when the index read fails', async () => {
+    const read = pagedReader(fileRows(150));
+    const readIndex = jest.fn(
+      async (): Promise<ScrollIndexResult> => ({
+        contractVersion: 6,
+        status: 'error',
+        error: { code: 'INTERNAL_ERROR', message: 'failed', action: null },
+      }),
+    );
+    const { result } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    await act(async () => {});
+
+    expect(result.current.scrollIndex).toBeNull();
+    expect(result.current.error).toBeNull();
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.rows).toHaveLength(150));
+  });
+
+  it('pages a single band like linear paging', async () => {
+    const read = pagedReader(fileRows(250));
+    const readIndex = jest.fn(async () => index([250]));
+    const { result } = setup({ read, readIndex });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(result.current.rows).toHaveLength(250);
+    expect(result.current.entries).toHaveLength(100);
+
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.entries).toHaveLength(200));
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.entries).toHaveLength(250));
+
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.rows.some(isPlaceholder)).toBe(false);
+    expect(read.mock.calls.map(call => call[2])).toEqual([
+      null,
+      'at-100',
+      'at-200',
+    ]);
+  });
+
+  describe('a leading segment (list view folders, research R3)', () => {
+    const LIST: QuerySpec = {
+      filter: 'ALL',
+      view: 'LIST',
+      sort: 'SIZE_DESC',
+      sourceId: 'source-1',
+      parentId: null,
+      kind: 'FILE',
+    };
+    const FOLDERS: QuerySpec = { ...LIST, sort: 'NAME_ASC', kind: 'DIRECTORY' };
+    const dirs = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        entry(`d${i}`, { kind: 'DIRECTORY', matchingFileCount: 1 }),
+      );
+
+    it('reads the folders first and places them before the file bands', async () => {
+      const read = pagedReader(fileRows(150), dirs(2));
+      const readIndex = jest.fn(async () => index([50, 100]));
+      const { result } = setup({
+        read,
+        readIndex,
+        query: LIST,
+        leadingQuery: FOLDERS,
+      });
+
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledWith(
+        'snap-1',
+        { ...FOLDERS, pageSize: 100 },
+        null,
+      );
+      await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+      await waitFor(() => expect(result.current.entries).toHaveLength(102));
+
+      expect(read).toHaveBeenNthCalledWith(
+        2,
+        'snap-1',
+        { ...LIST, pageSize: 100 },
+        null,
+      );
+      expect(readIndex).toHaveBeenCalledWith('snap-1', {
+        ...LIST,
+        pageSize: 100,
+      });
+      expect(result.current.fileOffset).toBe(2);
+      expect(result.current.rows).toHaveLength(152);
+      expect(result.current.bandStarts).toEqual([2, 52]);
+      expect(idsOf(result.current.rows.slice(0, 3))).toEqual([
+        'd0',
+        'd1',
+        'f0',
+      ]);
+      expect(result.current.counts).toEqual(COUNTS);
+    });
+
+    it('pages a long folder read before any file is read', async () => {
+      const read = pagedReader(fileRows(10), dirs(150));
+      const readIndex = jest.fn(async () => index([10]));
+      const { result } = setup({
+        read,
+        readIndex,
+        query: LIST,
+        leadingQuery: FOLDERS,
+      });
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+      expect(result.current.rows).toHaveLength(100);
+      expect(result.current.scrollIndex).toBeNull();
+      expect(read).toHaveBeenCalledTimes(1);
+
+      act(() => result.current.loadMore());
+
+      await waitFor(() => expect(result.current.rows).toHaveLength(160));
+      expect(result.current.fileOffset).toBe(150);
+      expect(idsOf(result.current.rows.slice(149, 151))).toEqual([
+        'd149',
+        'f0',
+      ]);
+    });
+
+    it('keeps the folders when only the file query changes, and reads the files again', async () => {
+      const read = pagedReader(fileRows(3), dirs(2));
+      const readIndex = jest.fn(async () => index([3]));
+      const { result, rerender } = setup({
+        read,
+        readIndex,
+        query: LIST,
+        leadingQuery: FOLDERS,
+      });
+      await waitFor(() => expect(result.current.rows).toHaveLength(5));
+      read.mockClear();
+
+      rerender({ query: { ...LIST, sort: 'SIZE_ASC' } });
+
+      await waitFor(() => expect(result.current.rows).toHaveLength(5));
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledWith(
+        'snap-1',
+        { ...LIST, sort: 'SIZE_ASC', pageSize: 100 },
+        null,
+      );
+      expect(readIndex).toHaveBeenLastCalledWith(
+        'snap-1',
+        expect.objectContaining({ sort: 'SIZE_ASC' }),
+      );
+      expect(result.current.counts).toEqual(COUNTS);
+    });
+
+    it('reads the folders again when the folder changes', async () => {
+      const read = pagedReader(fileRows(3), dirs(2));
+      const { result, rerender } = setup({
+        read,
+        query: LIST,
+        leadingQuery: FOLDERS,
+      });
+      await waitFor(() => expect(result.current.rows).toHaveLength(5));
+      read.mockClear();
+
+      rerender({
+        query: { ...LIST, parentId: 'd0' },
+        leadingQuery: { ...FOLDERS, parentId: 'd0' },
+      });
+
+      await waitFor(() => expect(result.current.rows).toHaveLength(5));
+      expect(read.mock.calls.map(call => call[1].kind)).toEqual([
+        'DIRECTORY',
+        'FILE',
+      ]);
+    });
+
+    it('reads files at once when the folder has no subfolders', async () => {
+      const read = pagedReader(fileRows(3));
+      const { result } = setup({ read, query: LIST, leadingQuery: FOLDERS });
+
+      await waitFor(() => expect(result.current.rows).toHaveLength(3));
+      expect(result.current.fileOffset).toBe(0);
+      expect(result.current.hasMore).toBe(false);
+    });
   });
 });

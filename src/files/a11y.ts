@@ -114,3 +114,16 @@ export const VIEW_LABEL: Readonly<Record<FileView, string>> = {
 export function viewMenuLabel(view: FileView): string {
   return `View: ${VIEW_LABEL[view]}`;
 }
+
+/**
+ * `Scrollbar`: the fast scroller's thumb (007 FR-008). It is adjustable: its
+ * value is the band label under it, and increment / decrement step a band.
+ */
+export function scrollerLabel(): string {
+  return 'Scrollbar';
+}
+
+/** `Loading file`: a placeholder tile or row of a band that is not read yet (research R7). */
+export function placeholderLabel(): string {
+  return 'Loading file';
+}

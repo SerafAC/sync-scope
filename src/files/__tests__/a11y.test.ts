@@ -7,6 +7,8 @@ import {
   folderRowLabel,
   galleryTileLabel,
   originBadgeLabel,
+  placeholderLabel,
+  scrollerLabel,
   selectionDetailsLabel,
   selectionLabel,
   sortMenuLabel,
@@ -166,5 +168,15 @@ describe('viewMenuLabel', () => {
   it('labels the view drop-down with its current choice', () => {
     expect(viewMenuLabel('GALLERY')).toBe('View: Gallery');
     expect(viewMenuLabel('LIST')).toBe('View: List');
+  });
+});
+
+describe('scrollerLabel and placeholderLabel', () => {
+  it('names the scrollbar thumb', () => {
+    expect(scrollerLabel()).toBe('Scrollbar');
+  });
+
+  it('names a placeholder of a band not read yet', () => {
+    expect(placeholderLabel()).toBe('Loading file');
   });
 });

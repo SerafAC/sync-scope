@@ -26,6 +26,7 @@ export function Breadcrumb({
       contentContainerStyle={styles.row}
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.bar}
       testID="breadcrumb"
     >
       {crumbs.map((crumb, position) => {
@@ -56,6 +57,11 @@ export function Breadcrumb({
 }
 
 const styles = StyleSheet.create({
+  // A ScrollView grows by default: the trail keeps its own height and the
+  // folder's list below gets the rest.
+  bar: {
+    flexGrow: 0,
+  },
   crumb: {
     alignItems: 'center',
     flexDirection: 'row',

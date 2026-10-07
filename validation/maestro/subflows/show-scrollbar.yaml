@@ -1,0 +1,15 @@
+# Subflow: show the Files view's scrollbar again without moving off the band
+# the thumb rests on (feature 007, research R9). Never run on its own.
+#
+# The scrollbar fades out 1.5 s after scrolling stops, and a faded thumb is
+# not in the hierarchy. A short, slow scroll (about 25 px, less than a gallery
+# row or a list row) shows it again with the same first visible file, so its
+# accessibility value (`Scrollbar, <band label>`) is the band a drag reached.
+appId: com.syncscope
+---
+- swipe:
+    start: "50%, 60%"
+    end: "50%, 58%"
+    duration: 800
+- assertVisible:
+    id: "files.scroller.thumb"
