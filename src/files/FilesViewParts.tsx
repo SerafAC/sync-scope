@@ -30,6 +30,12 @@ export interface FilesViewProps {
   onSnapshotLost?: () => unknown;
   /** Bumped after a deletion: reload page 1, keeping the folder and filter. */
   reloadKey?: number;
+  /**
+   * The view is on screen (default true). A hidden view holds its list back
+   * while a new snapshot's place is pending, and opens it there when shown
+   * (007 Story 4 sc. 4, research R8).
+   */
+  visible?: boolean;
 }
 
 function errorText(error: CloudSyncError): string {

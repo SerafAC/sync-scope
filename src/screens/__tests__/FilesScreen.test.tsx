@@ -6,16 +6,19 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { BackHandler, Text } from 'react-native';
+import { BackHandler, Dimensions, Text } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FilesProvider } from '../../files/FilesProvider';
+import { galleryTileSize } from '../../files/GalleryTile';
+import { density } from '../../theme/spacing';
 import { useSourceAliases } from '../../files/useSourceAliases';
 import {
   executeLocalDeletion,
   getBrowsePreferences,
   getLocalImageHandle,
+  getScrollIndex,
   listSelectableEntries,
   prepareLocalDeletion,
   queryFiles,
@@ -27,6 +30,7 @@ import type {
   BrowsePreferencesDto,
   FileEntryDto,
   QueryFilesResult,
+  ScrollIndexResult,
   StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import { useScan, type ScanState } from '../../scan/useScan';
@@ -59,6 +63,7 @@ jest.mock('../../native/CloudSync', () => ({
   setBrowsePreferences: jest.fn(),
   queryFiles: jest.fn(),
   queryTreeChildren: jest.fn(),
+  getScrollIndex: jest.fn(),
   getLocalImageHandle: jest.fn(),
   listSelectableEntries: jest.fn(),
   prepareLocalDeletion: jest.fn(),
@@ -69,6 +74,9 @@ jest.mock('../../files/useSourceAliases', () => ({
   useSourceAliases: jest.fn(),
 }));
 
+const getScrollIndexMock = getScrollIndex as jest.MockedFunction<
+  typeof getScrollIndex
+>;
 const queryFilesMock = queryFiles as jest.MockedFunction<typeof queryFiles>;
 const queryTreeChildrenMock = queryTreeChildren as jest.MockedFunction<
   typeof queryTreeChildren
@@ -248,6 +256,12 @@ beforeEach(() => {
     ok([file(`${snapshotId}-e1`, `${snapshotId}.png`)], GALLERY_COUNTS),
   );
   queryTreeChildrenMock.mockImplementation(async () => ok([], LIST_COUNTS));
+  // Without an index both views page linearly (007 research R7).
+  getScrollIndexMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'error',
+    error: { code: 'INTERNAL_ERROR', message: 'No index.', action: null },
+  });
 });
 
 describe('FilesScreen', () => {
@@ -325,6 +339,108 @@ describe('FilesScreen', () => {
     await act(async () => {});
 
     expect(screen.queryByText('Results updated')).toBeNull();
+  });
+
+  describe('keeps the place when results update (Story 4, research R8)', () => {
+    const BANDS = [600, 600, 600, 600, 600];
+
+    /** Letter bands of BANDS; band k starts at token `band-<k>`. */
+    function bandIndex(anchorIndex: number | null): ScrollIndexResult {
+      let start = 0;
+      const bands = BANDS.map((count, k) => {
+        const band = {
+          startIndex: start,
+          count,
+          startToken: k === 0 ? null : `band-${k}`,
+          letter: String.fromCharCode(97 + k),
+        };
+        start += count;
+        return band;
+      });
+      return {
+        contractVersion: 6,
+        status: 'ok',
+        scrollIndex: { unit: 'LETTER', totalCount: start, bands, anchorIndex },
+      };
+    }
+
+    it('restores the hidden view to its anchor when its snapshot changes (sc. 4)', async () => {
+      queryFilesMock.mockImplementation(async (_snapshotId, _query, token) => {
+        const k = token == null ? 0 : Number(token.split('-')[1]);
+        return {
+          contractVersion: 6,
+          status: 'ok',
+          page: {
+            entries: Array.from({ length: 100 }, (_, i) =>
+              file(`e-${k}-${i}`, `${k}-${i}.png`),
+            ),
+            nextPageToken: `band-${k}-more`,
+            counts: k === 0 ? GALLERY_COUNTS : null,
+          },
+        };
+      });
+      getScrollIndexMock.mockImplementation(
+        async (_snapshotId, query, anchor) =>
+          query.view === 'GALLERY'
+            ? bandIndex(anchor == null ? null : 1203)
+            : {
+                contractVersion: 6,
+                status: 'error',
+                error: { code: 'INTERNAL_ERROR', message: 'No.', action: null },
+              },
+      );
+      const { rerender } = render(ui());
+      const grid = await screen.findByTestId('gallery-grid');
+      const viewable = {
+        viewableItems: Array.from({ length: 12 }, (_, i) => ({
+          index: 1203 + i,
+        })),
+        changed: [],
+      };
+      fireEvent(grid, 'onViewableItemsChanged', viewable);
+      await waitFor(() =>
+        expect(
+          (
+            screen.getByTestId('gallery-grid').props.data as {
+              entryId?: string;
+            }[]
+          )[1203]?.entryId,
+        ).toBe('e-2-3'),
+      );
+      const rowLength =
+        galleryTileSize(Dimensions.get('window').width) + density.tileGap;
+      fireEvent.scroll(screen.getByTestId('gallery-grid'), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 401 * rowLength },
+          contentSize: { width: 400, height: 1000000 },
+          layoutMeasurement: { width: 400, height: 600 },
+        },
+      });
+
+      pickView('List');
+      useScanMock.mockReturnValue(scanState('snap-2'));
+      rerender(ui());
+
+      await waitFor(() =>
+        expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+          'snap-2',
+          expect.objectContaining({ view: 'GALLERY' }),
+          { sortValue: 1704067200000, sortName: '12-3.png' },
+        ),
+      );
+      // The hidden gallery holds its grid back until it is shown.
+      await waitFor(() => {
+        expect(screen.getByTestId('gallery', HIDDEN)).toBeTruthy();
+        expect(screen.queryByTestId('gallery-grid', HIDDEN)).toBeNull();
+      });
+      expect(await screen.findByLabelText('Results updated')).toBeOnTheScreen();
+
+      pickView('Gallery');
+      expect(await screen.findByTestId('gallery-grid')).toBeVisible();
+      expect(screen.getByTestId('gallery-grid').props.initialScrollIndex).toBe(
+        401,
+      );
+    });
   });
 
   it('passes the a11y sweep', async () => {

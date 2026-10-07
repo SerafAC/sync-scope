@@ -184,8 +184,7 @@ validation/maestro/
 │   ├── 01-gallery-thousands.yaml
 │   ├── 02-gallery-filters.yaml
 │   ├── 03-gallery-issues-unknown.yaml
-│   ├── 04-list-browse.yaml
-│   └── 05-results-updated.yaml
+│   └── 04-list-browse.yaml
 ├── mvp/             # feature 006
 │   ├── 01-setup-{ftp,sftp,webdav}.yaml
 │   ├── 02-setup-errors.yaml
@@ -391,7 +390,6 @@ The `browse/` flows run after `scan/`, in the order pinned in `config.yaml`:
 | `02-gallery-filters` | `gallery`; Gallery, GalleryTwin | chip counts 6 / 3 / 3 / 0, what each filter shows, and the origin badges |
 | `03-gallery-issues-unknown` | `gallery-partial`; Gallery, GalleryTwin | the Issues or unknown filter shows the UNKNOWN set |
 | `04-list-browse` | `gallery`; Gallery, GalleryTwin | descend and breadcrumb back up, a dimmed `0 matching` folder, and the filter shared with the gallery |
-| `05-results-updated` | `gallery`; Gallery | after a rescan, `Results updated` and the same folder found again |
 
 Each flow is self-contained, so any one can be run alone as described below.
 

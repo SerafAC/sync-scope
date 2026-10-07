@@ -313,12 +313,12 @@ hidden one.
 **Independent Test**: flow `polish/07-results-updated-keeps-place`: after an in-app rescan, the noted list
 row and gallery tile are still at the top and "Results updated" shows.
 
-- [ ] T065 [US4] Write the failing regression tests (they must fail on the current jump-to-top behaviour):
+- [X] T065 [US4] Write the failing regression tests (they must fail on the current jump-to-top behaviour):
   - `src/files/__tests__/usePagedQuery.test.tsx`: the hook takes an anchor `(sortValue, sortName)`; on a snapshot change it requests the new index with that anchor, exposes `anchorIndex` once, and loads that band before reporting ready;
   - `src/screens/__tests__/GalleryScreen.test.tsx` and `ListScreen.test.tsx`: the view records the first visible file's anchor from `onViewableItemsChanged` (sort value by sort: `sortName`, `modifiedUtcMillis` or `sizeBytes`); on a new snapshot it scrolls to `anchorIndex`, not 0; a gone anchor lands on its neighbour (Story 4 sc. 2); list view relocates the folder by name first (005 R2), then the anchor; the "Results updated" notice still shows;
   - `src/screens/__tests__/FilesScreen.test.tsx`: the hidden view also restores its anchor when its snapshot changes (Story 4 sc. 4).
-- [ ] T066 [US4] Implement T065 in `src/files/usePagedQuery.ts`, `src/screens/GalleryScreen.tsx`, `src/screens/ListScreen.tsx` and `src/screens/FilesScreen.tsx` (research R8). The anchor is used once per snapshot change.
-- [ ] T067 [US4] Create `MAESTRO/polish/07-results-updated-keeps-place.yaml` per the mapping row (note the first tile and the first list row, rescan from the Scan tab, back to Files: `Results updated`, the noted row at the top, then Gallery: the noted tile at the top). Delete `MAESTRO/browse/05-results-updated.yaml` and its `flowsOrder` entry; register 07 after 06. Pass on API 31 and API 36.
+- [X] T066 [US4] Implement T065 in `src/files/usePagedQuery.ts`, `src/screens/GalleryScreen.tsx`, `src/screens/ListScreen.tsx` and `src/screens/FilesScreen.tsx` (research R8). The anchor is used once per snapshot change.
+- [X] T067 [US4] Create `MAESTRO/polish/07-results-updated-keeps-place.yaml` per the mapping row (note the first tile and the first list row, rescan from the Scan tab, back to Files: `Results updated`, the noted row at the top, then Gallery: the noted tile at the top). Delete `MAESTRO/browse/05-results-updated.yaml` and its `flowsOrder` entry; register 07 after 06. Pass on API 31 and API 36.
 
 **Checkpoint**: the place is kept in both views; flow 07 passes.
 

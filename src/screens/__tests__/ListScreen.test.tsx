@@ -42,6 +42,7 @@ import {
 } from '../../selection/SelectionProvider';
 import { a11ySweep } from '../../test-utils/a11ySweep';
 import { selectAllQuery } from '../FilesScreen';
+import { density } from '../../theme/spacing';
 import { ListScreen, formatSize, type ListFolder } from '../ListScreen';
 
 jest.mock('../../native/CloudSync', () => ({
@@ -998,6 +999,158 @@ describe('ListScreen with the scroll index (Story 2, research R7)', () => {
     } finally {
       scrollToIndex.mockRestore();
     }
+  });
+
+  describe('keeps the place when results update (Story 4, research R8)', () => {
+    /** The album folder's ID: entry IDs change with every snapshot. */
+    const albumOf = (snapshotId: string) =>
+      snapshotId === 'snap-2' ? 'd-album-2' : 'd-album';
+
+    /** Source s-1's root holds `album`, whose files are the bands of BAND_COUNTS. */
+    function albumTree(
+      snapshotId: string,
+      parentId: string | null,
+      query: QuerySpec,
+      pageToken?: string | null,
+    ): Promise<QueryFilesResult> {
+      if (query.pageSize === 1) {
+        return fakeTree(snapshotId, parentId, query);
+      }
+      if (parentId === null) {
+        return Promise.resolve(
+          ok(
+            query.kind === 'FILE'
+              ? []
+              : [
+                  entry(albumOf(snapshotId), 'album', {
+                    kind: 'DIRECTORY',
+                    mimeType: null,
+                    sizeBytes: null,
+                    matchingFileCount: 1800,
+                  }),
+                ],
+            SOURCE_COUNTS['s-1'] ?? null,
+          ),
+        );
+      }
+      if (query.kind === 'DIRECTORY') {
+        return Promise.resolve(ok([], SOURCE_COUNTS['s-1'] ?? null));
+      }
+      return bandTree(snapshotId, null, query, pageToken);
+    }
+
+    function harness(snapshotId: string, props: FilesViewProps) {
+      return (
+        <PaperProvider theme={MD3LightTheme}>
+          <ScanContext.Provider value={scanState(snapshotId)}>
+            <FilesProvider>
+              <SelectionProvider>
+                <Harness {...props} snapshotId={snapshotId} />
+              </SelectionProvider>
+            </FilesProvider>
+          </ScanContext.Provider>
+        </PaperProvider>
+      );
+    }
+
+    it.each([
+      ['the noted file is still there', 603],
+      ['the noted file is gone: its neighbour (sc. 2)', 602],
+    ])(
+      'relocates the folder by name, then scrolls to the anchor: %s',
+      async (_case, anchorIndex) => {
+        queryTreeChildrenMock.mockImplementation(albumTree);
+        getScrollIndexMock.mockImplementation(
+          async (_snapshotId, query, anchor) => {
+            const index = scrollIndex(
+              query.parentId == null ? [1] : BAND_COUNTS,
+            );
+            if (index.status === 'ok' && anchor != null) {
+              index.scrollIndex.anchorIndex = anchorIndex;
+            }
+            return index;
+          },
+        );
+        const { props, rerender } = renderList();
+        fireEvent.press(
+          await screen.findByLabelText('Folder Gallery, 6 matching'),
+        );
+        fireEvent.press(
+          await screen.findByLabelText('Folder album, 1800 matching'),
+        );
+        await screen.findByLabelText('0-0.png, Synced');
+        const viewable = {
+          viewableItems: Array.from({ length: 10 }, (_, i) => ({
+            index: 603 + i,
+          })),
+          changed: [],
+        };
+        fireEvent(
+          screen.getByTestId('list-entries'),
+          'onViewableItemsChanged',
+          viewable,
+        );
+        await waitFor(() =>
+          expect(
+            (
+              screen.getByTestId('list-entries').props.data as {
+                entryId?: string;
+              }[]
+            )[603]?.entryId,
+          ).toBe('f-1-3'),
+        );
+        // Row 603 is the top row on screen; row 602 is scrolled away.
+        fireEvent.scroll(screen.getByTestId('list-entries'), {
+          nativeEvent: {
+            contentOffset: { x: 0, y: 603 * density.rowHeight + 20 },
+            contentSize: { width: 400, height: 1000000 },
+            layoutMeasurement: { width: 400, height: 600 },
+          },
+        });
+
+        rerender(harness('snap-2', props));
+
+        await waitFor(() =>
+          expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+            'snap-2',
+            expect.objectContaining({ parentId: 'd-album-2', kind: 'FILE' }),
+            { sortValue: '11-3.png', sortName: '11-3.png' },
+          ),
+        );
+        await waitFor(() =>
+          expect(
+            screen.getByTestId('list-entries').props.initialScrollIndex,
+          ).toBe(anchorIndex),
+        );
+        expect(screen.getByLabelText('Breadcrumb album')).toBeOnTheScreen();
+        await waitFor(() =>
+          expect(props.onSnapshotChange).toHaveBeenCalledTimes(1),
+        );
+      },
+    );
+
+    it('starts a newly opened folder at the top', async () => {
+      queryTreeChildrenMock.mockImplementation(albumTree);
+      getScrollIndexMock.mockImplementation(async (_snapshotId, query) =>
+        scrollIndex(query.parentId == null ? [1] : BAND_COUNTS),
+      );
+      renderList();
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 6 matching'),
+      );
+      fireEvent.press(
+        await screen.findByLabelText('Folder album, 1800 matching'),
+      );
+      await screen.findByLabelText('0-0.png, Synced');
+
+      expect(
+        screen.getByTestId('list-entries').props.initialScrollIndex ?? null,
+      ).toBeNull();
+      expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+        'snap-1',
+        expect.objectContaining({ parentId: 'd-album' }),
+      );
+    });
   });
 
   it('reads the bands of the open folder (Story 2 sc. 8)', async () => {

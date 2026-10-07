@@ -1,4 +1,10 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   AppState,
   KeyboardAvoidingView,
@@ -19,19 +25,19 @@ import {
   TextInput,
   useTheme,
 } from 'react-native-paper';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import {getRepositorySummary} from '../native/CloudSync';
+import { getRepositorySummary } from '../native/CloudSync';
 import {
   REPOSITORY_DEFAULT_PORTS,
   type RepositoryField,
   type RepositoryProtocol,
   type RepositorySummaryDto,
 } from '../native/CloudSyncContracts';
-import type {RootStackParamList} from '../navigation/AppNavigator';
-import {HostKeyDialog} from '../repository/HostKeyDialog';
-import {RemoteFolderBrowser} from '../repository/RemoteFolderBrowser';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { HostKeyDialog } from '../repository/HostKeyDialog';
+import { RemoteFolderBrowser } from '../repository/RemoteFolderBrowser';
 import {
   splitServerAddress,
   withFirstRemoteRoot,
@@ -48,17 +54,17 @@ import {
   type RepositoryDraft,
   type RepositoryFormState,
 } from '../repository/useRepository';
-import {useScan} from '../scan/useScan';
-import {spacing} from '../theme/spacing';
+import { useScan } from '../scan/useScan';
+import { spacing } from '../theme/spacing';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Repository'>;
 
 const NEW_DRAFT = NEW_REPOSITORY_DRAFT;
 
 const PROTOCOL_BUTTONS = [
-  {value: 'FTP', label: 'FTP', accessibilityLabel: 'Protocol FTP'},
-  {value: 'SFTP', label: 'SFTP', accessibilityLabel: 'Protocol SFTP'},
-  {value: 'WEBDAV', label: 'WebDAV', accessibilityLabel: 'Protocol WebDAV'},
+  { value: 'FTP', label: 'FTP', accessibilityLabel: 'Protocol FTP' },
+  { value: 'SFTP', label: 'SFTP', accessibilityLabel: 'Protocol SFTP' },
+  { value: 'WEBDAV', label: 'WebDAV', accessibilityLabel: 'Protocol WebDAV' },
 ];
 
 export const UNENCRYPTED_WARNING =
@@ -88,7 +94,7 @@ export function withServerAddress(draft: RepositoryDraft): RepositoryDraft {
   if (parts == null) {
     return draft;
   }
-  const {remoteRoot, ...fields} = parts;
+  const { remoteRoot, ...fields } = parts;
   const protocolChanged =
     fields.protocol != null && fields.protocol !== draft.protocol;
   return {
@@ -149,10 +155,10 @@ function statusText(state: RepositoryFormState): string | null {
  * with unsaved changes asks first, and the password is never prefilled and is
  * cleared after every save and whenever the app goes to the background.
  */
-export function RepositoryScreen({navigation}: Props): React.JSX.Element {
+export function RepositoryScreen({ navigation }: Props): React.JSX.Element {
   const theme = useTheme();
-  const {isRunning} = useScan();
-  const {state, busy, saveAndTest, trust, reject} = useRepository();
+  const { isRunning } = useScan();
+  const { state, busy, saveAndTest, trust, reject } = useRepository();
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<RepositorySummaryDto | null>(null);
@@ -218,7 +224,7 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
   const set = <K extends keyof RepositoryDraft>(
     key: K,
     value: RepositoryDraft[K],
-  ) => setDraft(current => ({...current, [key]: value}));
+  ) => setDraft(current => ({ ...current, [key]: value }));
 
   // What Save sends: a URL in Host already split up, even before the field loses focus.
   const resolved = useMemo(() => withServerAddress(draft), [draft]);
@@ -277,8 +283,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
   const themed = useMemo(
     () =>
       StyleSheet.create({
-        status: {color: statusColor},
-        warning: {color: theme.colors.error},
+        status: { color: statusColor },
+        warning: { color: theme.colors.error },
       }),
     [statusColor, theme.colors.error],
   );
@@ -301,7 +307,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
       <KeyboardAvoidingView behavior="padding" style={styles.keyboard}>
         <ScrollView
           contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+        >
           <Text variant="bodyMedium">
             The server that holds your backup. SyncScope only reads file names,
             sizes and dates from it and never changes anything there.
@@ -311,7 +318,9 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             <Text variant="labelLarge">Server type</Text>
             <SegmentedButtons
               buttons={PROTOCOL_BUTTONS}
-              onValueChange={value => set('protocol', value as RepositoryProtocol)}
+              onValueChange={value =>
+                set('protocol', value as RepositoryProtocol)
+              }
               value={draft.protocol}
             />
             {errorFor('protocol')}
@@ -319,7 +328,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               <Text
                 accessibilityLabel="Unencrypted connection warning"
                 style={themed.warning}
-                variant="bodySmall">
+                variant="bodySmall"
+              >
                 {UNENCRYPTED_WARNING}
               </Text>
             ) : null}
@@ -445,7 +455,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
                     compact
                     disabled={busy}
                     icon="folder-search-outline"
-                    onPress={() => setBrowsing(index)}>
+                    onPress={() => setBrowsing(index)}
+                  >
                     Browse
                   </Button>
                   {draft.remoteRoots.length > 1 ? (
@@ -455,8 +466,11 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
                       disabled={busy}
                       icon="close"
                       onPress={() =>
-                        setDraft(current => withRemoteRootRemoved(current, index))
-                      }>
+                        setDraft(current =>
+                          withRemoteRootRemoved(current, index),
+                        )
+                      }
+                    >
                       Remove
                     </Button>
                   ) : null}
@@ -469,7 +483,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             disabled={busy}
             icon="plus"
             onPress={() => setDraft(withRemoteRootAdded)}
-            style={styles.addFolder}>
+            style={styles.addFolder}
+          >
             Add another folder
           </Button>
 
@@ -480,13 +495,17 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
             accessibilityLabel="Save and test"
             disabled={saveDisabled}
             mode="contained"
-            onPress={save}>
+            onPress={save}
+          >
             Save and test
           </Button>
 
           {busy ? (
             <View style={styles.progress}>
-              <ProgressBar accessibilityLabel="Checking connection" indeterminate />
+              <ProgressBar
+                accessibilityLabel="Checking connection"
+                indeterminate
+              />
               <Text variant="bodyMedium">Connecting to the server…</Text>
             </View>
           ) : null}
@@ -495,7 +514,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
               <Text
                 accessibilityLabel={status}
                 style={themed.status}
-                variant="titleSmall">
+                variant="titleSmall"
+              >
                 {status}
               </Text>
               {state.kind === 'failed' && state.error.action ? (
@@ -508,8 +528,11 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
                       <Text
                         accessibilityLabel={text}
                         key={folder.path}
-                        style={folder.error != null ? themed.warning : undefined}
-                        variant="bodyMedium">
+                        style={
+                          folder.error != null ? themed.warning : undefined
+                        }
+                        variant="bodyMedium"
+                      >
                         {text}
                       </Text>
                     );
@@ -528,12 +551,16 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
           username: resolved.username,
           webdavHttps: resolved.protocol === 'WEBDAV' && resolved.webdavHttps,
         }}
-        initialPath={browsing != null ? resolved.remoteRoots[browsing] ?? '' : ''}
+        initialPath={
+          browsing != null ? resolved.remoteRoots[browsing] ?? '' : ''
+        }
         onClose={() => setBrowsing(null)}
         onUse={path => {
           if (browsing != null) {
             const index = browsing;
-            setDraft(current => withRemoteRoot(withServerAddress(current), index, path));
+            setDraft(current =>
+              withRemoteRoot(withServerAddress(current), index, path),
+            );
           }
           setBrowsing(null);
         }}
@@ -549,7 +576,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
       <Portal>
         <Dialog
           onDismiss={() => setLeaveAction(null)}
-          visible={leaveAction != null}>
+          visible={leaveAction != null}
+        >
           <Dialog.Title>Discard changes?</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
@@ -559,7 +587,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
           <Dialog.Actions>
             <Button
               accessibilityLabel="Keep editing"
-              onPress={() => setLeaveAction(null)}>
+              onPress={() => setLeaveAction(null)}
+            >
               Keep editing
             </Button>
             <Button
@@ -571,7 +600,8 @@ export function RepositoryScreen({navigation}: Props): React.JSX.Element {
                   leaving.current = true;
                   navigation.dispatch(action);
                 }
-              }}>
+              }}
+            >
               Discard
             </Button>
           </Dialog.Actions>

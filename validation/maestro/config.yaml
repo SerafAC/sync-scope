@@ -38,7 +38,6 @@ executionOrder:
     - browse/02-gallery-filters
     - browse/03-gallery-issues-unknown
     - browse/04-list-browse
-    - browse/05-results-updated
     - mvp/01-setup-ftp
     - mvp/01-setup-sftp
     - mvp/01-setup-webdav
@@ -54,4 +53,5 @@ executionOrder:
     - polish/04-remote-folders-webdav
     - polish/05-remote-folder-unread-ftp
     - polish/06-remote-browse-sftp
+    - polish/07-results-updated-keeps-place
     - polish/08-add-large-folder

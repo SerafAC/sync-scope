@@ -34,6 +34,7 @@ import { useListNavigation } from '../files/useListNavigation';
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
+  scrollAnchorOf,
   usePagedQuery,
   type IndexReader,
   type PagedRow,
@@ -45,6 +46,7 @@ import type {
   FileFilter,
   FileStatus,
   QuerySpec,
+  ScrollAnchor,
   StatusCountDto,
 } from '../native/CloudSyncContracts';
 import { formatTimestamp } from '../scan/ScanSummaryCard';
@@ -86,8 +88,29 @@ const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
   queryTreeChildren(snapshotId, query.parentId ?? null, query, pageToken);
 
 /** The scroll index of a folder's files: the query carries the folder (research R4). */
-const readIndex: IndexReader = (snapshotId, query) =>
-  getScrollIndex(snapshotId, query);
+const readIndex: IndexReader = (snapshotId, query, anchor) =>
+  anchor == null
+    ? getScrollIndex(snapshotId, query)
+    : getScrollIndex(snapshotId, query, anchor);
+
+/**
+ * The first visible file's anchor, valid only in the folder (by its path of
+ * names, which survives a new snapshot) and under the sort and filter it was
+ * taken in.
+ */
+interface ScopedAnchor {
+  scope: string;
+  anchor: ScrollAnchor | null;
+}
+
+function sameAnchor(a: ScopedAnchor | null, b: ScopedAnchor): boolean {
+  return (
+    a != null &&
+    a.scope === b.scope &&
+    a.anchor?.sortValue === b.anchor?.sortValue &&
+    a.anchor?.sortName === b.anchor?.sortName
+  );
+}
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
@@ -284,6 +307,9 @@ function PlaceholderRow(): React.JSX.Element {
  * `density.rowHeight` for bands not read yet. Folders are shown above the
  * files under every sort (FR-004). The `FastScroller` runs over the file
  * bands.
+ * When a new snapshot replaces the rows, the folder is found again by name
+ * (005 R2), then the list opens at the first file that was visible, or where
+ * it would be, instead of at the top (research R8, FR-014).
  * Under a filter, every folder stays visible with its matching-file count.
  * File rows are selectable (FR-015); source and directory rows never are,
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
@@ -296,6 +322,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     onSnapshotLost,
     onFolderChange,
     reloadKey = 0,
+    visible = true,
   } = props;
   const { filter, sorts } = useFiles();
   const fileSort = sorts.LIST;
@@ -348,6 +375,13 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     [filter, fileSort, folderSourceId, parentId],
   );
   const readSnapshot = folder != null ? nav.snapshotId : null;
+  const scope = [
+    fileSort,
+    filter,
+    folderSourceId,
+    ...(folder?.path.map(level => level.name) ?? []),
+  ].join('\u0000');
+  const [anchor, setAnchor] = useState<ScopedAnchor | null>(null);
   const paged = usePagedQuery({
     snapshotId: readSnapshot,
     query: fileQuery,
@@ -356,6 +390,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     readIndex,
     onSnapshotLost,
     reloadKey,
+    anchor: anchor?.scope === scope ? anchor.anchor : null,
   });
 
   const totals = useMemo(
@@ -442,11 +477,57 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
       setViewportHeight(event.nativeEvent.layout.height),
     [],
   );
+  /**
+   * `scrollOffset` is the shown list's: false from the moment the list is
+   * replaced by a loading state until its next scroll event.
+   */
+  const offsetValid = useRef(false);
+  const listRows = paged.rows;
+  const listShown =
+    folder != null &&
+    !nav.relocating &&
+    paged.phase !== 'loading-first' &&
+    paged.phase !== 'idle' &&
+    listRows.length > 0;
+  useEffect(() => {
+    if (!listShown) {
+      offsetValid.current = false;
+    }
+  }, [listShown]);
   const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-      setScrollOffset(event.nativeEvent.contentOffset.y),
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      offsetValid.current = true;
+      setScrollOffset(event.nativeEvent.contentOffset.y);
+    },
     [],
   );
+  // The anchor is the top row with any of it on screen (research R8); less
+  // than a point of a row is not. A folder row there: the list reopens at
+  // the top.
+  useEffect(() => {
+    if (!offsetValid.current) {
+      return;
+    }
+    const row =
+      listRows[Math.max(0, Math.floor((scrollOffset + 1) / density.rowHeight))];
+    if (row == null || isPlaceholder(row)) {
+      return;
+    }
+    const next = {
+      scope,
+      anchor: row.kind === 'FILE' ? scrollAnchorOf(row, fileSort) : null,
+    };
+    setAnchor(current => (sameAnchor(current, next) ? current : next));
+  }, [fileSort, listRows, scope, scrollOffset]);
+  const anchorShown = useRef(false);
+  const pendingAnchor = paged.anchorIndex;
+  useEffect(() => {
+    if (pendingAnchor == null) {
+      anchorShown.current = false;
+    } else if (visible) {
+      anchorShown.current = true;
+    }
+  }, [pendingAnchor, visible]);
   /** [index] counts the folder's files: the folder rows come before them. */
   const onJump = useCallback(
     (index: number) => {
@@ -456,6 +537,15 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
     },
     [fileOffset, loadRange, screenful],
   );
+
+  /**
+   * The list opened at the anchor while on screen. Until then a hidden list
+   * holds its rows back: a list mounted hidden at a far index stays blank
+   * when shown (Story 4 sc. 4).
+   */
+  const anchorRow =
+    paged.anchorIndex == null ? undefined : fileOffset + paged.anchorIndex;
+  const holdForAnchor = anchorRow != null && !visible && !anchorShown.current;
 
   if (snapshotId == null) {
     return scanLoading ? (
@@ -496,6 +586,8 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
   let body: React.JSX.Element;
   if (nav.relocating || loading) {
     body = <FilesMessage loading />;
+  } else if (holdForAnchor) {
+    body = <View style={styles.folder} testID="list-body" />;
   } else if (rows.length === 0 && paged.error != null) {
     body = <FilesMessage error={paged.error} onRetry={paged.retry} />;
   } else if (rows.length === 0 && !paged.hasMore) {
@@ -512,6 +604,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
           data={rows}
           extraData={items}
           getItemLayout={getItemLayout}
+          initialScrollIndex={anchorRow}
           keyExtractor={keyOf}
           onEndReached={paged.loadMore}
           onEndReachedThreshold={1}

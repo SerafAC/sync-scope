@@ -4,8 +4,10 @@ import {
   CloudSyncErrorCode,
   type CloudSyncError,
   type FileEntryDto,
+  type FileSort,
   type QueryFilesResult,
   type QuerySpec,
+  type ScrollAnchor,
   type ScrollIndexDto,
   type ScrollIndexResult,
   type StatusCountDto,
@@ -24,11 +26,38 @@ export type PageReader = (
   pageToken: string | null,
 ) => Promise<QueryFilesResult>;
 
-/** Reads the scroll index of [query] in [snapshotId]: `getScrollIndex` (contract v6, research R4). */
+/**
+ * Reads the scroll index of [query] in [snapshotId]: `getScrollIndex`
+ * (contract v6, research R4). With an [anchor] the index also carries its
+ * `anchorIndex` (research R8); the anchor is passed only when there is one.
+ */
 export type IndexReader = (
   snapshotId: string,
   query: QuerySpec,
+  anchor?: ScrollAnchor,
 ) => Promise<ScrollIndexResult>;
+
+/**
+ * The scroll anchor of [entry] under [sort] (research R8): its primary sort
+ * value (`sortName` for a name sort, `modifiedUtcMillis` for a date sort,
+ * `sizeBytes` for a size sort) and its `sortName`. Values, not the entry ID,
+ * since entry IDs change with every snapshot.
+ */
+export function scrollAnchorOf(
+  entry: FileEntryDto,
+  sort: FileSort,
+): ScrollAnchor {
+  switch (sort) {
+    case 'TIME_ASC':
+    case 'TIME_DESC':
+      return { sortValue: entry.modifiedUtcMillis, sortName: entry.sortName };
+    case 'SIZE_ASC':
+    case 'SIZE_DESC':
+      return { sortValue: entry.sizeBytes, sortName: entry.sortName };
+    default:
+      return { sortValue: entry.sortName, sortName: entry.sortName };
+  }
+}
 
 export type PagedPhase =
   | 'idle'
@@ -83,6 +112,13 @@ export interface UsePagedQueryOptions {
    */
   reloadKey?: number;
   /**
+   * The first visible file of the view (research R8). Read only when the
+   * snapshot changes after rows were shown: the new index is requested with
+   * it, the band holding its `anchorIndex` is read before the hook reports
+   * ready, and `anchorIndex` is exposed for that one reload.
+   */
+  anchor?: ScrollAnchor | null;
+  /**
    * While false the hook holds without reading (phase `idle`, no rows), and
    * the snapshot last shown is kept, so a snapshot change is still reported
    * once reading starts.
@@ -122,6 +158,13 @@ export interface UsePagedQueryResult {
   loadRange: (first: number, last: number) => void;
   /** After an error: reloads page 1, or the failed reads when rows are shown. */
   retry: () => void;
+  /**
+   * After a snapshot change read with an `anchor`: the anchor's position
+   * among the rows of `query` (add `fileOffset` for its row in `rows`). Set
+   * only for that one reload, and only once its band is loaded; null
+   * otherwise (research R8).
+   */
+  anchorIndex: number | null;
   /** Rows were shown and the active snapshot changed: show "Results updated". */
   snapshotChanged: boolean;
   acknowledgeSnapshotChange: () => void;
@@ -171,6 +214,13 @@ interface PagedState {
   started: boolean;
   /** A lost snapshot was refreshed once already: a second loss is an error. */
   recovering: boolean;
+  /**
+   * A snapshot change read with an anchor: page 1 and the anchor's band are
+   * read before the hook reports ready (research R8).
+   */
+  anchoring: boolean;
+  /** The anchor's position in this read; set by its index. */
+  anchorIndex: number | null;
 }
 
 /** What a reload reads. */
@@ -351,6 +401,8 @@ function blankState(
     counts: null,
     started: false,
     recovering: false,
+    anchoring: false,
+    anchorIndex: null,
   };
 }
 
@@ -359,6 +411,7 @@ function freshState(
   generation: number,
   recovering: boolean,
   kept: PagedState | null,
+  anchoring = false,
 ): PagedState {
   return {
     ...blankState(target.snapshotId, target.queryKey, generation, false),
@@ -371,7 +424,31 @@ function freshState(
     counts: kept?.counts ?? null,
     started: kept != null,
     recovering,
+    anchoring,
   };
+}
+
+/**
+ * An anchored read is in place: the index is in, the leading rows and page 1
+ * are read, and the anchor's band holds the anchor's row.
+ */
+function anchorReady(state: PagedState): boolean {
+  if (state.index == null || !state.started || !leadingDone(state)) {
+    return false;
+  }
+  const first = state.files[0];
+  if (first != null && first.rows.length === 0 && !isComplete(first)) {
+    return false;
+  }
+  if (state.anchorIndex == null) {
+    return true;
+  }
+  const at = state.files[segmentAt(state.files, state.anchorIndex)];
+  return (
+    at == null ||
+    isComplete(at) ||
+    at.rows.length > state.anchorIndex - at.start
+  );
 }
 
 /**
@@ -403,7 +480,7 @@ function phaseOf(state: PagedState): PagedPhase {
   if (errorOf(state) != null) {
     return 'error';
   }
-  if (!state.started) {
+  if (!state.started || state.anchoring) {
     return 'loading-first';
   }
   const loading =
@@ -481,6 +558,7 @@ export function usePagedQuery({
   leadingQuery = null,
   onSnapshotLost,
   reloadKey = 0,
+  anchor = null,
   enabled = true,
 }: UsePagedQueryOptions): UsePagedQueryResult {
   const fileKey = queryKeyOf(query);
@@ -516,6 +594,7 @@ export function usePagedQuery({
   const readRef = useRef(read);
   const readIndexRef = useRef(readIndex);
   const onSnapshotLostRef = useRef(onSnapshotLost);
+  const anchorRef = useRef(anchor);
   const generation = useRef(0);
   const readSequence = useRef(0);
   const mounted = useRef(true);
@@ -526,6 +605,7 @@ export function usePagedQuery({
     readRef.current = read;
     readIndexRef.current = readIndex;
     onSnapshotLostRef.current = onSnapshotLost;
+    anchorRef.current = anchor;
   });
 
   useEffect(() => {
@@ -537,8 +617,12 @@ export function usePagedQuery({
   }, []);
 
   const commit = useCallback((next: PagedState) => {
-    stateRef.current = next;
-    setState(next);
+    const settled =
+      next.anchoring && anchorReady(next)
+        ? { ...next, anchoring: false }
+        : next;
+    stateRef.current = settled;
+    setState(settled);
   }, []);
 
   // `pump`, `startRead` and `begin` call each other; refs break the cycle.
@@ -721,31 +805,53 @@ export function usePagedQuery({
   );
 
   const fetchIndex = useCallback(
-    async (target: ReadTarget, gen: number): Promise<void> => {
+    async (
+      target: ReadTarget,
+      gen: number,
+      sentAnchor: ScrollAnchor | null,
+    ): Promise<void> => {
       const reader = readIndexRef.current;
       if (reader == null) {
         return;
       }
-      let result: ScrollIndexResult;
+      let result: ScrollIndexResult | null;
       try {
-        result = await reader(target.snapshotId, target.query);
+        result = await (sentAnchor == null
+          ? reader(target.snapshotId, target.query)
+          : reader(target.snapshotId, target.query, sentAnchor));
       } catch {
-        return;
+        result = null;
       }
       const now = stateRef.current;
-      if (
-        !mounted.current ||
-        now.generation !== gen ||
-        result.status !== 'ok' ||
-        now.index != null
-      ) {
-        // Without an index the rows keep paging linearly.
+      if (!mounted.current || now.generation !== gen || now.index != null) {
         return;
+      }
+      if (result == null || result.status !== 'ok') {
+        // Without an index the rows keep paging linearly, from the top.
+        if (now.anchoring) {
+          commit({ ...now, anchoring: false });
+        }
+        return;
+      }
+      let files = segmentByBands(now, result.scrollIndex);
+      const anchorIndex = now.anchoring
+        ? result.scrollIndex.anchorIndex
+        : null;
+      const at = anchorIndex == null ? -1 : segmentAt(files, anchorIndex);
+      const band = files[at];
+      if (anchorIndex != null && band != null) {
+        // The anchor's band is read from its start up to the anchor's row.
+        files = [...files];
+        files[at] = {
+          ...band,
+          want: Math.max(band.want, anchorIndex - band.start + 1),
+        };
       }
       commit({
         ...now,
         index: result.scrollIndex,
-        files: segmentByBands(now, result.scrollIndex),
+        files,
+        anchorIndex: band == null ? null : anchorIndex,
       });
       pumpRef.current(target);
     },
@@ -758,13 +864,15 @@ export function usePagedQuery({
       recovering: boolean,
       withIndex: boolean,
       kept: PagedState | null = null,
+      placeAnchor: ScrollAnchor | null = null,
     ) => {
       generation.current += 1;
       const gen = generation.current;
-      commit(freshState(target, gen, recovering, kept));
+      const anchoring = withIndex && placeAnchor != null;
+      commit(freshState(target, gen, recovering, kept, anchoring));
       pumpRef.current(target);
       if (withIndex) {
-        fetchIndex(target, gen);
+        fetchIndex(target, gen, anchoring ? placeAnchor : null);
       }
     },
     [commit, fetchIndex],
@@ -802,7 +910,9 @@ export function usePagedQuery({
       commit(blankState(snapshotId, queryKey, generation.current, true));
       return;
     }
-    if (shownSnapshot.current != null && shownSnapshot.current !== snapshotId) {
+    const changed =
+      shownSnapshot.current != null && shownSnapshot.current !== snapshotId;
+    if (changed) {
       setSnapshotChanged(true);
     }
     const target: ReadTarget = {
@@ -816,7 +926,8 @@ export function usePagedQuery({
     const kept = keepableLeading(stateRef.current, target);
     shownSnapshot.current =
       (kept?.leading?.rows.length ?? 0) > 0 ? snapshotId : null;
-    begin(target, false, hasIndex, kept);
+    // A new snapshot keeps the view's place: its anchor is used once, here.
+    begin(target, false, hasIndex, kept, changed ? anchorRef.current : null);
   }, [
     snapshotId,
     queryKey,
@@ -1000,6 +1111,8 @@ export function usePagedQuery({
     loadBand,
     loadRange,
     retry,
+    anchorIndex:
+      matches && filesShown && !view.anchoring ? view.anchorIndex : null,
     snapshotChanged,
     acknowledgeSnapshotChange,
   };

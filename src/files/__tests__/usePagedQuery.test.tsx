@@ -11,6 +11,7 @@ import {
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
+  scrollAnchorOf,
   usePagedQuery,
   type IndexReader,
   type PagedRow,
@@ -1161,5 +1162,176 @@ describe('usePagedQuery segments (007 research R7)', () => {
       expect(result.current.fileOffset).toBe(0);
       expect(result.current.hasMore).toBe(false);
     });
+  });
+});
+
+describe('usePagedQuery keeps the place on a snapshot change (Story 4, research R8)', () => {
+  const ANCHOR = { sortValue: 1704067200000, sortName: '1f250.png' };
+
+  /** [index] with the anchor's position in the new snapshot. */
+  function anchored(counts: number[], anchorIndex: number): ScrollIndexResult {
+    const result = index(counts);
+    if (result.status !== 'ok') {
+      throw new Error('index() is always ok');
+    }
+    return {
+      ...result,
+      scrollIndex: { ...result.scrollIndex, anchorIndex },
+    };
+  }
+
+  it('builds the anchor from the sort: sortName, modifiedUtcMillis or sizeBytes', () => {
+    const file = entry('a', {
+      sortName: '1a.png',
+      sizeBytes: 42,
+      modifiedUtcMillis: 7,
+    });
+    expect(scrollAnchorOf(file, 'NAME_ASC')).toEqual({
+      sortValue: '1a.png',
+      sortName: '1a.png',
+    });
+    expect(scrollAnchorOf(file, 'NAME_DESC')?.sortValue).toBe('1a.png');
+    expect(scrollAnchorOf(file, 'TIME_DESC')?.sortValue).toBe(7);
+    expect(scrollAnchorOf(file, 'TIME_ASC')?.sortValue).toBe(7);
+    expect(scrollAnchorOf(file, 'SIZE_DESC')?.sortValue).toBe(42);
+    expect(scrollAnchorOf(file, 'SIZE_ASC')?.sortValue).toBe(42);
+    expect(
+      scrollAnchorOf({ ...file, sizeBytes: null }, 'SIZE_ASC')?.sortValue,
+    ).toBeNull();
+  });
+
+  it('requests the new index with the anchor, loads its band before ready, and exposes anchorIndex once', async () => {
+    const files = fileRows(500);
+    const plain = pagedReader(files);
+    const deepPage = deferred<QueryFilesResult>();
+    const read = jest.fn<ReturnType<PageReader>, Parameters<PageReader>>(
+      (snapshotId, query, pageToken) =>
+        snapshotId === 'snap-2' && pageToken === 'at-200'
+          ? deepPage.promise
+          : plain(snapshotId, query, pageToken),
+    );
+    const readIndex = jest
+      .fn<ReturnType<IndexReader>, Parameters<IndexReader>>()
+      .mockResolvedValueOnce(index([100, 200, 200]))
+      .mockResolvedValueOnce(anchored([100, 200, 200], 250))
+      .mockResolvedValue(index([100, 200, 200]));
+    const { result, rerender } = setup({ read, readIndex, anchor: ANCHOR });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    // The first read of a snapshot is not a change: no anchor is sent.
+    expect(readIndex).toHaveBeenLastCalledWith('snap-1', {
+      ...GALLERY,
+      pageSize: 100,
+    });
+    expect(result.current.anchorIndex).toBeNull();
+
+    rerender({ snapshotId: 'snap-2' });
+
+    expect(readIndex).toHaveBeenLastCalledWith(
+      'snap-2',
+      { ...GALLERY, pageSize: 100 },
+      ANCHOR,
+    );
+    // Band 1 (rows 100…299) is read from its start up to row 250.
+    await waitFor(() =>
+      expect(read).toHaveBeenLastCalledWith(
+        'snap-2',
+        { ...GALLERY, pageSize: 100 },
+        'at-200',
+      ),
+    );
+    expect(result.current.phase).toBe('loading-first');
+    expect(result.current.anchorIndex).toBeNull();
+
+    await act(async () =>
+      deepPage.resolve(ok(files.slice(200, 300), 'at-300', null)),
+    );
+
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(result.current.anchorIndex).toBe(250);
+    expect(isPlaceholder(result.current.rows[250] as PagedRow)).toBe(false);
+    expect(result.current.counts).toEqual(COUNTS);
+    expect(result.current.snapshotChanged).toBe(true);
+
+    // Used once: a later reload of the same snapshot starts at the top.
+    rerender({ snapshotId: 'snap-2', reloadKey: 1 });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(result.current.anchorIndex).toBeNull();
+    expect(readIndex).toHaveBeenLastCalledWith('snap-2', {
+      ...GALLERY,
+      pageSize: 100,
+    });
+  });
+
+  it('places the anchor after the leading rows in list view', async () => {
+    const LIST: QuerySpec = {
+      filter: 'ALL',
+      view: 'LIST',
+      sort: 'NAME_ASC',
+      sourceId: 'source-1',
+      parentId: null,
+      kind: 'FILE',
+    };
+    const read = pagedReader(fileRows(300), [
+      entry('d0', { kind: 'DIRECTORY', matchingFileCount: 1 }),
+    ]);
+    const readIndex = jest
+      .fn<ReturnType<IndexReader>, Parameters<IndexReader>>()
+      .mockResolvedValueOnce(index([100, 200]))
+      .mockResolvedValueOnce(anchored([100, 200], 150));
+    const { result, rerender } = setup({
+      read,
+      readIndex,
+      query: LIST,
+      leadingQuery: { ...LIST, kind: 'DIRECTORY' },
+      anchor: ANCHOR,
+    });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+
+    rerender({ snapshotId: 'snap-2' });
+
+    await waitFor(() => expect(result.current.anchorIndex).toBe(150));
+    expect(result.current.phase).toBe('ready');
+    expect(result.current.fileOffset).toBe(1);
+    expect(isPlaceholder(result.current.rows[1 + 150] as PagedRow)).toBe(false);
+  });
+
+  it('reloads from the top as before when there is no anchor', async () => {
+    const read = pagedReader(fileRows(300));
+    const readIndex = jest.fn(async () => index([100, 200]));
+    const { result, rerender } = setup({ read, readIndex, anchor: null });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    rerender({ snapshotId: 'snap-2' });
+
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(readIndex).toHaveBeenLastCalledWith('snap-2', {
+      ...GALLERY,
+      pageSize: 100,
+    });
+    expect(result.current.anchorIndex).toBeNull();
+  });
+
+  it('falls back to page 1 when the anchored index read fails', async () => {
+    const read = pagedReader(fileRows(150));
+    const readIndex = jest
+      .fn<ReturnType<IndexReader>, Parameters<IndexReader>>()
+      .mockResolvedValueOnce(index([150]))
+      .mockResolvedValueOnce({
+        contractVersion: 6,
+        status: 'error',
+        error: { code: 'INTERNAL_ERROR', message: 'failed', action: null },
+      });
+    const { result, rerender } = setup({ read, readIndex, anchor: ANCHOR });
+    await waitFor(() => expect(result.current.scrollIndex).not.toBeNull());
+
+    rerender({ snapshotId: 'snap-2' });
+
+    await waitFor(() => expect(readIndex).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    expect(result.current.anchorIndex).toBeNull();
+    expect(result.current.entries).toHaveLength(100);
+    expect(result.current.snapshotChanged).toBe(true);
   });
 });

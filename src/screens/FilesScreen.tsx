@@ -193,7 +193,10 @@ function NoScanResults(): React.JSX.Element {
  * one is shown, so each keeps its scroll position and folder across a switch
  * (Story 1 sc. 8). When a view's rows are
  * replaced by a new snapshot, a "Results updated" snackbar is shown (FR-005)
- * the next time the tab is [focused]. Before any completed scan it shows
+ * the next time the tab is [focused], and each view, the hidden one too,
+ * reopens at its first visible file rather than at the top (007 FR-014,
+ * research R8): the hidden view reads its anchored rows at once and opens
+ * its list there when it is shown (`visible`). Before any completed scan it shows
  * only an explanation and a way to the Scan tab (FR-008); the views stay
  * mounted, hidden, so nothing is lost when the first results arrive.
  * While files are selected, the selection bar replaces the bottom tabs
@@ -299,7 +302,11 @@ export function FilesScreen({
             }
             testID="files-gallery"
           >
-            <GalleryScreen {...shared} onCountsChange={onGalleryCounts} />
+            <GalleryScreen
+              {...shared}
+              onCountsChange={onGalleryCounts}
+              visible={view === 'GALLERY' && showViews}
+            />
           </View>
           <View
             style={view === 'LIST' && showViews ? styles.view : styles.hidden}
@@ -309,6 +316,7 @@ export function FilesScreen({
               {...shared}
               onCountsChange={onListCounts}
               onFolderChange={setListFolder}
+              visible={view === 'LIST' && showViews}
             />
           </View>
         </>

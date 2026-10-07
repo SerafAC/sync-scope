@@ -669,6 +669,123 @@ describe('GalleryScreen with the scroll index (Story 2, research R7)', () => {
     );
   });
 
+  describe('keeps the place when results update (Story 4, research R8)', () => {
+    const COUNTS_5 = [600, 600, 600, 600, 600];
+
+    /** Scrolls to band 2's fourth file (cell 1203): the view records it once its band is read. */
+    async function scrollToBand2() {
+      const grid = await screen.findByTestId('gallery-grid');
+      const viewable = {
+        viewableItems: Array.from({ length: 12 }, (_, i) => ({
+          index: 1203 + i,
+        })),
+        changed: [],
+      };
+      fireEvent(grid, 'onViewableItemsChanged', viewable);
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ view: 'GALLERY' }),
+          'band-2',
+        ),
+      );
+      await waitFor(() =>
+        expect(
+          (
+            screen.getByTestId('gallery-grid').props.data as {
+              entryId?: string;
+            }[]
+          )[1203]?.entryId,
+        ).toBe('e-2-3'),
+      );
+      // The grid comes to rest with row 401 (cells 1203…1205) on top.
+      const rowLength =
+        galleryTileSize(Dimensions.get('window').width) + density.tileGap;
+      fireEvent.scroll(screen.getByTestId('gallery-grid'), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 401 * rowLength + rowLength / 3 },
+          contentSize: { width: 400, height: 1000000 },
+          layoutMeasurement: { width: 400, height: 600 },
+        },
+      });
+    }
+
+    it.each([
+      ['the noted file is still there', 1203, 401],
+      ['the noted file is gone: its neighbour (sc. 2)', 1202, 400],
+    ])(
+      'scrolls to the anchor, not to the top, on a new snapshot: %s',
+      async (_case, anchorIndex, gridRow) => {
+        getScrollIndexMock.mockResolvedValue(scrollIndex(COUNTS_5));
+        queryFilesMock.mockImplementation(bandReader(COUNTS_5));
+        const { props, rerenderWith } = renderGallery();
+        await screen.findByTestId('files.scroller.thumb');
+        await scrollToBand2();
+
+        const next = scrollIndex(COUNTS_5);
+        if (next.status === 'ok') {
+          next.scrollIndex.anchorIndex = anchorIndex;
+        }
+        getScrollIndexMock.mockResolvedValue(next);
+        rerenderWith({ snapshotId: 'snap-2' });
+
+        await waitFor(() =>
+          expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+            'snap-2',
+            expect.objectContaining({ view: 'GALLERY', sort: 'TIME_DESC' }),
+            { sortValue: 1704067200000, sortName: '12-3.png' },
+          ),
+        );
+        await waitFor(() =>
+          expect(
+            screen.getByTestId('gallery-grid').props.initialScrollIndex,
+          ).toBe(gridRow),
+        );
+        expect(queryFilesMock).toHaveBeenCalledWith(
+          'snap-2',
+          expect.objectContaining({ view: 'GALLERY' }),
+          'band-2',
+        );
+        await waitFor(() =>
+          expect(props.onSnapshotChange).toHaveBeenCalledTimes(1),
+        );
+      },
+    );
+
+    it('starts at the top after a sort change: the anchor is used once', async () => {
+      getScrollIndexMock.mockResolvedValue(scrollIndex(COUNTS_5));
+      queryFilesMock.mockImplementation(bandReader(COUNTS_5));
+      const { rerenderWith } = renderGallery();
+      await screen.findByTestId('files.scroller.thumb');
+      await scrollToBand2();
+      const next = scrollIndex(COUNTS_5);
+      if (next.status === 'ok') {
+        next.scrollIndex.anchorIndex = 1203;
+      }
+      getScrollIndexMock.mockResolvedValueOnce(next);
+      rerenderWith({ snapshotId: 'snap-2' });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('gallery-grid').props.initialScrollIndex,
+        ).toBe(401),
+      );
+
+      fireEvent.press(screen.getByLabelText(/^Sort: /));
+      fireEvent.press(screen.getByLabelText('Name (A–Z)'));
+
+      await waitFor(() =>
+        expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+          'snap-2',
+          expect.objectContaining({ sort: 'NAME_ASC' }),
+        ),
+      );
+      await screen.findByTestId('gallery-grid');
+      expect(
+        screen.getByTestId('gallery-grid').props.initialScrollIndex ?? null,
+      ).toBeNull();
+    });
+  });
+
   it('passes the a11y sweep with placeholders and the scrollbar', async () => {
     const counts = [600, 600, 600, 600, 600];
     getScrollIndexMock.mockResolvedValue(scrollIndex(counts));

@@ -1,4 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   FlatList,
   StyleSheet,
@@ -25,17 +31,35 @@ import { useFiles } from '../files/useFiles';
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
+  scrollAnchorOf,
   usePagedQuery,
   type IndexReader,
   type PagedRow,
 } from '../files/usePagedQuery';
 import { getScrollIndex, queryFiles } from '../native/CloudSync';
-import type { QuerySpec } from '../native/CloudSyncContracts';
+import type { QuerySpec, ScrollAnchor } from '../native/CloudSyncContracts';
 import { useSelection } from '../selection/SelectionProvider';
 import { density, gridColumns, spacing } from '../theme/spacing';
 
-const readIndex: IndexReader = (snapshotId, query) =>
-  getScrollIndex(snapshotId, query);
+const readIndex: IndexReader = (snapshotId, query, anchor) =>
+  anchor == null
+    ? getScrollIndex(snapshotId, query)
+    : getScrollIndex(snapshotId, query, anchor);
+
+/** The first visible file's anchor, valid only for the sort and filter it was taken under. */
+interface ScopedAnchor {
+  scope: string;
+  anchor: ScrollAnchor;
+}
+
+function sameAnchor(a: ScopedAnchor | null, b: ScopedAnchor): boolean {
+  return (
+    a != null &&
+    a.scope === b.scope &&
+    a.anchor.sortValue === b.anchor.sortValue &&
+    a.anchor.sortName === b.anchor.sortName
+  );
+}
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
@@ -132,9 +156,20 @@ function PlaceholderTile({ size }: { size: number }): React.JSX.Element {
  * index is in, the grid has its full length, with placeholder tiles for the
  * bands not read yet. Bands load as they come into view, one screen ahead,
  * and the `FastScroller` jumps to any band (FR-006).
+ *
+ * The first visible file is kept as the scroll anchor (research R8). When a
+ * new snapshot replaces the rows, the grid opens at that file, or where it
+ * would be, instead of at the top (FR-014), also while the gallery is hidden.
  */
 export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
-  const { snapshotId, scanLoading, aliases, onSnapshotLost, reloadKey } = props;
+  const {
+    snapshotId,
+    scanLoading,
+    aliases,
+    onSnapshotLost,
+    reloadKey,
+    visible = true,
+  } = props;
   const { filter, sorts } = useFiles();
   const sort = sorts.GALLERY;
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
@@ -155,6 +190,8 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     }),
     [filter, sort],
   );
+  const scope = `${sort}\u0000${filter}`;
+  const [anchor, setAnchor] = useState<ScopedAnchor | null>(null);
   const paged = usePagedQuery({
     snapshotId,
     query,
@@ -162,6 +199,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     readIndex,
     onSnapshotLost,
     reloadKey,
+    anchor: anchor?.scope === scope ? anchor.anchor : null,
   });
   useReportToFilesScreen(
     paged.counts,
@@ -221,11 +259,53 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
       setViewportHeight(event.nativeEvent.layout.height),
     [],
   );
+  /**
+   * `scrollOffset` is the shown grid's: false from the moment the grid is
+   * replaced by a loading state until its next scroll event.
+   */
+  const offsetValid = useRef(false);
+  const gridShown =
+    snapshotId != null &&
+    paged.phase !== 'loading-first' &&
+    paged.phase !== 'idle' &&
+    rows.length > 0;
+  useEffect(() => {
+    if (!gridShown) {
+      offsetValid.current = false;
+    }
+  }, [gridShown]);
   const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-      setScrollOffset(event.nativeEvent.contentOffset.y),
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      offsetValid.current = true;
+      setScrollOffset(event.nativeEvent.contentOffset.y);
+    },
     [],
   );
+  // The anchor is the first file of the top grid row with any of its tiles
+  // on screen (research R8): the first file the user sees.
+  useEffect(() => {
+    if (!offsetValid.current) {
+      return;
+    }
+    const { cells, rowOf } = grid;
+    // Less than a point of a row, or only the gap below it, is not on screen.
+    const top = Math.max(0, scrollOffset + 1);
+    let gridRow = Math.floor(top / rowLength);
+    if (top - gridRow * rowLength > tileSize) {
+      gridRow += 1;
+    }
+    let cell = gridRow * gridColumns;
+    while (cell < cells.length && isFiller(cells[cell] as GalleryCell)) {
+      cell += 1;
+    }
+    const at = rowOf[cell];
+    const row = at == null ? undefined : rows[at];
+    if (row == null || isPlaceholder(row)) {
+      return;
+    }
+    const next = { scope, anchor: scrollAnchorOf(row, sort) };
+    setAnchor(current => (sameAnchor(current, next) ? current : next));
+  }, [grid, rowLength, rows, scope, scrollOffset, sort, tileSize]);
   /** [index] is a file's position among the files: a band's `startIndex`. */
   const onJump = useCallback(
     (index: number) => {
@@ -277,6 +357,39 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     ],
   );
 
+  /** The grid row of the anchor after a snapshot change: where the grid opens. */
+  const { anchorIndex } = paged;
+  const anchorRow = useMemo(() => {
+    if (anchorIndex == null) {
+      return undefined;
+    }
+    const bands = scrollIndex?.bands ?? [];
+    const band = bands.findIndex(
+      b => anchorIndex >= b.startIndex && anchorIndex < b.startIndex + b.count,
+    );
+    const first = bands[band];
+    const cell = grid.bandCells[band];
+    const at =
+      first == null || cell == null
+        ? anchorIndex
+        : cell + anchorIndex - first.startIndex;
+    return Math.floor(at / gridColumns);
+  }, [anchorIndex, grid.bandCells, scrollIndex]);
+  /**
+   * The grid opened at the anchor while on screen. Until then a hidden
+   * gallery holds its grid back: a list mounted hidden at a far index stays
+   * blank when shown (Story 4 sc. 4).
+   */
+  const anchorShown = useRef(false);
+  useEffect(() => {
+    if (anchorRow == null) {
+      anchorShown.current = false;
+    } else if (visible) {
+      anchorShown.current = true;
+    }
+  }, [anchorRow, visible]);
+  const holdForAnchor = anchorRow != null && !visible && !anchorShown.current;
+
   const getItemLayout = useCallback(
     (_: unknown, index: number) =>
       // With numColumns, the list lays out rows: `index` is a row index.
@@ -302,6 +415,10 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
     );
   }
 
+  if (holdForAnchor) {
+    return <View style={styles.gallery} testID="gallery" />;
+  }
+
   const index = scrollIndex;
   return (
     <View onLayout={onLayout} style={styles.gallery} testID="gallery">
@@ -320,6 +437,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
         data={grid.cells}
         extraData={items}
         getItemLayout={getItemLayout}
+        initialScrollIndex={anchorRow}
         keyExtractor={keyOf}
         maxToRenderPerBatch={30}
         numColumns={gridColumns}
