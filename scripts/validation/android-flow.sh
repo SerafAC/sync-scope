@@ -216,6 +216,30 @@ release_smoke_build() {
       exit 1
       ;;
   esac
+  # Feature 007 Story 7 (T071, SC-009): the launcher icon is the adaptive
+  # ic_launcher.xml from scripts/icon/generate-icons.sh, not a default PNG.
+  # Release builds shorten resource paths (res/E4.xml), so the check reads
+  # the icon file itself: an adaptive icon with a monochrome layer.
+  application=$("$aapt2" dump badging "$release_apk" | grep '^application:')
+  case "$application" in
+    *" label='SyncScope'"*" icon='res/"*".xml'"*) ;;
+    *)
+      printf 'Release APK application-icon is not an XML icon: %s\n' \
+        "$application" >&2
+      exit 1
+      ;;
+  esac
+  icon=${application#*" icon='"}
+  icon=${icon%%"'"*}
+  icon_tree=$("$aapt2" dump xmltree --file "$icon" "$release_apk")
+  case "$icon_tree" in
+    *"E: adaptive-icon"*"E: foreground"*"E: monochrome"*) ;;
+    *)
+      printf 'Release APK application-icon %s is not the adaptive icon with a monochrome layer:\n%s\n' \
+        "$icon" "$icon_tree" >&2
+      exit 1
+      ;;
+  esac
 }
 
 release_apk="$repo/android/app/build/outputs/apk/release/app-release.apk"

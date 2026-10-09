@@ -10,8 +10,10 @@ name: mvp/01-setup-ftp
 - evalScript: "${output.ftpRoot = (FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT) + '/gallery'}"
 - launchApp:
     clearState: true
+# The cleared app's own empty Files tab: "Settings" alone can still match the
+# previous run's closing window, and a tap then reaches nothing (API 36).
 - extendedWaitUntil:
-    visible: "Settings"
+    visible: "No scan results yet"
     timeout: 60000
 - tapOn: "Settings"
 - extendedWaitUntil:

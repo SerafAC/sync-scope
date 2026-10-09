@@ -51,6 +51,14 @@ changes:
 scripts/icon/generate-icons.sh path/to/source.png --background '#RRGGBB'
 ```
 
+The committed icons come from an opaque, edge-to-edge artwork, so they were generated with
+`--full-bleed`: the image fills the whole 108 dp foreground layer, the monochrome layer is taken from
+its bright parts, and the store image is the artwork itself. To regenerate them:
+
+```sh
+scripts/icon/generate-icons.sh assets/icon/source.png --full-bleed --background '#0D47A1'
+```
+
 It needs ImageMagick 7 (`magick` on `PATH`; for example `pacman -S imagemagick`, `apt install
 imagemagick` on a release that ships version 7, or `brew install imagemagick`) and stops with a clear
 message when it is missing. It writes into `android/app/src/main/res/`:
@@ -59,14 +67,15 @@ message when it is missing. It writes into `android/app/src/main/res/`:
   (`values/ic_launcher_background.xml`), a foreground layer, and a monochrome layer for Android 13 themed
   icons;
 - `mipmap-<density>/ic_launcher_foreground.png` and `ic_launcher_monochrome.png` (108 dp, the image
-  scaled into the central 66 dp safe zone) and the legacy `ic_launcher.png` and `ic_launcher_round.png`
-  (48 dp), for every density;
+  scaled into the central 66 dp safe zone, or filling the layer with `--full-bleed`) and the legacy
+  `ic_launcher.png` and `ic_launcher_round.png` (48 dp), for every density;
 
 and into `assets/icon/`, `play-store-512.png` and a copy of the source as `source.png`, so the icons can
-be regenerated. `--res` and `--assets` point it elsewhere, which the tests use. Commit every output: the
-build never runs the script. Its contract test in `validation-infrastructure.test.mjs` runs it on a
-generated image when `magick` is installed and is skipped with a notice when it is not; the
-missing-`magick` message is tested either way.
+be regenerated. `assets/icon/concept.jpg` is the owner's concept sheet, kept for reference. `--res` and
+`--assets` point it elsewhere, which the tests use. Commit every output: the build never runs the
+script. Its contract test in `validation-infrastructure.test.mjs` runs it on a generated image when
+`magick` is installed and is skipped with a notice when it is not; the missing-`magick` message is
+tested either way.
 
 ### Project progress
 
@@ -187,6 +196,13 @@ end Metro during the API 36 pass. The flows are the proof that a user-visible ca
 ([D012](./docs/decisions/0012-maestro-e2e-proof-bar.md)). The rules below apply to every flow; feature
 003 set them up (its design record is
 `specs/003-local-source-selection/contracts/maestro-conventions.md`).
+
+On API 36, opening the system folder picker can close the debug app's Metro connection. `index.js`
+suppresses only the disconnected Fast Refresh banner and its related LogBox warnings in debug builds:
+the native banner otherwise covers the selection controls and consumes their first tap while Maestro
+cannot see it. Reload the app after the picker to reconnect Fast Refresh when developing. Release
+builds have no Metro or banner. The cause and passing rerun are recorded in
+[007 decisions](./specs/007-sort-scroll-remote-folders/decisions.md#2026-10-08--known-issue-api-36-header-first-tap-from-006).
 
 ### Layout
 

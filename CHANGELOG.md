@@ -19,8 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
   each with a **Browse** button that opens a folder-only browser of the server, and saving tests every
   folder and reports each one (D022). A script, `scripts/icon/generate-icons.sh`, builds the adaptive,
   monochrome and legacy launcher icons and a 512 px image from one source image with ImageMagick; the
-  app's own icon is generated with it once the owner's image is added. Proven by Maestro flows in
-  `validation/maestro/polish/`.
+  app's own icon is generated from the owner's artwork, including a themed monochrome layer. Proven by
+  Maestro flows in `validation/maestro/polish/`.
 - Repository setup screen, first-run guidance, multi-select with selection size, safe two-phase deletion
   and a release APK build (feature 006, MVP): Settings › Repository sets up and edits the FTP, SFTP or
   WebDAV server and tests it, with SFTP key approval in the app (and a warning when a trusted key
@@ -123,6 +123,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Fixed
 
+- Android 16 debug builds no longer lose the first tap on selection controls to React Native's
+  disconnected Fast Refresh banner after the system folder picker closes the Metro connection.
+  Maestro setup flows also wait for the fresh app's empty state instead of the previous window.
 - The Files views no longer jump to the top when new results arrive: each view keeps the file that was
   at the top, or the place where it would be in the current sort when it is gone, and still shows
   "Results updated"; the view that is not showing keeps its place too (feature 007).

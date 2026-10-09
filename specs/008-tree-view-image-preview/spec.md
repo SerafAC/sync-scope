@@ -118,6 +118,28 @@ delivers them for gallery and list view. This feature MUST extend the MVP's sele
 (count and total size in the bottom-left corner) and Delete action to tree view and to the image preview,
 completing selection parity across all three views. Directories stay unselectable, as in 006.
 
+### Selection survives an automatic refresh (spec follow-up, 2026-10-08)
+
+Found in the 007 real-device check: the app starts a `LOCAL_REFRESH` on open and on every return to the
+foreground (`ScanProvider`, FR-003 of 006). Each refresh publishes a new snapshot, even when no file
+changed, and `SelectionProvider` clears the selection whenever the active snapshot changes ("Results were
+updated, so the selection was cleared."). On a phone with many files, the refresh finishes a few seconds
+after launch, so a selection started in that window is lost, and switching apps for a moment does the
+same. Scroll position already survives (007 FR-014); the selection should too. Settle when this feature
+is specified:
+
+- When the active snapshot changes, the selection MUST keep every selected file that is still present
+  and unchanged in the new snapshot. It MUST be cleared, with a notice, only for the files that are gone
+  or changed. The notice names how many were dropped, and no notice is shown when none were.
+- Entry IDs are random per scan (`ScanEngine.scanSource`, `newId()`), so carrying the selection over needs
+  a stable key, for example `(sourceId, relative path)` or the document URI. The data-model choice is to
+  be made in this feature's plan.
+- Alternatively, or as well: a refresh that changed nothing could keep the current snapshot instead of
+  publishing a new one, which avoids the reset and the extra write. Weigh this against keeping the
+  scan-history semantics of 006.
+- Deletion safety does not change: the server re-check (D020) still runs against the snapshot the
+  selection was carried into, and a file that changed is never carried over silently.
+
 ## Provides
 
 To feature 010 (full loop and release): tree view and preview with selection parity, for the full-loop

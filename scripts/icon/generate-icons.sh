@@ -3,9 +3,14 @@
 # (feature 007, research R17, FR-018).
 #
 #   scripts/icon/generate-icons.sh <source.png> [--background '#RRGGBB']
-#                                  [--res <dir>] [--assets <dir>]
+#                                  [--full-bleed] [--res <dir>] [--assets <dir>]
 #
 #   --background  the adaptive icon's background colour (default #FFFFFF)
+#   --full-bleed  the source is an opaque, edge-to-edge artwork (its own
+#                 background included) rather than a logo on transparency:
+#                 it fills the whole 108 dp foreground layer, the monochrome
+#                 layer is taken from its bright parts, and the store image is
+#                 the source itself
 #   --res         the Android res directory (default android/app/src/main/res)
 #   --assets      where the store image and the source go (default assets/icon)
 #
@@ -14,9 +19,10 @@
 #       a background colour, a foreground and a monochrome (themed) layer
 #   values/ic_launcher_background.xml                      the background colour
 #   mipmap-<density>/ic_launcher_foreground.png            108 dp, the image
-#       scaled into the central 66 dp safe zone
+#       scaled into the central 66 dp safe zone (with --full-bleed, the whole
+#       layer)
 #   mipmap-<density>/ic_launcher_monochrome.png            108 dp, the
-#       foreground's alpha filled white
+#       foreground's alpha filled white (with --full-bleed, its luminance)
 #   mipmap-<density>/ic_launcher.png, ic_launcher_round.png  48 dp legacy icons
 # and, into --assets: play-store-512.png and source.png (a copy of the input,
 # so the icons can be regenerated).
@@ -25,7 +31,7 @@
 set -eu
 
 usage() {
-  echo "usage: $0 <source.png> [--background '#RRGGBB'] [--res <dir>] [--assets <dir>]" >&2
+  echo "usage: $0 <source.png> [--background '#RRGGBB'] [--full-bleed] [--res <dir>] [--assets <dir>]" >&2
   exit 64
 }
 
@@ -41,12 +47,14 @@ fi
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 source=
 background='#FFFFFF'
+full_bleed=false
 res="$repo/android/app/src/main/res"
 assets="$repo/assets/icon"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --background) [ "$#" -ge 2 ] || usage; background=$2; shift 2 ;;
+    --full-bleed) full_bleed=true; shift ;;
     --res) [ "$#" -ge 2 ] || usage; res=$2; shift 2 ;;
     --assets) [ "$#" -ge 2 ] || usage; assets=$2; shift 2 ;;
     -*) usage ;;
@@ -73,15 +81,28 @@ trap 'rm -rf "$work"' EXIT INT TERM
 
 # The source fitted into the 66 dp safe zone of a 108 dp layer, at the given
 # safe-zone and layer sizes in px. Each density is rendered from the source,
-# so resampling never spreads the image outside its safe zone.
+# so resampling never spreads the image outside its safe zone. A full-bleed
+# source fills the whole layer instead; its artwork is expected to keep its
+# subject inside the safe zone.
 foreground() {
-  magick "$source[0]" -background none -alpha set \
-    -resize "${1}x${1}" -gravity center -extent "${2}x${2}" "png32:$3"
+  if [ "$full_bleed" = true ]; then
+    magick "$source[0]" -alpha off -resize "${2}x${2}!" "png32:$3"
+  else
+    magick "$source[0]" -background none -alpha set \
+      -resize "${1}x${1}" -gravity center -extent "${2}x${2}" "png32:$3"
+  fi
 }
 
 # The monochrome (themed icon) layer: the foreground's alpha, filled white.
+# An opaque full-bleed foreground has no useful alpha, so its bright parts
+# (luminance from 60 % up) become the shape instead.
 monochrome() {
-  magick "$1" -alpha extract -background white -alpha shape "png32:$2"
+  if [ "$full_bleed" = true ]; then
+    magick "$1" -colorspace gray -level 60%,95% \
+      -background white -alpha shape "png32:$2"
+  else
+    magick "$1" -alpha extract -background white -alpha shape "png32:$2"
+  fi
 }
 
 # The legacy and store icons start from the full icon at 4x (432 px).
@@ -133,7 +154,13 @@ cat >"$res/values/ic_launcher_background.xml" <<XML
 XML
 
 mkdir -p "$assets"
-magick "$work/full.png" -filter Lanczos -resize 512x512! "png32:$assets/play-store-512.png"
+if [ "$full_bleed" = true ]; then
+  # Play applies its own mask, so the store image is the whole artwork.
+  magick "$source[0]" -alpha off -filter Lanczos -resize 512x512! \
+    "png32:$assets/play-store-512.png"
+else
+  magick "$work/full.png" -filter Lanczos -resize 512x512! "png32:$assets/play-store-512.png"
+fi
 if ! [ "$source" -ef "$assets/source.png" ]; then
   cp "$source" "$assets/source.png"
 fi
