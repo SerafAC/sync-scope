@@ -106,6 +106,12 @@ Errors:
 `config.remoteRoot` is replaced by `config.remoteRoots: string[]` (1 or more). Validation is native
 (`RemoteRoots`, research R11). Field errors:
 
+**2026-10-10 correction (FR-009b):** for WebDAV only, `config.host` may include an encoded shared
+endpoint path, e.g. `domain.xyz/remote.php/dav/alice`. `remoteRoots` and browser paths are relative to
+that endpoint; `/` means the endpoint itself. This same address is stored and returned in the summary.
+Scheme and port still come from `webdavHttps` and `port`, never from the stored Host string. FTP/SFTP
+require bare hosts. Existing bare-host WebDAV configurations are unchanged. No DTO or schema change.
+
 | Case | `field` | `fieldIndex` | Message |
 | --- | --- | --- | --- |
 | list empty or all blank | `remoteRoots` | `0` | "Add at least one remote folder." |

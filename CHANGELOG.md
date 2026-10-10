@@ -127,6 +127,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Fixed
 
+- Sort and Gallery/List dropdowns now have equal widths and fill the available Files toolbar row.
+- WebDAV Host retains the shared endpoint path instead of moving it into the first remote folder.
+  Remote folders and the folder browser are relative to that endpoint; connection tests, scans and
+  deletion re-checks use it consistently. Existing bare-host configurations still work unchanged.
 - Android 16 debug builds no longer lose the first tap on selection controls to React Native's
   disconnected Fast Refresh banner after the system folder picker closes the Metro connection.
   Maestro setup flows also wait for the fresh app's empty state instead of the previous window.

@@ -49,7 +49,7 @@ class WebDavRemoteClient(
     close()
     val base =
       try {
-        HttpUrl.Builder().scheme(webdavScheme(config)).host(config.host).port(config.port).build()
+        webdavBaseUrl(config)
       } catch (e: IllegalArgumentException) {
         // OkHttp's message quotes the host verbatim, so only the cause keeps it.
         throw WebDavFailures.failure(CloudSyncErrorCode.CONNECTION_REFUSED, cause = e)
@@ -204,7 +204,8 @@ class WebDavRemoteClient(
 
     /** A collection URL with a trailing slash, so mod_dav never answers with a redirect. */
     internal fun collectionUrl(base: HttpUrl, path: String): HttpUrl {
-      val builder = base.newBuilder().encodedPath("/")
+      val builder = base.newBuilder()
+      if (!base.encodedPath.endsWith('/')) builder.addPathSegment("")
       val segments = path.split('/').filter { it.isNotEmpty() && it != "." }
       segments.forEach(builder::addPathSegment)
       if (segments.isNotEmpty()) builder.addPathSegment("")
@@ -214,6 +215,15 @@ class WebDavRemoteClient(
     private fun samePath(a: String, b: String): Boolean = a.trim('/') == b.trim('/')
   }
 }
+
+/** Host may include the shared, encoded WebDAV path; folder paths are appended beneath it. */
+internal fun webdavBaseUrl(config: RemoteConfig): HttpUrl =
+  HttpUrl.Builder()
+    .scheme(webdavScheme(config))
+    .host(config.host.substringBefore('/').removeSurrounding("[", "]"))
+    .port(config.port)
+    .encodedPath(config.host.indexOf('/').let { if (it < 0) "/" else config.host.substring(it) })
+    .build()
 
 /** `https` when the repository asks for it, else plain `http` (the debug fixtures and existing rows). */
 internal fun webdavScheme(config: RemoteConfig): String = if (config.webdavHttps) "https" else "http"

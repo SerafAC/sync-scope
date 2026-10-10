@@ -357,6 +357,56 @@ quickstart §3 covers launcher shapes and themed icons.
 
 ---
 
+## Phase 11: Owner corrections (2026-10-10)
+
+**Decision**: [Dropdown widths and shared WebDAV path](./decisions.md#2026-10-10--dropdown-widths-and-shared-webdav-path-t082-t085).
+Historical T041/T046 describe the original implementation; FR-009b supersedes their WebDAV URL-path
+behaviour. Do not rewrite their completion history.
+
+- [X] T082 [US1] Add a failing equal-width regression in `src/screens/__tests__/FilesScreen.test.tsx`,
+  then make `src/files/ChoiceMenu.tsx` give each anchor an equal flexible slot and a full-width button.
+  Preserve margins, gap, labels and menu interactions in both views (FR-001).
+- [X] T083 [US3] Add failing tests in `src/repository/__tests__/serverAddress.test.ts`,
+  `src/screens/__tests__/RepositoryScreen.test.tsx`, `KTEST/bridge/RepositoryOperationsTest.kt` and
+  `KTEST/remote/PropfindParserTest.kt`. Implement FR-009b in `serverAddress.ts`, `RepositoryScreen.tsx`,
+  `KT/bridge/RepositoryOperations.kt` and `KT/remote/WebDavRemoteClient.kt`: keep the shared WebDAV path
+  in Host, preserve all folders, append folders beneath the endpoint once, preserve encoded segments
+  and IPv6, respect path case for saved credentials, reject malformed addresses, and keep old bare
+  hosts and FTP/SFTP behaviour. Cover blur, save without blur, browse, persistence and nested requests.
+- [X] T084 Update the spec, decision record, plan, data model and bridge/E2E contracts; update
+  `README.md`, `docs/protocols.md`, `DEVELOPMENT.md` and `CHANGELOG.md`. Update
+  `MAESTRO/polish/04-remote-folders-webdav.yaml` to keep the shared fixture endpoint in Host, with two
+  separate relative folders, and prove browser root, scan, persistence and deletion re-check.
+- [X] T085 Validate T082-T084: `pnpm lint && pnpm typecheck && pnpm test:ci`,
+  `pnpm test:android:unit`, the S01 live gate, and the affected flows `polish/01-sort`,
+  `polish/02-sort-persists`, `polish/04-remote-folders-webdav` on API 31 and API 36. Verify the rendered
+  dropdown widths on both APIs and record results below. Do not claim the full workspace/release
+  gate was rerun unless it was. Remove the stale hard-coded v4 assertion from
+  `android/app/src/androidTest/java/com/syncscope/ProtocolConnectInstrumentedTest.kt`; keep its
+  module-to-current-constant assertion and the numerical-version checks in the parity tests.
+
+**Validation (2026-10-10):**
+
+- Regression tests failed before the production fixes and passed afterward.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test:ci`: passed, with 56 foundation tests and 736 Jest tests
+  across 46 suites, no skipped tests.
+- `pnpm test:android:unit`: all 631 JVM tests passed, no skipped tests.
+- `pnpm validation:android:api31`: all 8 live connected tests passed. FTP, SFTP and WebDAV audits
+  were clean, with zero unexpected remote changes.
+- `polish/01-sort`, `polish/02-sort-persists` and `polish/04-remote-folders-webdav`: passed on API 31
+  and API 36. Native UI bounds showed equal 479 px touch targets on both APIs; each outlined button
+  occupies 485 px of the 992 px toolbar, with the existing 22 px gap.
+- Initial concurrent gates hit a service-state conflict and a 173 ms scroll-index timing failure.
+  The gates passed when rerun separately from the emulator flows; no thresholds were relaxed.
+  Existing FilesScreen tests now wait for asynchronous menu rendering and list counts. The WebDAV
+  flow scrolls to off-screen root folders and expects the shared path in the summary label.
+- The live gate exposed a stale v4 assertion in its module registration test. Removing that duplicate
+  assertion leaves the module-to-current-constant check intact; the parity tests still assert v6.
+- Only the affected Maestro flows and the API 31 live gate were rerun, not the full E2E workspace,
+  release-smoke or a new real-phone walk-through.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phases

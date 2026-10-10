@@ -111,7 +111,6 @@ class ProtocolConnectInstrumentedTest {
     val promise = AwaitedPromise()
     (registered as CloudSyncModule).getContractVersion(promise)
     assertEquals(CloudSyncContracts.CONTRACT_VERSION, promise.await())
-    assertEquals(4, CloudSyncContracts.CONTRACT_VERSION)
     registered.invalidate()
   }
 

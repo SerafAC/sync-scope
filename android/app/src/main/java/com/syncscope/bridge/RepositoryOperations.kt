@@ -17,6 +17,7 @@ import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
 import com.syncscope.remote.RemoteRoots
 import com.syncscope.remote.SftpHostKeyException
+import com.syncscope.remote.webdavBaseUrl
 import com.syncscope.scan.BusyState
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -280,7 +281,8 @@ class RepositoryOperations(
 
   private fun sameAccount(row: RepositoryConfigEntity, config: RemoteConfig): Boolean =
     row.protocol == config.protocol.name &&
-      row.host.equals(config.host, ignoreCase = true) &&
+      row.host.substringBefore('/').equals(config.host.substringBefore('/'), ignoreCase = true) &&
+      row.host.substringAfter('/', "") == config.host.substringAfter('/', "") &&
       row.port == config.port &&
       row.username == config.username
 
@@ -359,8 +361,12 @@ class RepositoryOperations(
 
       val host = map.string("host")?.trim()
       if (host.isNullOrEmpty()) return Parsed.Invalid("host", "it is required")
-      if (host.length > MAX_HOST || HOST_FORBIDDEN.containsMatchIn(host) || CONTROL.containsMatchIn(host)) {
+      val hostname = if (protocol == RemoteProtocol.WEBDAV) host.substringBefore('/') else host
+      if (hostname.length > MAX_HOST || HOST_FORBIDDEN.containsMatchIn(hostname) || CONTROL.containsMatchIn(host)) {
         return Parsed.Invalid("host", "use a bare host name or IP address")
+      }
+      if (protocol == RemoteProtocol.WEBDAV && host.any { it == '\\' || it == '?' || it == '#' }) {
+        return Parsed.Invalid("host", "use a host name and shared WebDAV path, without a query or fragment")
       }
 
       val port =
@@ -380,6 +386,13 @@ class RepositoryOperations(
       if (username.isNullOrBlank()) return Parsed.Invalid("username", "it is required")
       if (username.length > MAX_USERNAME || CONTROL.containsMatchIn(username)) {
         return Parsed.Invalid("username", "it contains unsupported characters")
+      }
+      if (protocol == RemoteProtocol.WEBDAV) {
+        try {
+          webdavBaseUrl(RemoteConfig(protocol, host, port, username, listOf("/"), webdavHttps))
+        } catch (_: IllegalArgumentException) {
+          return Parsed.Invalid("host", "use a host name or IP address with an optional shared WebDAV path")
+        }
       }
 
       // The browser's draft may hold no folder, or folders still being typed: they are not its concern.

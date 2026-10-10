@@ -85,12 +85,12 @@ export function defaultPortFor(
 
 /**
  * The draft with a server URL typed into Host spread over the other fields: protocol, HTTPS, port,
- * user name and the first remote folder, as far as the URL names them; the other folders stay
- * (Story 3 sc. 8). A URL that switches the protocol but names no port clears the port, so the new
+ * user name, and (FTP/SFTP only) the first remote folder. WebDAV keeps its shared path in Host
+ * without changing any folder (Story 3 sc. 8). A URL that switches the protocol but names no port clears the port, so the new
  * protocol's default applies.
  */
 export function withServerAddress(draft: RepositoryDraft): RepositoryDraft {
-  const parts = splitServerAddress(draft.host);
+  const parts = splitServerAddress(draft.host, draft.protocol);
   if (parts == null) {
     return draft;
   }
@@ -364,6 +364,13 @@ export function RepositoryScreen({ navigation }: Props): React.JSX.Element {
               value={draft.host}
             />
             {errorFor('host')}
+            {draft.protocol === 'WEBDAV' ? (
+              <HelperText type="info" visible>
+                Include the WebDAV path shared by all folders, for example
+                nas.local/remote.php/dav/alice. Remote folders are relative to
+                this address; use / for its top folder.
+              </HelperText>
+            ) : null}
           </View>
           <View>
             <TextInput

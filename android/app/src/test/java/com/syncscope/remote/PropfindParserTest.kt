@@ -130,6 +130,38 @@ class PropfindParserTest {
     assertEquals("/", WebDavRemoteClient.collectionUrl(base, "/").encodedPath)
     assertEquals("/webdav/", WebDavRemoteClient.collectionUrl(base, "webdav").encodedPath)
     assertEquals("/webdav/a%20b%23c/", WebDavRemoteClient.collectionUrl(base, "/webdav/a b#c/").encodedPath)
+    val endpoint = "https://cloud.example.test/remote.php/dav/alice/".toHttpUrl()
+    assertEquals("/remote.php/dav/alice/", WebDavRemoteClient.collectionUrl(endpoint, "/").encodedPath)
+    assertEquals("/remote.php/dav/alice/Photos%20Backup/", WebDavRemoteClient.collectionUrl(endpoint, "/Photos Backup/").encodedPath)
+    assertEquals("/remote.php/dav/alice/Photos%20Backup/2024/", WebDavRemoteClient.collectionUrl(endpoint, "/Photos Backup/2024").encodedPath)
+  }
+
+  @Test
+  fun sharedEndpointSupportsHttpsIpv6AndEncodedSegments() {
+    val endpoint = webdavBaseUrl(
+      config(8443).copy(host = "[2001:db8::7]/dav/Photos%20Backup", webdavHttps = true),
+    )
+    assertEquals("https", endpoint.scheme)
+    assertEquals("2001:db8::7", endpoint.host)
+    assertEquals(8443, endpoint.port)
+    assertEquals("/dav/Photos%20Backup/", WebDavRemoteClient.collectionUrl(endpoint, "/").encodedPath)
+  }
+
+  @Test
+  fun sharedWebdavEndpointIsUsedForEveryFolderAndNestedListing() = runBlocking {
+    val base = "/remote.php/dav/Photos%20Backup"
+    val fake = FakeDavServer(listOf(
+      optionsOk(),
+      multistatusReply(multistatus(response("$base/a/", collection = true))),
+      multistatusReply(multistatus(response("$base/b/", collection = true), response("$base/b/child/", collection = true))),
+      multistatusReply(multistatus(response("$base/b/child/", collection = true))),
+    )).also { server = it }
+    val client = WebDavRemoteClient()
+    client.connect(config(fake.port, listOf("/a", "/b")).copy(host = "127.0.0.1$base"), "pw".toCharArray())
+    assertEquals(listOf("child"), client.list("/b").map { it.name })
+    assertTrue(client.list("/b/child").isEmpty())
+    assertEquals(listOf("$base/a/", "$base/a/", "$base/b/", "$base/b/child/"), fake.requests.map { it.path })
+    client.close()
   }
 
   @Test

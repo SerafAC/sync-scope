@@ -470,12 +470,38 @@ describe('FilesScreen', () => {
       );
     });
 
+    it('gives both dropdowns equal shares of the entire toolbar width', async () => {
+      render(ui());
+      await screen.findByTestId('files-toolbar');
+      for (const id of ['files-sort', 'files-view']) {
+        expect(screen.getByTestId(`${id}-control`)).toHaveStyle({
+          flex: 1,
+          minWidth: 0,
+        });
+        expect(screen.getByTestId(`${id}-container-outer-layer`)).toHaveStyle({
+          width: '100%',
+        });
+      }
+      pickView('List');
+      for (const id of ['files-sort', 'files-view']) {
+        expect(screen.getByTestId(`${id}-control`)).toHaveStyle({
+          flex: 1,
+          minWidth: 0,
+        });
+        expect(screen.getByTestId(`${id}-container-outer-layer`)).toHaveStyle({
+          width: '100%',
+        });
+      }
+    });
+
     it('passes the a11y sweep with each drop-down open, in both views (FR-017)', async () => {
       const result = render(ui());
       await screen.findByLabelText('snap-1.png, Synced');
 
       fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
-      expect(await screen.findByLabelText('Size (largest first)')).toBeOnTheScreen();
+      await waitFor(() =>
+        expect(screen.getByLabelText('Size (largest first)')).toBeOnTheScreen(),
+      );
       expect(() => a11ySweep(result)).not.toThrow();
       fireEvent.press(screen.getByLabelText('Date (newest first)'));
 
@@ -532,7 +558,7 @@ describe('FilesScreen', () => {
         screen.getByLabelText('Sort: Size, smallest first'),
       ).toBeOnTheScreen();
       expect(screen.getByTestId('files-list')).toBeVisible();
-      expect(screen.getByLabelText('Filter All, 7')).toBeSelected();
+      expect(await screen.findByLabelText('Filter All, 7')).toBeSelected();
 
       pickView('Gallery');
       expect(

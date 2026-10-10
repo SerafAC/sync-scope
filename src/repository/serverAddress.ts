@@ -1,4 +1,4 @@
-import type {RepositoryProtocol} from '../native/CloudSyncContracts';
+import type { RepositoryProtocol } from '../native/CloudSyncContracts';
 
 /** The form fields a pasted server URL fills in; a field the URL does not mention stays absent. */
 export interface ServerAddressParts {
@@ -8,22 +8,24 @@ export interface ServerAddressParts {
   /** As text, the way the Port field holds it. */
   port?: string;
   username?: string;
-  /** The folder the URL names; it goes into the first remote folder field only (see [withFirstRemoteRoot]). */
+  /** FTP/SFTP only: the URL's folder goes into the first remote folder field (see [withFirstRemoteRoot]). */
   remoteRoot?: string;
 }
 
-const SCHEMES: Record<string, {protocol: RepositoryProtocol; https?: boolean}> =
-  {
-    ftp: {protocol: 'FTP'},
-    sftp: {protocol: 'SFTP'},
-    ssh: {protocol: 'SFTP'},
-    http: {protocol: 'WEBDAV', https: false},
-    dav: {protocol: 'WEBDAV', https: false},
-    webdav: {protocol: 'WEBDAV', https: false},
-    https: {protocol: 'WEBDAV', https: true},
-    davs: {protocol: 'WEBDAV', https: true},
-    webdavs: {protocol: 'WEBDAV', https: true},
-  };
+const SCHEMES: Record<
+  string,
+  { protocol: RepositoryProtocol; https?: boolean }
+> = {
+  ftp: { protocol: 'FTP' },
+  sftp: { protocol: 'SFTP' },
+  ssh: { protocol: 'SFTP' },
+  http: { protocol: 'WEBDAV', https: false },
+  dav: { protocol: 'WEBDAV', https: false },
+  webdav: { protocol: 'WEBDAV', https: false },
+  https: { protocol: 'WEBDAV', https: true },
+  davs: { protocol: 'WEBDAV', https: true },
+  webdavs: { protocol: 'WEBDAV', https: true },
+};
 
 // [scheme://][user[:password]@]host-or-[ipv6][:port][/path][?query][#fragment]
 const ADDRESS =
@@ -45,8 +47,12 @@ function decode(text: string): string {
  * `sftp://alice@nas.local`, `nas.local/photos`) into the form's fields. Returns null when the text is
  * already a bare host name or IP address, or when it is not a URL the app can use (an unknown scheme,
  * for example); the host is then saved as typed and native validation reports any problem.
+ * WebDAV keeps the encoded shared endpoint path in Host; FTP/SFTP paths fill folder 1.
  */
-export function splitServerAddress(text: string): ServerAddressParts | null {
+export function splitServerAddress(
+  text: string,
+  protocol: RepositoryProtocol = 'FTP',
+): ServerAddressParts | null {
   const trimmed = text.trim();
   if (!/[:/@]/.test(trimmed)) {
     return null;
@@ -64,7 +70,7 @@ export function splitServerAddress(text: string): ServerAddressParts | null {
     return null;
   }
 
-  const parts: ServerAddressParts = {host: rawHost.replace(/^\[|\]$/g, '')};
+  const parts: ServerAddressParts = { host: rawHost.replace(/^\[|\]$/g, '') };
   if (known != null) {
     parts.protocol = known.protocol;
     if (known.https != null) {
@@ -79,9 +85,15 @@ export function splitServerAddress(text: string): ServerAddressParts | null {
     parts.username = decode(userInfo.split(':')[0] ?? '');
   }
   if (path != null) {
-    const folder = decode(path).replace(/\/+$/, '');
+    const webdav = (known?.protocol ?? protocol) === 'WEBDAV';
+    const folder = (webdav ? path : decode(path)).replace(/\/+$/, '');
     if (folder !== '') {
-      parts.remoteRoot = folder;
+      if (webdav) {
+        // IPv6 needs its brackets when followed by a path.
+        parts.host = rawHost + folder;
+      } else {
+        parts.remoteRoot = folder;
+      }
     }
   }
   return parts;

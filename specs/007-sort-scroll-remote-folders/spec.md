@@ -86,6 +86,14 @@ new results arrive; adding device folders that hold many files; the app's own la
 - Q: Should the chosen sort and view mode be remembered when the app is closed and reopened? → A: Yes,
   each view's sort and the last view mode are remembered across restarts; the filter still resets.
 
+### Session 2026-10-10
+
+- User correction: the sort and Gallery/List controls must have equal widths and together fill the
+  available toolbar width (half each, apart from the existing gap and outer margins).
+- User correction: WebDAV Host must retain the path common to all remote folders, for example
+  `domain.xyz/remote.php/dav/alice`. Remote folders are relative to that address; no Nextcloud-specific
+  path inference. FTP/SFTP URL paths still fill folder 1. See [decisions.md](./decisions.md#2026-10-10--dropdown-widths-and-shared-webdav-path-t082-t085).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Sort the results (Priority: P1)
@@ -103,7 +111,8 @@ view and checks the first rows against the fixtures' known order.
 
 1. **Given** the Files tab, **When** it is shown, **Then** the sort drop-down is on the left and the
    view-mode drop-down is next to it, each showing its current choice, and the filter chips sit below
-   them.
+   them. Both controls have the same width and fill the available row, sharing it equally apart from
+   the gap and outer margins.
 2. **Given** the sort drop-down is open, **When** the user looks at it, **Then** it offers Name (A–Z),
    Name (Z–A), Date (newest first), Date (oldest first), Size (largest first) and Size (smallest first),
    with the current one marked.
@@ -197,8 +206,10 @@ see its files reported as not backed up.
    does today for the single remote folder, and the current results stay.
 7. **Given** a repository saved before this feature, **When** the app is updated, **Then** its one remote
    folder is shown as the only entry of the list and scans behave exactly as before.
-8. **Given** a server URL with a path typed into Host (feature 006), **When** the address is split up,
-   **Then** the path fills the first remote folder and leaves the others alone.
+8. **Given** a server URL with a path typed into Host, **When** the address is split up, **Then** for
+   WebDAV the shared path remains in Host and every remote folder stays unchanged; for FTP/SFTP the
+   path fills the first remote folder and leaves the others alone. Scheme, port and username still fill
+   their separate fields, without retaining a URL password.
 9. **Given** several remote folders, **When** a deletion is prepared, **Then** the server re-check (D020)
    finds a file's copy in whichever folder it was matched in.
 10. **Given** the Repository section in Settings, **When** the repository has several folders, **Then** it
@@ -210,6 +221,10 @@ see its files reported as not backed up.
 12. **Given** the server cannot be reached, the login fails or an SFTP key is not yet trusted, **When** the
     user taps "Browse", **Then** the browser shows the same cause and next step as the connection test,
     and the typed path stays usable.
+13. **Given** WebDAV Host `domain.xyz/remote.php/dav/alice` and folders `/photos` and `/phone-backup`,
+    **When** the user tests, browses, scans or prepares a deletion, **Then** every folder is addressed
+    beneath that shared path exactly once. The browser's `/` is the endpoint's top folder, not the
+    HTTP server root. Saving, reopening and repeatedly blurring Host preserve the shared path.
 
 ---
 
@@ -351,6 +366,12 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   anything.
 - **Browsing with unsaved details**: the browser connects with the details currently in the form,
   including a password typed but not yet saved, and saves nothing.
+- **Existing WebDAV settings**: a bare Host plus complete remote paths still works unchanged. The app
+  does not guess a common prefix or rewrite saved folders.
+- **Encoded WebDAV endpoint and IPv6**: preserve encoded path segments without double encoding, and
+  keep IPv6 brackets when Host includes a path. Endpoint paths are case-sensitive; DNS names are not.
+- **WebDAV folder `/`**: refers to the shared endpoint itself; leading or trailing slashes in a remote
+  folder do not discard or duplicate the endpoint prefix.
 - **Browsing a large server folder**: folders appear as they are listed; a folder with thousands of
   files still shows its subfolders, and the browser never downloads file content (R026).
 - **Picking an overlapping folder in the browser**: the browser lets the user pick it; the form then
@@ -363,7 +384,8 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
 ### Functional Requirements
 
 - **FR-001**: Gallery and list view MUST show, above the filter chips, a sort drop-down on the left and a
-  view-mode drop-down immediately to its right, replacing the current gallery / list switch.
+  view-mode drop-down immediately to its right, replacing the current gallery / list switch. Both
+  controls MUST have equal widths and together fill the available row, excluding the gap and margins.
 - **FR-002**: The sort drop-down MUST offer name, date (last modified) and size, each ascending and
   descending, and MUST show the current choice.
 - **FR-003**: Each view MUST keep its own sort, and the app MUST remember each view's sort and the last
@@ -396,6 +418,10 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   the server, using the details in the form (saved or not), with descend, a breadcrumb back up, and "Use
   this folder" to fill the field. Connection, login and host-key problems MUST be shown as the connection
   test shows them. Browsing MUST only list folders and never read or change file content.
+- **FR-009b**: WebDAV Host MUST accept and preserve an optional shared endpoint path. All remote
+  folders and browser paths MUST be relative to that endpoint, including `/`. URL scheme, port and
+  username MUST still populate their separate fields; no URL password is retained. Existing bare-host
+  configurations MUST work unchanged, and FTP/SFTP Host MUST remain a bare host.
 - **FR-010**: Saving the repository MUST test every remote folder and report each folder's outcome (entry
   count, or what is wrong and what to do).
 - **FR-011**: A scan MUST list every remote folder and match each device file against all of them with
@@ -432,8 +458,8 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   position of its first file in the current result. Derived from the snapshot, never stored. Size bands
   are worked out from the shown files each time the result, filter or folder changes.
 - **App icon**: the owner's source image and the icon set produced from it.
-- **Repository** (changed): the one server, now with a list of one or more remote folders instead of
-  exactly one. Everything else is unchanged.
+- **Repository** (changed): the one server with one or more remote folders. For WebDAV, Host may include
+  the shared endpoint path; the folders are relative to it. Other protocols keep bare Host semantics.
 - **Remote folder**: a path on the server whose files take part in matching, typed or picked with the
   server folder browser. Folders in one repository never overlap.
 

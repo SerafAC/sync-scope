@@ -117,4 +117,4 @@ The filter is not stored (005 R10).
 | Segments | `usePagedQuery` | One per band, plus a folder segment in list view. Each holds its loaded rows, its next token and a phase. The flattened list pads unread rows with placeholders up to the band's `count` (R7). |
 | Anchor | each view | `(sortValue, sortName)` of the first visible file, refreshed by `onViewableItemsChanged`; used once per snapshot change (R8). |
 | Folder browser | `RepositoryScreen` | Open field index, current path, folders, a phase (`loading`, `ready` or `error`) and a request sequence number. Nothing persists. |
-| Remote folder fields | `RepositoryScreen` draft | `remoteRoots: string[]`, replacing `remoteRoot`. A Host URL with a path fills index 0 only (`splitServerAddress`). |
+| Remote folder fields | `RepositoryScreen` draft | `remoteRoots: string[]`, replacing `remoteRoot`. FTP/SFTP Host URL paths fill index 0 only; WebDAV shared paths stay in Host and folders are relative to that endpoint (`splitServerAddress`, FR-009b). |

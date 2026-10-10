@@ -21,3 +21,29 @@ Note: `pnpm e2e:android:release-smoke` refuses to run while ~/.gradle/gradle.pro
 The owner confirmed the manual real-device walk-through passed and requested that T081 be marked
 complete, the pending changes committed, and a pull request prepared. The outcome is recorded in
 [quickstart §4](./quickstart.md#4-manual-walk-through-on-the-owners-phone).
+
+## 2026-10-10 — Dropdown widths and shared WebDAV path [T082-T085]
+
+**Request:** Gallery/List must match the sort control's width and the pair must fill the row. WebDAV
+Host must retain the path shared by all folders, such as `domain.xyz/remote.php/dav/alice`, rather than
+moving it into folder 1.
+
+**Decision:**
+
+- Give each dropdown anchor an equal flexible slot, with zero minimum width, and stretch its outlined
+  button to fill it. Keep the existing gap and outer margins. Open menu options retain their full text.
+- For WebDAV, keep the encoded shared endpoint path in the existing `host` string. Split only scheme,
+  port and username into their fields, dropping any URL password. Scheme-less addresses use the
+  selected protocol; parsing is idempotent when Host blurs again. Never infer a server-specific prefix.
+- Treat every WebDAV remote folder as relative to that endpoint, even when written with a leading
+  slash. `/` addresses the endpoint itself; the browser cannot go above it. Connection testing, scans
+  and deletion re-checks all use the same native URL builder.
+- Keep endpoint paths case-sensitive and DNS names case-insensitive when deciding whether the saved
+  password can be reused. Reject malformed authorities, controls, backslashes, queries and fragments
+  at the native boundary without echoing them. Preserve encoded endpoint segments.
+- Keep FTP/SFTP URL-to-folder parsing unchanged. Existing WebDAV bare-host settings with complete
+  remote paths keep working. Do not auto-migrate paths: the intended endpoint cannot be inferred
+  reliably. No schema or bridge-shape change is needed.
+
+This supersedes the WebDAV part of Story 3 scenario 8 and historical T041/T046, not their FTP/SFTP
+behaviour. The correction is tracked in Phase 11 of [tasks.md](./tasks.md).

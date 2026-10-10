@@ -321,16 +321,14 @@ describe('RepositoryScreen', () => {
     fireEvent(screen.getByLabelText('Host'), 'blur');
 
     expect(screen.getByLabelText('Host')).toHaveDisplayValue(
-      'cloud.example.com',
+      'cloud.example.com/remote.php/dav',
     );
     expect(screen.getByLabelText('Use HTTPS').props.value).toBe(true);
     // The protocol changed and the URL named no port, so the default applies.
     expect(screen.getByLabelText('Port')).toHaveDisplayValue('');
     expect(screen.getByLabelText('Port').props.placeholder).toBe('443');
     expect(screen.getByLabelText('User name')).toHaveDisplayValue('alice');
-    expect(screen.getByLabelText('Remote folder 1')).toHaveDisplayValue(
-      '/remote.php/dav',
-    );
+    expect(screen.getByLabelText('Remote folder 1')).toHaveDisplayValue('');
   });
 
   it('splits a URL in Host on save even if the field never lost focus', async () => {
@@ -781,17 +779,72 @@ describe('RepositoryScreen', () => {
       expect(screen.getByText('Check the remote folder.')).toBeOnTheScreen();
     });
 
-    it('fills only the first folder from a server URL typed into Host (sc. 8)', async () => {
+    it('keeps a shared WebDAV path in Host without replacing either folder (sc. 8)', async () => {
       await renderScreen(TWO);
 
       typeInto('Host', 'https://nas.local/scan/other');
       fireEvent(screen.getByLabelText('Host'), 'blur');
 
       expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue(
-        '/scan/other',
+        '/scan/clean/a',
       );
       expect(screen.getByTestId('repository.remoteRoots.1')).toHaveDisplayValue(
         '/scan/clean/b',
+      );
+      expect(screen.getByLabelText('Host')).toHaveDisplayValue(
+        'nas.local/scan/other',
+      );
+      // A second blur must not reinterpret the retained path as folder 1.
+      fireEvent(screen.getByLabelText('Host'), 'blur');
+      expect(screen.getByTestId('repository.remoteRoots.0')).toHaveDisplayValue(
+        '/scan/clean/a',
+      );
+    });
+
+    it('saves and browses with an unsplit WebDAV URL and separate folder paths', async () => {
+      saveMock.mockResolvedValue(OK);
+      testMock.mockResolvedValue(connected(2));
+      browseMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        remoteFolders: {
+          path: '/photos',
+          parent: '/',
+          folders: [],
+          fellBackToRoot: false,
+        },
+      });
+      await renderScreen(TWO);
+      typeInto('Host', 'https://nas.local:8443/remote.php/dav/alice');
+      typeInto('Remote folder 1', '/photos');
+      typeInto('Password', 'typed');
+      fireEvent.press(screen.getByLabelText('Browse remote folder 1'));
+      await screen.findByTestId('remote-browser');
+      expect(browseMock).toHaveBeenCalledWith(
+        {
+          protocol: 'WEBDAV',
+          host: 'nas.local/remote.php/dav/alice',
+          port: 8443,
+          username: 'alice',
+          webdavHttps: true,
+        },
+        'typed',
+        '/photos',
+      );
+      fireEvent.press(screen.getByLabelText('Use this folder'));
+      fireEvent.press(screen.getByLabelText('Save and test'));
+      await waitFor(() =>
+        expect(saveMock).toHaveBeenCalledWith(
+          {
+            protocol: 'WEBDAV',
+            host: 'nas.local/remote.php/dav/alice',
+            port: 8443,
+            username: 'alice',
+            webdavHttps: true,
+            remoteRoots: ['/photos', '/scan/clean/b'],
+          },
+          'typed',
+        ),
       );
     });
 

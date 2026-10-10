@@ -169,6 +169,34 @@ class RepositoryOperationsTest {
   // --- remoteRoots (contract version 6, research R11, R12) ---
 
   @Test
+  fun webdavHostKeepsItsSharedPathThroughSaveSummaryTestAndBrowse() = runBlocking {
+    val host = "$HOST/remote.php/dav/alice"
+    assertOk(ops.save(config(protocol = "WEBDAV", host = host, roots = listOf("/a", "/b")), PASSWORD))
+    assertEquals(host, dao.row!!.host)
+    assertEquals(host, summary().getString("host"))
+    assertOk(ops.test())
+    assertEquals(host, clients.last().config!!.host)
+    assertEquals(listOf("/a", "/b"), clients.last().config!!.rootPaths)
+    assertOk(ops.browse(config(protocol = "WEBDAV", host = host), null, "/"))
+    assertEquals(host, clients.last().config!!.host)
+    // DNS is case-insensitive; the endpoint path is not.
+    assertOk(ops.browse(config(protocol = "WEBDAV", host = "${HOST.uppercase()}/remote.php/dav/alice"), null, "/"))
+    val error = ops.browse(config(protocol = "WEBDAV", host = "$HOST/remote.php/dav/ALICE"), null, "/").getMap("error")!!
+    assertEquals(CloudSyncErrorCode.CREDENTIAL_UNAVAILABLE.name, error.getString("code"))
+  }
+
+  @Test
+  fun hostPathsAreWebdavOnlyAndCannotSmuggleUrlAuthorityOrQuery() = runBlocking {
+    for (protocol in listOf("FTP", "SFTP")) {
+      assertEquals("host", ops.save(config(protocol = protocol, host = "$HOST/dav"), PASSWORD).getMap("error")!!.getString("field"))
+    }
+    for (host in listOf("https://$HOST/dav", "user@$HOST/dav", "$HOST/dav?token=x", "$HOST/dav#top", "$HOST/dav\\folder")) {
+      assertEquals("host", ops.save(config(protocol = "WEBDAV", host = host), PASSWORD).getMap("error")!!.getString("field"))
+    }
+    assertNull(dao.row)
+  }
+
+  @Test
   fun eachRemoteRootsCaseIsAFieldErrorWithItsIndexAndStoresNothing() = runBlocking {
     val cases =
       listOf(

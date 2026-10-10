@@ -53,7 +53,8 @@ repository** and fill in:
 
 - **Server type**: FTP, SFTP or WebDAV. For WebDAV, **Use HTTPS** is on by default.
 - **Host** and **Port**. Leave the port empty to use the standard one (FTP 21, SFTP 22, WebDAV 80, or 443
-  with HTTPS).
+  with HTTPS). For WebDAV, keep the path shared by all backup folders in Host, for example
+  `domain.xyz/remote.php/dav/alice`. You can paste the full URL; the scheme and port fill their own fields.
 - **User name** and **Password**.
 - **Remote folder 1**: the folder on the server that holds your backup, for example `/photos`. Type it,
   or tap **Browse** (below).
@@ -63,6 +64,11 @@ repository** and fill in:
 when it is in any of them. **Remove** takes a folder out of the list; at least one must stay. Folders
 cannot overlap: a folder that is the same as, inside or around another one is refused, and the message
 names the other folder.
+
+**WebDAV paths.** With Host `domain.xyz/remote.php/dav/alice`, enter `/photos` and `/phone-backup`
+as the remote folders, not the full shared path again. `/` selects the shared endpoint itself, which
+is also the top of the folder browser. Existing settings with a bare Host and full remote paths still
+work without changes.
 
 **Browse the server.** **Browse** next to a folder opens a list of the folders on the server, using the
 details you have typed so far, saved or not (type the password first if none is stored yet). Tap a folder
@@ -213,7 +219,7 @@ repository to show them.
 
 ### Sort and jump through your files
 
-The **Sort** drop-down to the left of **View** orders the files:
+The **Sort** drop-down to the left of **View** orders the files. Both controls share the full row equally:
 
 - **Name (A–Z)** or **Name (Z–A)**. Upper and lower case and accents do not matter (`apple`, `Banana`,
   `Éclair`), and names that do not start with a letter, such as `2024-05.jpg`, come first.

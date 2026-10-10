@@ -508,7 +508,7 @@ sizes and band labels come from the [scroll manifest](#device-fixtures), never f
 | `01-sort` | WebDAV, `gallery`; Scroll, Gallery | the sort and view drop-downs, each of the six sorts in both views, sort and filter independent, each view keeping its own sort |
 | `02-sort-persists` | after `01`, a restart | the view and each view's sort survive a restart; the filter does not |
 | `03-fast-scroll` | Scroll, Narrow | the scrollbar: month and letter jumps within 1 s (SC-003), narrow size bands (SC-008), no thumb on a short result; drag points per `API_LEVEL` |
-| `04-remote-folders-webdav` | the form, two folders; TwoFolders | several folders, per-folder test lines, the URL path fills folder 1, a file only the second folder holds is SYNCED and passes the re-check, the overlap refusal |
+| `04-remote-folders-webdav` | the form, shared WebDAV endpoint and two relative folders; TwoFolders | Host keeps the shared URL path without replacing either folder, the browser root is the endpoint, per-folder test lines, a file only the second folder holds is SYNCED and passes the re-check, the overlap refusal |
 | `05-remote-folder-unread-ftp` | the seam, `root` twice; TwoFolders | one unread folder: the scan completes, names it, and unmatched files are UNKNOWN; all folders unread: the scan fails and the result stays |
 | `06-remote-browse-sftp` | the form, never saved | the server folder browser: key approval first, descend, Up, Use this folder, the login error |
 | `07-results-updated-keeps-place` | WebDAV; Scroll | a rescan keeps the first visible file on top in the list and in the hidden gallery, with "Results updated" |

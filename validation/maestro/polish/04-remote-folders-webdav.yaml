@@ -1,8 +1,8 @@
 # Story 3 sc. 1-4 and 8-10, FR-009-FR-012, SC-004 (WebDAV,
 # contracts/maestro-polish.md › Acceptance scenario mapping): the repository
-# form holds a list of remote folders. Set up through the UI: folder 1 "/x",
-# "Add another folder", folder 2 scan/clean/b; then a server URL with the path
-# scan/clean/a typed into Host fills folder 1 only (sc. 8). Save: "Connected"
+# form holds a list of remote folders. Set up through the UI: folder 1 scan/clean/a,
+# "Add another folder", folder 2 scan/clean/b; then a server URL with the shared
+# WebDAV root typed into Host keeps both folders unchanged (sc. 8). Save: "Connected"
 # with one line per folder (sc. 2). Settings › Repository lists both (sc. 10).
 # A scan of TwoFolders (a/ and b/ copies plus two files only scan/clean/b
 # holds) reports every file Synced (sc. 4). Deleting b-only-deleted.jpg, which
@@ -17,8 +17,8 @@ appId: com.syncscope
 name: polish/04-remote-folders-webdav
 ---
 - evalScript: "${output.root = WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT}"
-- evalScript: "${output.folderA = output.root + '/scan/clean/a'}"
-- evalScript: "${output.folderB = output.root + '/scan/clean/b'}"
+- evalScript: "${output.folderA = '/scan/clean/a'}"
+- evalScript: "${output.folderB = '/scan/clean/b'}"
 - launchApp:
     clearState: true
 # The cleared app's own empty Files tab: "Settings" alone can still match the
@@ -47,12 +47,12 @@ name: polish/04-remote-folders-webdav
     id: "repository.remoteRoots.1"
 - assertNotVisible: "Remove remote folder 1"
 
-# 2. Folder 1 "/x", then a second folder (sc. 1).
+# 2. Two folder paths relative to the shared WebDAV address (sc. 1).
 - runFlow:
     file: ../subflows/fill-field.yaml
     env:
       FIELD: "repository.remoteRoots.0"
-      TEXT: "/x"
+      TEXT: "${output.folderA}"
 - scrollUntilVisible:
     element: "Add another folder"
     direction: DOWN
@@ -65,7 +65,7 @@ name: polish/04-remote-folders-webdav
 - assertVisible: "Remove remote folder 1"
 - assertVisible: "Remove remote folder 2"
 
-# 3. A server URL with a path typed into Host fills folder 1 only (sc. 8). The
+# 3. A server URL keeps its shared path in Host and leaves both folders alone (sc. 8). The
 #    URL is split when Host loses focus, here when User name is filled; it
 #    also sets the port and turns Use HTTPS off (http://).
 - scrollUntilVisible:
@@ -76,7 +76,7 @@ name: polish/04-remote-folders-webdav
     file: ../subflows/fill-field.yaml
     env:
       FIELD: "repository.host"
-      TEXT: "${'http://' + WEBDAV_HOST + ':' + WEBDAV_PORT + output.folderA}"
+      TEXT: "${'http://' + WEBDAV_HOST + ':' + WEBDAV_PORT + output.root}"
 - runFlow:
     file: ../subflows/fill-field.yaml
     env:
@@ -93,7 +93,7 @@ name: polish/04-remote-folders-webdav
     direction: UP
 - assertVisible:
     id: "repository.host"
-    text: "${WEBDAV_HOST}"
+    text: "${WEBDAV_HOST + output.root}"
 - assertVisible:
     id: "repository.port"
     text: "${WEBDAV_PORT}"
@@ -128,10 +128,32 @@ name: polish/04-remote-folders-webdav
 - assertVisible: "${output.folderA}: [0-9]+ entries"
 - assertNotVisible: ".+: could not be read"
 
+# Browsing starts inside the shared endpoint, and cannot navigate above it.
+- scrollUntilVisible:
+    element: "Browse remote folder 1"
+    direction: UP
+- tapOn: "Browse remote folder 1"
+- extendedWaitUntil:
+    visible: "Use this folder"
+    timeout: 30000
+- tapOn: "Go to /"
+- scrollUntilVisible:
+    element: "scan"
+    direction: DOWN
+    timeout: 30000
+- scrollUntilVisible:
+    element: "gallery"
+    direction: UP
+    timeout: 30000
+- assertVisible:
+    text: "Up one folder"
+    enabled: false
+- tapOn: "Close folder browser"
+
 # 5. Settings › Repository lists both folders, in order (sc. 10).
 - back
 - extendedWaitUntil:
-    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    visible: "Repository WebDAV ${WEBDAV_HOST + output.root}"
     timeout: 15000
 - assertVisible: "Folder ${output.folderA}"
 - assertVisible:
@@ -219,7 +241,7 @@ name: polish/04-remote-folders-webdav
 - assertNotVisible: "${output.folderB}: .+"
 - back
 - extendedWaitUntil:
-    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    visible: "Repository WebDAV ${WEBDAV_HOST + output.root}"
     timeout: 15000
 - assertVisible: "Folder ${output.folderA}"
 - assertNotVisible: "Folder ${output.folderB}"
@@ -283,7 +305,7 @@ name: polish/04-remote-folders-webdav
     timeout: 15000
 - tapOn: "Discard changes"
 - extendedWaitUntil:
-    visible: "Repository WebDAV ${WEBDAV_HOST}"
+    visible: "Repository WebDAV ${WEBDAV_HOST + output.root}"
     timeout: 15000
 - assertVisible: "Folder ${output.folderA}"
 - assertNotVisible: "Folder ${output.folderA}/x"

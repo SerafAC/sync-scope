@@ -1,22 +1,39 @@
-import {splitServerAddress, withFirstRemoteRoot} from '../serverAddress';
+import { splitServerAddress, withFirstRemoteRoot } from '../serverAddress';
 
 describe('splitServerAddress', () => {
-  it.each(['nas.local', '192.168.1.10', ' nas.local ', 'fe80::1', '2001:db8::7'])(
-    'leaves the bare host %p alone',
-    host => {
-      expect(splitServerAddress(host)).toBeNull();
-    },
-  );
+  it.each([
+    'nas.local',
+    '192.168.1.10',
+    ' nas.local ',
+    'fe80::1',
+    '2001:db8::7',
+  ])('leaves the bare host %p alone', host => {
+    expect(splitServerAddress(host)).toBeNull();
+  });
 
-  it('splits a full WebDAV URL into protocol, HTTPS, host, port and folder', () => {
+  it('keeps the shared WebDAV path in Host while splitting scheme and port', () => {
     expect(
-      splitServerAddress('https://cloud.example.com:8443/remote.php/dav/files/me/'),
+      splitServerAddress(
+        'https://cloud.example.com:8443/remote.php/dav/files/me/',
+      ),
     ).toEqual({
-      host: 'cloud.example.com',
+      host: 'cloud.example.com/remote.php/dav/files/me',
       protocol: 'WEBDAV',
       webdavHttps: true,
       port: '8443',
-      remoteRoot: '/remote.php/dav/files/me',
+    });
+  });
+
+  it('keeps scheme-less WebDAV paths encoded and leaves FTP folder parsing unchanged', () => {
+    expect(
+      splitServerAddress('nas.local/dav/Photos%20Backup/', 'WEBDAV'),
+    ).toEqual({
+      host: 'nas.local/dav/Photos%20Backup',
+    });
+    expect(splitServerAddress('ftp://nas.local/photos', 'WEBDAV')).toEqual({
+      host: 'nas.local',
+      protocol: 'FTP',
+      remoteRoot: '/photos',
     });
   });
 
@@ -58,11 +75,10 @@ describe('splitServerAddress', () => {
 
   it('unwraps a bracketed IPv6 host and ignores a query or fragment', () => {
     expect(splitServerAddress('https://[fe80::1]:8080/dav?x=1#top')).toEqual({
-      host: 'fe80::1',
+      host: '[fe80::1]/dav',
       protocol: 'WEBDAV',
       webdavHttps: true,
       port: '8080',
-      remoteRoot: '/dav',
     });
   });
 
@@ -102,11 +118,10 @@ describe('withFirstRemoteRoot', () => {
   });
 
   it('takes the folder a split URL names', () => {
-    const parts = splitServerAddress('https://nas.local/scan/clean/a/');
+    const parts = splitServerAddress('sftp://nas.local/scan/clean/a/');
 
-    expect(withFirstRemoteRoot(['', '/scan/clean/b'], parts?.remoteRoot)).toEqual([
-      '/scan/clean/a',
-      '/scan/clean/b',
-    ]);
+    expect(
+      withFirstRemoteRoot(['', '/scan/clean/b'], parts?.remoteRoot),
+    ).toEqual(['/scan/clean/a', '/scan/clean/b']);
   });
 });

@@ -13,6 +13,8 @@ Six parts on top of the 006 MVP. Decisions are in [research.md](./research.md).
 
 - A sort drop-down and a view drop-down replace the gallery / list switch. Both are Paper `Menu`s, and
   their choices are remembered natively in `SharedPreferences` (R10).
+  The 2026-10-10 correction gives their anchor wrappers `flex: 1` and `minWidth: 0`, with full-width
+  buttons, so the pair fills the toolbar in equal shares (FR-001, T082).
 - Native reads add `SIZE_*` sorts, put unknown values last, break ties by a new stored `sortName`, which
   is case- and accent-insensitive, and keep D010's opaque keyset tokens (R1, R2).
 - List view reads folders first, by name, as a separate `kind: 'DIRECTORY'` read (R3).
@@ -34,6 +36,10 @@ sort value and name (`anchorIndex`) instead of jumping to the top (R8).
 
 - **Storage and validation**: `remoteRoot` becomes the `\n`-separated `remoteRoots` (a column rename,
   R11), with native normalization and an overlap check.
+  The 2026-10-10 correction keeps WebDAV's shared endpoint path in the existing `host` field (FR-009b,
+  T083). `webdavBaseUrl` constructs the endpoint and `collectionUrl` appends each folder beneath it.
+  The same client serves testing, browsing, scanning and deletion re-checks. No dependency, DTO, schema
+  change or automatic prefix inference is needed; old bare-host configurations stay unchanged.
 - **Test**: the connection test reports each folder (R12).
 - **Browser**: a modal server folder browser in the Repository form lists folders through a new
   `browseRemoteFolders` call, with the existing host-key flow (R13).
@@ -211,7 +217,7 @@ src/
 │   ├── RemoteFolderBrowser.tsx                      # NEW: modal browser (R13)
 │   ├── RepositorySection.tsx                        # lists every remote folder
 │   ├── useRepository.ts                             # remoteRoots, per-folder results
-│   └── serverAddress.ts                             # URL path fills folder 0 only
+│   └── serverAddress.ts                             # WebDAV shared path stays in Host; FTP/SFTP path fills folder 0
 ├── scan/ScanSummaryCard.tsx                         # unread-folders warning
 ├── (file row that renders FILE_ISSUE_TEXT)          # REMOTE_FOLDER_UNREAD names the unread folders
 ├── selection/formatBytes.ts                         # reused unchanged for size band labels

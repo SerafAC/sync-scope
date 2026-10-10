@@ -153,6 +153,15 @@ Precision is 1000 ms (`SFTP_V3_WHOLE_SECONDS`), because SFTP v3 reports mtime in
 
 A hand-written client on OkHttp 4.12.0 using only `OPTIONS` and `PROPFIND`, with Basic auth.
 
+**Shared endpoint path** (feature 007, FR-009b). WebDAV Host may include the path common to every
+backup folder, for example `domain.xyz/remote.php/dav/alice`. Remote folders such as `/photos` are
+appended beneath it, never resolved from the HTTP server root. `/` addresses the endpoint itself;
+the folder browser cannot go above it. The same URL builder serves connection testing, browsing,
+scanning and deletion re-checks. Encoded endpoint segments stay encoded exactly once. Existing
+bare-host configurations with full remote paths remain unchanged, with no automatic migration.
+FTP/SFTP keep bare-host semantics. The [owner decision](../specs/007-sort-scroll-remote-folders/decisions.md#2026-10-10--dropdown-widths-and-shared-webdav-path-t082-t085)
+supersedes the original WebDAV URL-to-first-folder behaviour.
+
 - **Connect** issues `OPTIONS` on the first configured folder and requires DAV class 1, then `PROPFIND
   Depth: 0` on each configured folder in turn until one is proven to exist as a collection. A folder that
   is missing or unreadable does not stop the connect, since another may be readable; when every folder
