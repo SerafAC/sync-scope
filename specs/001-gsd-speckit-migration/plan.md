@@ -81,7 +81,7 @@ item in under 5 minutes.
 | III. DRY | Each fact gets one destination (research R5). Decisions live only in `docs/decisions/`, and specs link to them. `gsd-export.md` is temporary and removed with GSD. Non-goals live once, in `docs/scope.md`. | PASS |
 | IV. Unit tests for all code | No production code is written or changed. The merged S01 code comes with its unit tests, and they must pass on the staged merge before it is committed. | PASS (N/A for new code) |
 | V. E2E for major requirements | The merge brings in S01 (R001–R004, R018). Its live-container end-to-end gate runs on the staged merge, and the merge is committed only if it passes. This satisfies the Quality Gates rule "end-to-end tests for every affected major requirement" before merge. | PASS |
-| VI. Versioning + CHANGELOG | The merge commit itself creates `CHANGELOG.md` with an `Unreleased` entry for S01, so the changelog changes in the same change as the behaviour. The migration entry follows later. `package.json` is declared the version source. **Existing gap**: `versionName "1.0"` ≠ `0.0.1`; deferred to feature 008 (see Complexity Tracking). | PASS with justified deferral |
+| VI. Versioning + CHANGELOG | The merge commit itself creates `CHANGELOG.md` with an `Unreleased` entry for S01, so the changelog changes in the same change as the behaviour. The migration entry follows later. `package.json` is declared the version source. **Existing gap**: `versionName "1.0"` ≠ `0.0.1`; deferred to feature 011 (see Complexity Tracking). | PASS with justified deferral |
 | VII. `./docs` mandatory | The merge commit adds `docs/README.md` and `docs/architecture.md`, describing the merged modules in the same change. US2 then expands `docs/` with overview, sync-and-deletion-safety, protocols, scope and decisions. | PASS |
 | VIII. README user-facing | The merge has no user-visible change: S01 adds no UI, only native modules and tests. So `README.md` is not needed in the merge commit. It is created later, user-first, with an honest "current status" section. | PASS |
 | IX. DEVELOPMENT.md | Created. It holds setup, gates, validation services, environment gotchas and the version source. | PASS |
@@ -134,9 +134,9 @@ specs/
 ├── 003-local-source-selection/     # S02: spec (Draft, seeded)
 ├── 004-scan-engine-matching/       # S03
 ├── 005-gallery-list-filtering/     # S04
-├── 007-tree-view-image-preview/    # S05
-├── 008-multiselect-local-deletion/ # S06
-└── 009-full-loop-release/          # S07
+├── 009-tree-view-image-preview/    # S05
+├── 010-multiselect-local-deletion/ # S06
+└── 011-full-loop-release/          # S07
 .gitignore                   # GSD block removed; generic entries kept (research R8)
 
 # Removed in the final commit
@@ -194,4 +194,4 @@ Each stage is one or more commits. Stages run strictly in order, and each stage'
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| Principle VI: version not yet derived from one source (`versionName "1.0"` vs `package.json` `0.0.1`) | This gap existed before the migration. Fixing it is a build change that needs its own unit test, and FR-005/FR-022 keep this migration free of build changes | Hand-editing `versionName` now still leaves two sources. The real fix is assigned to feature 008 (R019 release APK), and `DEVELOPMENT.md` declares `package.json` authoritative in the meantime. |
+| Principle VI: version not yet derived from one source (`versionName "1.0"` vs `package.json` `0.0.1`) | This gap existed before the migration. Fixing it is a build change that needs its own unit test, and FR-005/FR-022 keep this migration free of build changes | Hand-editing `versionName` now still leaves two sources. The real fix is assigned to feature 011 (R019 release APK), and `DEVELOPMENT.md` declares `package.json` authoritative in the meantime. |

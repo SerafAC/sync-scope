@@ -1,10 +1,12 @@
 # Feature Specification: Browsable Tree View and Image Preview
 
-**Feature Branch**: `007-tree-view-image-preview`
+**Feature Branch**: `009-tree-view-image-preview`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S05)
 
 **Status**: Draft (seeded)
+
+**Numbering**: Moved from slot 008 to 009 on 2026-10-10 to put E2E performance work next.
 
 **Input**: Roadmap slice M001/S05, "Browsable tree view and image preview" (`risk:medium`,
 `depends:[S04]`).
@@ -13,8 +15,10 @@
 > verbatim in meaning. It has not been clarified or planned yet: complete it with `/speckit-specify` and
 > `/speckit-clarify` when this feature starts, then `/speckit-plan`.
 
-**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md) and [006-mvp](../006-mvp/spec.md)
-(selection model, selection bar and deletion).
+**Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md), [006-mvp](../006-mvp/spec.md)
+(selection model, selection bar and deletion) and
+[007-sort-scroll-remote-folders](../007-sort-scroll-remote-folders/spec.md) (the view-mode drop-down, where
+tree view becomes the third choice, the sort contract and keeping the scroll position on new results).
 
 ## Dependencies
 
@@ -28,6 +32,28 @@ Consumes from feature 005 (M001/S04 → M001/S05):
   screen's long edge ([005 research R7](../005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-007-user-decision-2026-10-01)).
 - `queryTreeChildren` returning every directory whatever the filter, each with `matchingFileCount` (the
   directory rule below).
+
+Consumes from feature 007 (spec follow-up, 2026-10-07; [007 plan, Integration closure](../007-sort-scroll-remote-folders/plan.md#integration-closure)):
+
+- **The view drop-down** (`ViewMenu`, on `ChoiceMenu`), where tree view becomes the third choice, and the
+  remembered browse preferences (`getBrowsePreferences` / `setBrowsePreferences`, native
+  `SharedPreferences`), whose `view` gains a tree value; a tree sort, if any, is stored the same way.
+- **The sort contract** (contract version 6): `NAME_*`, `TIME_*` and `SIZE_*` ordered by
+  `(key, sortName, entryId)`, with `sortName` the case- and accent-folded name (`SortName`) and unknown
+  sizes and dates last in both directions; and the query's `kind` (`DIRECTORY` / `FILE`). The tree
+  applies it to each folder's files, with folders first by name, as list view does
+  ([007 research R1–R3](../007-sort-scroll-remote-folders/research.md#r1-sort-contract-six-sorts-unknown-values-last-total-order)).
+- **The scroll index and the segmented reader**: `getScrollIndex(snapshotId, querySpec, anchor?)` and the
+  band-segmented `usePagedQuery`, with placeholders for bands not read yet and the `FastScroller`. The
+  tree may reuse them per expanded folder or skip the scrollbar; decide when this feature is planned
+  ([007 research R4, R7](../007-sort-scroll-remote-folders/research.md#r7-band-segmented-paging-in-the-views)).
+- **Anchor restore on new results** (FR-014 of 007): on a new snapshot a view re-finds its first visible
+  file by sort value and `sortName` (`anchorIndex`) instead of jumping to the top, also when hidden. The
+  tree follows the same rule ([R8](../007-sort-scroll-remote-folders/research.md#r8-keeping-the-place-when-results-update)).
+- **List rows have a fixed height** (`density.rowHeight`, with `getItemLayout`): the segmented reader
+  places placeholder rows and the scrollbar maps the thumb to a row by that height. Tree rows that reuse
+  the reader must keep a fixed height too (an expanded folder's children are rows of the same height,
+  not nested lists of varying size).
 
 Consumes from feature 004 (M001/S03 → M001/S05):
 
@@ -85,7 +111,7 @@ Supporting requirements (primary FR in another feature):
 - R011 (feature 005): the all / synced / unsynced / issues-unknown filter applies consistently in tree
   view.
 - R021 (feature 005): tree view and preview use the Material 3 shell and accessibility labels.
-- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+- R022 (feature 011): `./docs` is updated in the same change as this feature's behaviour.
 
 ## Selection in tree view and preview
 
@@ -94,9 +120,31 @@ delivers them for gallery and list view. This feature MUST extend the MVP's sele
 (count and total size in the bottom-left corner) and Delete action to tree view and to the image preview,
 completing selection parity across all three views. Directories stay unselectable, as in 006.
 
+### Selection survives an automatic refresh (spec follow-up, 2026-10-08)
+
+Found in the 007 real-device check: the app starts a `LOCAL_REFRESH` on open and on every return to the
+foreground (`ScanProvider`, FR-003 of 006). Each refresh publishes a new snapshot, even when no file
+changed, and `SelectionProvider` clears the selection whenever the active snapshot changes ("Results were
+updated, so the selection was cleared."). On a phone with many files, the refresh finishes a few seconds
+after launch, so a selection started in that window is lost, and switching apps for a moment does the
+same. Scroll position already survives (007 FR-014); the selection should too. Settle when this feature
+is specified:
+
+- When the active snapshot changes, the selection MUST keep every selected file that is still present
+  and unchanged in the new snapshot. It MUST be cleared, with a notice, only for the files that are gone
+  or changed. The notice names how many were dropped, and no notice is shown when none were.
+- Entry IDs are random per scan (`ScanEngine.scanSource`, `newId()`), so carrying the selection over needs
+  a stable key, for example `(sourceId, relative path)` or the document URI. The data-model choice is to
+  be made in this feature's plan.
+- Alternatively, or as well: a refresh that changed nothing could keep the current snapshot instead of
+  publishing a new one, which avoids the reset and the extra write. Weigh this against keeping the
+  scan-history semantics of 006.
+- Deletion safety does not change: the server re-check (D020) still runs against the snapshot the
+  selection was carried into, and a file that changed is never carried over silently.
+
 ## Provides
 
-To feature 009 (full loop and release): tree view and preview with selection parity, for the full-loop
+To feature 011 (full loop and release): tree view and preview with selection parity, for the full-loop
 flow's "browse, select" steps.
 
 (`getLocalImageHandle` is no longer provided here: feature 005 implements it, see Dependencies.)

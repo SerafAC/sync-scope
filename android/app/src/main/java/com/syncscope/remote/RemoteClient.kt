@@ -35,13 +35,17 @@ data class RemoteConfig(
   val host: String,
   val port: Int,
   val username: String,
-  val rootPath: String = "/",
+  /**
+   * The repository's remote folders, normalized, in the user's order (research R11). The first one is
+   * where precision discovery samples.
+   */
+  val rootPaths: List<String> = listOf("/"),
   /** WebDAV only: connect over HTTPS instead of plain HTTP (research R4). */
   val webdavHttps: Boolean = false,
 ) {
-  /** Values that must be scrubbed from anything that crosses the bridge. */
+  /** Values that must be scrubbed from anything that crosses the bridge: host, user and every folder. */
   val sensitiveValues: List<String>
-    get() = listOf(host, username, rootPath).filter { it.length > 1 }
+    get() = (listOf(host, username) + rootPaths).filter { it.length > 1 }
 
   override fun toString(): String = "RemoteConfig(protocol=$protocol, port=$port)"
 }

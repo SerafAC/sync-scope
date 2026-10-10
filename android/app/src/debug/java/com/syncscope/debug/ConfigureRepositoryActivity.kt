@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 /**
  * Debug-only repository seam (D018), reached through
  * `syncscope-debug://configure-repository?protocol=…&host=…&port=…&username=…&password=…&root=…`,
+ * where `root` may repeat (`&root=/a&root=/b`) to give several remote folders in order (contract version 6),
  * plus an optional `scanDelayMs=…` that sets the debug-only per-file scan pause ([ScanPacing],
  * decision log 2026-10-01). A link without it sets the pause back to 0, so only the flows that ask
  * for it run paced.
@@ -136,7 +137,8 @@ class ConfigureRepositoryActivity : Activity() {
         uri?.getQueryParameter("protocol")?.let { config.putString("protocol", it) }
         uri?.getQueryParameter("host")?.let { config.putString("host", it) }
         uri?.getQueryParameter("username")?.let { config.putString("username", it) }
-        uri?.getQueryParameter("root")?.let { config.putString("remoteRoot", it) }
+        // `root` once per folder, in order; a single `root` is a one-folder list (contract version 6).
+        uri?.getQueryParameters("root")?.takeIf { it.isNotEmpty() }?.let { config.putArray("remoteRoots", JavaOnlyArray.from(it)) }
         uri?.getQueryParameter("port")?.let { port ->
           // A non-numeric port is passed as text so the production validation rejects it.
           port.toIntOrNull()?.let { config.putDouble("port", it.toDouble()) } ?: config.putString("port", port)

@@ -1,5 +1,5 @@
-import React, {useMemo} from 'react';
-import {ScrollView, StyleSheet, View} from 'react-native';
+import React, { useMemo } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
@@ -9,8 +9,8 @@ import {
   Text,
   useTheme,
 } from 'react-native-paper';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {useNavigation, type NavigationProp} from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, type NavigationProp } from '@react-navigation/native';
 
 import type {
   CloudSyncError,
@@ -18,11 +18,14 @@ import type {
   ScanPhase,
   ScanRunDto,
 } from '../native/CloudSyncContracts';
-import type {RootStackParamList, RootTabParamList} from '../navigation/AppNavigator';
-import {GoThereButton} from '../navigation/fixTargets';
-import {ScanSummaryCard, formatTimestamp} from '../scan/ScanSummaryCard';
-import {useScan} from '../scan/useScan';
-import {spacing} from '../theme/spacing';
+import type {
+  RootStackParamList,
+  RootTabParamList,
+} from '../navigation/AppNavigator';
+import { GoThereButton } from '../navigation/fixTargets';
+import { ScanSummaryCard, formatTimestamp } from '../scan/ScanSummaryCard';
+import { useScan } from '../scan/useScan';
+import { spacing } from '../theme/spacing';
 import {
   useSetupChecklist,
   type FoldersItem,
@@ -77,7 +80,8 @@ function SetupChecklistCard({
     <Surface
       accessibilityLabel="Before you can scan"
       elevation={1}
-      style={styles.card}>
+      style={styles.card}
+    >
       <Text variant="titleMedium">Before you can scan</Text>
       {repository !== 'ready' ? (
         <View style={styles.checklistItem}>
@@ -87,7 +91,8 @@ function SetupChecklistCard({
             icon="server"
             mode="contained-tonal"
             onPress={() => navigation.navigate('Repository')}
-            style={styles.checklistButton}>
+            style={styles.checklistButton}
+          >
             Set up the server
           </Button>
         </View>
@@ -100,7 +105,8 @@ function SetupChecklistCard({
             icon="folder-plus-outline"
             mode="contained-tonal"
             onPress={() => navigation.navigate('Settings')}
-            style={styles.checklistButton}>
+            style={styles.checklistButton}
+          >
             Add a folder
           </Button>
         </View>
@@ -115,7 +121,8 @@ function OldSettingsNotice(): React.JSX.Element {
     <Surface
       accessibilityLabel="Results from previous server settings"
       elevation={1}
-      style={styles.card}>
+      style={styles.card}
+    >
       <Text variant="titleMedium">Results from previous server settings</Text>
       <Text variant="bodyMedium">
         These results were made with your previous server settings. Scan again.
@@ -128,10 +135,14 @@ function errorText(error: CloudSyncError): string {
   return error.action ? `${error.message} ${error.action}` : error.message;
 }
 
-function ScanProgressCard({run}: {run: ScanRunDto}): React.JSX.Element {
-  const {progress} = run;
+function ScanProgressCard({ run }: { run: ScanRunDto }): React.JSX.Element {
+  const { progress } = run;
   return (
-    <Surface accessibilityLabel="Scan progress" elevation={1} style={styles.card}>
+    <Surface
+      accessibilityLabel="Scan progress"
+      elevation={1}
+      style={styles.card}
+    >
       <Text variant="titleMedium">{PHASE_TEXT[run.phase]}</Text>
       <ProgressBar indeterminate />
       <Text variant="bodyMedium">
@@ -150,7 +161,7 @@ function ScanProgressCard({run}: {run: ScanRunDto}): React.JSX.Element {
   );
 }
 
-function LastScan({run}: {run: ScanRunDto}): React.JSX.Element {
+function LastScan({ run }: { run: ScanRunDto }): React.JSX.Element {
   const finished = run.finishedAtMillis;
   return (
     <View accessibilityLabel="Last scan" style={styles.lastScan}>
@@ -168,13 +179,13 @@ function LastScan({run}: {run: ScanRunDto}): React.JSX.Element {
 }
 
 /** Why the last run the user needs to know about did not complete (FR-001, FR-006). */
-function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
+function Interruption({ run }: { run: ScanRunDto }): React.JSX.Element | null {
   const theme = useTheme();
   const themed = useMemo(
     () =>
       StyleSheet.create({
-        failedCard: {backgroundColor: theme.colors.errorContainer},
-        onError: {color: theme.colors.onErrorContainer},
+        failedCard: { backgroundColor: theme.colors.errorContainer },
+        onError: { color: theme.colors.onErrorContainer },
       }),
     [theme.colors.errorContainer, theme.colors.onErrorContainer],
   );
@@ -183,7 +194,8 @@ function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
       <Surface
         accessibilityLabel="Scan failed"
         elevation={0}
-        style={[styles.card, themed.failedCard]}>
+        style={[styles.card, themed.failedCard]}
+      >
         <Text style={themed.onError} variant="titleMedium">
           Scan failed
         </Text>
@@ -212,7 +224,9 @@ function Interruption({run}: {run: ScanRunDto}): React.JSX.Element | null {
   if (run.terminalState === 'CANCELLED') {
     return (
       <Text variant="titleMedium">
-        {run.cancelReason === 'BACKGROUNDED' ? 'Cancelled (app left)' : 'Cancelled'}
+        {run.cancelReason === 'BACKGROUNDED'
+          ? 'Cancelled (app left)'
+          : 'Cancelled'}
       </Text>
     );
   }
@@ -244,7 +258,7 @@ export function ScanScreen(): React.JSX.Element {
   const themed = useMemo(
     () =>
       StyleSheet.create({
-        snackbarText: {color: theme.colors.inverseOnSurface},
+        snackbarText: { color: theme.colors.inverseOnSurface },
       }),
     [theme.colors.inverseOnSurface],
   );
@@ -263,7 +277,9 @@ export function ScanScreen(): React.JSX.Element {
         <Text variant="bodyMedium">
           Checks every file in your folders against the backup.
         </Text>
-        {loading ? <ActivityIndicator accessibilityLabel="Loading scan" /> : null}
+        {loading ? (
+          <ActivityIndicator accessibilityLabel="Loading scan" />
+        ) : null}
         {setupMissing ? (
           <SetupChecklistCard
             folders={checklist.folders}
@@ -276,14 +292,16 @@ export function ScanScreen(): React.JSX.Element {
             disabled={isRunning || setupMissing}
             icon="radar"
             mode="contained"
-            onPress={() => scan()}>
+            onPress={() => scan()}
+          >
             {scanLabel}
           </Button>
           {isRunning ? (
             <Button
               accessibilityLabel="Cancel scan"
               mode="outlined"
-              onPress={() => cancel()}>
+              onPress={() => cancel()}
+            >
               Cancel scan
             </Button>
           ) : null}
@@ -300,9 +318,10 @@ export function ScanScreen(): React.JSX.Element {
       </ScrollView>
       {error != null ? (
         <Snackbar
-          action={{label: 'Dismiss', onPress: dismissError}}
+          action={{ label: 'Dismiss', onPress: dismissError }}
           onDismiss={dismissError}
-          visible>
+          visible
+        >
           <View>
             <Text style={themed.snackbarText} variant="bodyMedium">
               {errorText(error)}

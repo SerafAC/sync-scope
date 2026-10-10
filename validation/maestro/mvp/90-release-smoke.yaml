@@ -9,8 +9,10 @@ name: mvp/90-release-smoke
 ---
 - launchApp:
     clearState: true
+# The cleared app's own empty Files tab: "Settings" alone can still match the
+# previous run's closing window, and a tap then reaches nothing (API 36).
 - extendedWaitUntil:
-    visible: "Settings"
+    visible: "No scan results yet"
     timeout: 60000
 
 # The server, through the Repository form (trusts the SFTP key, waits for Connected).
@@ -23,7 +25,7 @@ name: mvp/90-release-smoke
       USER: "${SFTP_USER}"
       PASSWORD: "${SFTP_PASSWORD}"
       ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
-- assertVisible: "Connected, [0-9]+ entries"
+- assertVisible: "Connected"
 - back
 - extendedWaitUntil:
     visible: "Repository SFTP ${SFTP_HOST}"
@@ -53,3 +55,20 @@ name: mvp/90-release-smoke
 - assertVisible: "sunset.png, Synced"
 - assertVisible: "harbor.png, Unsynced"
 - assertNotVisible: "No scan results yet"
+
+# Story 7 (T071, SC-009): the launcher lists the app under its label, with
+# its own icon (the APK's adaptive icon is checked by android-flow.sh).
+- pressKey: Home
+- swipe:
+    direction: UP
+- extendedWaitUntil:
+    visible: "SyncScope"
+    timeout: 15000
+# Open it from there, which also leaves the app in front for mvp/91: the
+# drawer's own "Settings" app must not answer 91's first wait.
+- tapOn: "SyncScope"
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 15000
+- assertVisible: "Scan"
+- assertVisible: "Settings"

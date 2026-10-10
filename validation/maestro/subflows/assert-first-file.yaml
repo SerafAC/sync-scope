@@ -1,0 +1,21 @@
+# Subflow: assert that the first file of the visible Files view (the gallery's
+# top-left tile, or the list's first file row) is FIRST. Never run on its own.
+#
+# Params (runFlow env):
+#   FIRST  the expected file name, from scroll-manifest.sh (FIRST_* values)
+#
+# A file's accessibility label is `<name>, <status>` (contracts/maestro-browse.md
+# › Selectors). The wait lets a re-sorted read arrive; the copy then reads the
+# first file label on screen, so a visible but not first file fails.
+appId: com.syncscope
+---
+- extendedWaitUntil:
+    notVisible: "Loading files"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "${FIRST + ', (Synced|Unsynced|Unknown).*'}"
+    timeout: 30000
+- copyTextFrom:
+    text: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    index: 0
+- assertTrue: "${maestro.copiedText.indexOf(FIRST + ', ') === 0}"

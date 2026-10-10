@@ -1,0 +1,195 @@
+# Story 3 sc. 11 and 12, FR-009a (SFTP, contracts/maestro-polish.md ›
+# Acceptance scenario mapping): the server folder browser. The SFTP form is
+# filled but never saved. Browse with an empty folder field: the host key is
+# not trusted yet, so the key dialog comes first; after Trust the browser
+# lists the server's top folder "/". With ${SFTP_ROOT} typed into the field,
+# Browse opens there (sc. 11); open scan, then clean, go Up and back into
+# clean, and "Use this folder" fills the field with <SFTP_ROOT>/scan/clean.
+# With a wrong password Browse shows the login error with its next step
+# (sc. 12), and the field stays editable.
+# The SFTP container is not chrooted: "/" is the container's top folder and
+# the fixtures live under ${SFTP_ROOT}, so the walk to scan/clean starts there.
+# Self-contained: starts from clearState; nothing is saved.
+appId: com.syncscope
+name: polish/06-remote-browse-sftp
+---
+- evalScript: "${output.root = SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT}"
+- evalScript: "${output.topFolder = output.root.split('/').filter(function (s) { return s.length > 0 })[0]}"
+- launchApp:
+    clearState: true
+# The cleared app's own empty Files tab: "Settings" alone can still match the
+# previous run's closing window, and a tap then reaches nothing (API 36).
+- extendedWaitUntil:
+    visible: "No scan results yet"
+    timeout: 60000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Set up repository"
+    timeout: 30000
+- tapOn: "Set up repository"
+- extendedWaitUntil:
+    visible: "Protocol SFTP"
+    timeout: 30000
+- tapOn: "Protocol SFTP"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "${SFTP_HOST}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.port"
+      TEXT: "${SFTP_PORT}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${SFTP_USER}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${SFTP_PASSWORD}"
+
+# 1. Browse with an empty field: the host-key dialog, then the top folder.
+- scrollUntilVisible:
+    element: "Browse remote folder 1"
+    direction: DOWN
+- tapOn: "Browse remote folder 1"
+- extendedWaitUntil:
+    visible: "Server key fingerprint .+"
+    timeout: 60000
+- assertVisible: "Trust server key"
+- assertVisible: "Reject server key"
+- tapOn: "Trust server key"
+- extendedWaitUntil:
+    visible: "Go to /"
+    timeout: 60000
+- assertVisible:
+    id: "remote-browser"
+- assertVisible:
+    text: "Up one folder"
+    enabled: false
+# The top folder lists the container's folders by name; the fixtures' first
+# segment (srv) is below the fold.
+- scrollUntilVisible:
+    element: "${output.topFolder}"
+    direction: DOWN
+    timeout: 60000
+- assertNotVisible: "Connection failed: .+"
+- tapOn: "Close folder browser"
+- extendedWaitUntil:
+    notVisible:
+      id: "remote-browser"
+    timeout: 15000
+
+# 2. Browse opens at the field's path (sc. 11): into scan, then clean; Up
+#    goes back to scan; "Use this folder" fills the field.
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "${output.root}"
+- scrollUntilVisible:
+    element: "Browse remote folder 1"
+    direction: DOWN
+- tapOn: "Browse remote folder 1"
+- extendedWaitUntil:
+    visible: "Go to ${output.root}"
+    timeout: 60000
+- assertNotVisible: "Server key fingerprint .+"
+- scrollUntilVisible:
+    element: "scan"
+    direction: DOWN
+    timeout: 15000
+- tapOn: "scan"
+- extendedWaitUntil:
+    visible: "Go to ${output.root}/scan"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "clean"
+    timeout: 60000
+- assertVisible: "partial"
+- tapOn: "clean"
+- extendedWaitUntil:
+    visible: "Go to ${output.root}/scan/clean"
+    timeout: 60000
+# Only folders are listed: clean holds the folders a and b and some files.
+- extendedWaitUntil:
+    visible: "a"
+    timeout: 60000
+- assertVisible: "b"
+- assertNotVisible: "exact.txt"
+- tapOn:
+    text: "Up one folder"
+    enabled: true
+- extendedWaitUntil:
+    visible: "clean"
+    timeout: 60000
+- assertNotVisible: "Go to ${output.root}/scan/clean"
+- tapOn: "clean"
+- extendedWaitUntil:
+    visible: "Go to ${output.root}/scan/clean"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "a"
+    timeout: 60000
+- tapOn: "Use this folder"
+- extendedWaitUntil:
+    notVisible:
+      id: "remote-browser"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.root}/scan/clean"
+
+# 3. A wrong password: Browse shows the login error and its next step
+#    (sc. 12); the field stays editable.
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${'wrong-' + SFTP_PASSWORD}"
+- scrollUntilVisible:
+    element: "Browse remote folder 1"
+    direction: DOWN
+- tapOn: "Browse remote folder 1"
+- extendedWaitUntil:
+    visible: "Connection failed: The SFTP server rejected the username or password."
+    timeout: 60000
+- assertVisible: "Check the credentials and try again."
+- assertVisible: "Try again"
+- assertVisible:
+    text: "Use this folder"
+    enabled: false
+- tapOn: "Close folder browser"
+- extendedWaitUntil:
+    notVisible:
+      id: "remote-browser"
+    timeout: 15000
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.root}/scan/clean"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "${output.root}/gallery"
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.root}/gallery"
+
+# Nothing was saved: leave the form and discard.
+- back
+- extendedWaitUntil:
+    visible: "Discard changes"
+    timeout: 15000
+- tapOn: "Discard changes"
+- extendedWaitUntil:
+    visible: "Repository not set up"
+    timeout: 15000

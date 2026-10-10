@@ -6,6 +6,8 @@ import com.facebook.react.bridge.WritableMap
 import com.syncscope.deletion.DeletionPlanView
 import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
+import com.syncscope.persistence.FileEntry
+import com.syncscope.persistence.ScrollIndex
 import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
@@ -37,17 +39,67 @@ class CloudSyncEnvelope(
    * `INVALID_QUERY` naming the offending input [field] (also carried as `error.field`).
    * The rejected value is never echoed.
    */
-  fun invalidField(field: String, reason: String): WritableMap =
+  fun invalidField(field: String, reason: String, fieldIndex: Int? = null): WritableMap =
     error(
       CloudSyncErrorCode.INVALID_QUERY,
       "The repository $field is invalid: $reason.",
       "Correct the $field and save again.",
       field = field,
+      fieldIndex = fieldIndex,
     )
 
   /**
-   * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?,
-   * conflictingSource?}}`.
+   * A `remoteRoots` field error from [com.syncscope.remote.RemoteRoots.validate] (contract version 6):
+   * `field: "remoteRoots"` and the folder's [fieldIndex]. The [message] is one of the save table's fixed
+   * texts; the overlap text names the other folder (FR-009), a configured folder that already crosses the
+   * bridge in the repository summary (D011), so it is not redacted.
+   */
+  fun remoteRootsError(fieldIndex: Int, message: String): WritableMap =
+    base(CloudSyncContracts.STATUS_ERROR).apply {
+      putMap(
+        "error",
+        newMap().apply {
+          putString("code", CloudSyncErrorCode.INVALID_QUERY.name)
+          putString("message", message)
+          putString("action", REMOTE_ROOTS_ACTION)
+          putString("field", REMOTE_ROOTS_FIELD)
+          putInt("fieldIndex", fieldIndex)
+        },
+      )
+    }
+
+  /**
+   * One line of `connection.folders` in `testRepository` (research R12): the configured folder's
+   * [path], its [entryCount] when it was listed, or the [failure] (code, redacted message, action) when it
+   * was not.
+   */
+  fun folderResult(
+    path: String,
+    entryCount: Int?,
+    failure: RemoteClientException?,
+    sensitive: Collection<String> = emptyList(),
+  ): WritableMap =
+    newMap().apply {
+      putString("path", path)
+      if (entryCount == null) putNull("entryCount") else putInt("entryCount", entryCount)
+      if (failure == null) {
+        putNull("error")
+      } else {
+        putMap(
+          "error",
+          newMap().apply {
+            putString("code", failure.code.name)
+            putString("message", redact(failure.message ?: failure.code.name, sensitive))
+            val action = failure.action
+            if (action == null) putNull("action") else putString("action", redact(action, sensitive))
+          },
+        )
+      }
+    }
+
+  /**
+   * `{contractVersion, status: "error", error: {code, message, action, hostKeyChallenge?, field?,
+   * fieldIndex?, conflictingSource?}}`. [fieldIndex] (contract version 6) is written only when given.
    * The challenge's host/port are the user's own input, carried as structured fields so the
    * prompt can be checked against `ssh-keyscan`; they are never placed in the message.
    * [conflictingSource] follows the same precedent (its alias never passes through [redact])
@@ -61,6 +113,7 @@ class CloudSyncEnvelope(
     hostKeyChallenge: HostKeyChallenge? = null,
     field: String? = null,
     conflictingSource: ConflictingSource? = null,
+    fieldIndex: Int? = null,
   ): WritableMap =
     base(CloudSyncContracts.STATUS_ERROR).apply {
       putMap(
@@ -71,6 +124,7 @@ class CloudSyncEnvelope(
           if (action == null) putNull("action") else putString("action", redact(action, sensitive))
           hostKeyChallenge?.let { putMap("hostKeyChallenge", challengeMap(it)) }
           field?.let { putString("field", it) }
+          fieldIndex?.let { putInt("fieldIndex", it) }
           if (code == CloudSyncErrorCode.SOURCE_OVERLAP && conflictingSource != null) {
             putMap("conflictingSource", conflictingSourceMap(conflictingSource))
           }
@@ -112,6 +166,63 @@ class CloudSyncEnvelope(
         },
       )
     }
+
+  /**
+   * One `FileEntryDto` of a `queryFiles` / `queryTreeChildren` page. `sortName` (contract v6, research R2)
+   * lets a view build its scroll anchor without a second read.
+   */
+  fun fileEntry(entry: FileEntry): WritableMap =
+    newMap().apply {
+      putString("entryId", entry.entryId)
+      putString("sourceId", entry.sourceId)
+      putNullableString("parentId", entry.parentId)
+      putString("kind", entry.kind)
+      putString("name", entry.name)
+      putNullableString("mimeType", entry.mimeType)
+      putNullableNumber("sizeBytes", entry.sizeBytes)
+      putNullableNumber("modifiedUtcMillis", entry.modifiedUtcMillis)
+      putString("status", entry.status)
+      putNullableString("issueCode", entry.issueCode)
+      putBoolean("nameInOtherSource", entry.nameInOtherSource)
+      putNullableNumber("matchingFileCount", entry.matchingFileCount)
+      putString("sortName", entry.sortName)
+    }
+
+  /**
+   * `ScrollIndexDto` (contracts/cloudsync-polish.md "getScrollIndex"): `unit`, `totalCount`, `bands` and
+   * `anchorIndex` (null without an anchor). Each `ScrollBandDto` carries `startIndex`, `count`, `startToken` (null for
+   * the first band), `letter`, `startMillis` and `lowerBytes` (the one of the unit, the others null) and `unknown`.
+   */
+  fun scrollIndex(index: ScrollIndex): WritableMap {
+    val bands = newArray()
+    for (band in index.bands) {
+      bands.pushMap(
+        newMap().apply {
+          putDouble("startIndex", band.startIndex.toDouble())
+          putDouble("count", band.count.toDouble())
+          putNullableString("startToken", band.startToken)
+          putNullableString("letter", band.letter)
+          putNullableNumber("startMillis", band.startMillis)
+          putNullableNumber("lowerBytes", band.lowerBytes)
+          putBoolean("unknown", band.unknown)
+        }
+      )
+    }
+    return newMap().apply {
+      putString("unit", index.unit.name)
+      putDouble("totalCount", index.totalCount.toDouble())
+      putArray("bands", bands)
+      putNullableNumber("anchorIndex", index.anchorIndex?.toLong())
+    }
+  }
+
+  private fun WritableMap.putNullableString(key: String, value: String?) {
+    if (value == null) putNull(key) else putString(key, value)
+  }
+
+  private fun WritableMap.putNullableNumber(key: String, value: Long?) {
+    if (value == null) putNull(key) else putDouble(key, value.toDouble())
+  }
 
   /**
    * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for
@@ -293,6 +404,12 @@ class CloudSyncEnvelope(
 
   companion object {
     const val REDACTED = "[redacted]"
+
+    /** `error.field` of every remote-folder error (contract version 6). */
+    const val REMOTE_ROOTS_FIELD = "remoteRoots"
+
+    /** The recovery action of a `remoteRoots` field error. */
+    const val REMOTE_ROOTS_ACTION = "Correct the folder and save again."
 
     /** The recovery action of every INTERNAL_ERROR. */
     const val INTERNAL_ERROR_ACTION = "Retry; if it persists, reconnect the repository."

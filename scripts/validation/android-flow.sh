@@ -216,6 +216,30 @@ release_smoke_build() {
       exit 1
       ;;
   esac
+  # Feature 007 Story 7 (T071, SC-009): the launcher icon is the adaptive
+  # ic_launcher.xml from scripts/icon/generate-icons.sh, not a default PNG.
+  # Release builds shorten resource paths (res/E4.xml), so the check reads
+  # the icon file itself: an adaptive icon with a monochrome layer.
+  application=$("$aapt2" dump badging "$release_apk" | grep '^application:')
+  case "$application" in
+    *" label='SyncScope'"*" icon='res/"*".xml'"*) ;;
+    *)
+      printf 'Release APK application-icon is not an XML icon: %s\n' \
+        "$application" >&2
+      exit 1
+      ;;
+  esac
+  icon=${application#*" icon='"}
+  icon=${icon%%"'"*}
+  icon_tree=$("$aapt2" dump xmltree --file "$icon" "$release_apk")
+  case "$icon_tree" in
+    *"E: adaptive-icon"*"E: foreground"*"E: monochrome"*) ;;
+    *)
+      printf 'Release APK application-icon %s is not the adaptive icon with a monochrome layer:\n%s\n' \
+        "$icon" "$icon_tree" >&2
+      exit 1
+      ;;
+  esac
 }
 
 release_apk="$repo/android/app/build/outputs/apk/release/app-release.apk"
@@ -242,6 +266,10 @@ if [ "$mode" = e2e ]; then
     --state /tmp/cloud-sync-checker-metro
   metro_started=yes
 fi
+
+# The expected values of the generated Scroll and Narrow sources (feature 007),
+# computed once from the same functions device-fixtures.sh seeds them with.
+scroll_manifest=$("$repo/scripts/validation/scroll-manifest.sh" print)
 
 for api in $apis; do
   active_api=$api
@@ -339,6 +367,15 @@ for api in $apis; do
         gallery-partial/restricted/hidden.png)" \
       -e "SIZE_SYNCED_3=$(size_of gallery/sunset.png gallery/beach.png \
         gallery/album/forest.png)"
+    # Feature 007: the API level, for flows whose swipe points depend on the
+    # screen layout (polish/03: API 36 lays out edge to edge).
+    set -- "$@" -e "API_LEVEL=$api"
+    # Feature 007: FIRST_SIZE_DESC, BAND_MONTH_LABEL, … from the scroll manifest.
+    while IFS= read -r manifest_line; do
+      [ -z "$manifest_line" ] || set -- "$@" -e "$manifest_line"
+    done <<EOF
+$scroll_manifest
+EOF
 
     if [ "$mode" = e2e ]; then
       # The whole workspace (003's sources flows and 004's scan flows, run in

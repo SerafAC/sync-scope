@@ -1,5 +1,7 @@
 package com.syncscope.bridge
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
@@ -22,6 +24,7 @@ import com.syncscope.persistence.SyncScopeDatabase
 import com.syncscope.remote.HostKeyTrustStore
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteClientException
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.scan.BusyState
 import com.syncscope.scan.ScanCoordinator
 import com.syncscope.scan.ScanEngine
@@ -46,18 +49,19 @@ import kotlinx.coroutines.launch
  * on a background dispatcher, and any throwable is converted into a redacted
  * INTERNAL_ERROR envelope so no Kotlin exception ever reaches JS.
  *
- * Repository methods delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
+ * Repository methods (including `browseRemoteFolders`) delegate to [RepositoryOperations]; `listSources`, `launchSourcePicker` and
  * `removeSource` delegate to [SourceOperations] and [SourcePicker], whose activity results arrive
  * through an `ActivityEventListener` registered here for the module's lifetime.
  * `startScan`, `cancelScan`, `getScanState`, `queryFiles` and `queryTreeChildren` delegate to
  * [ScanOperations] over one [ScanCoordinator] running on this module's scope; a
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
  * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
- * dispatcher caps concurrent decodes at four. `listSelectableEntries` delegates to [ScanOperations].
+ * dispatcher caps concurrent decodes at four. `listSelectableEntries` and `getScrollIndex` delegate to
+ * [ScanOperations].
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
- * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings`,
- * `setIncludeHidden`) resolve a typed NOT_IMPLEMENTED envelope.
+ * deletion step and a scan never overlap (FR-021). Methods not yet built (`getSettings` and
+ * `setIncludeHidden`) resolve a typed NOT_IMPLEMENTED envelope. `getBrowsePreferences` and `setBrowsePreferences` delegate to [BrowsePreferences].
  */
 class CloudSyncModule(
   reactContext: ReactApplicationContext,
@@ -75,6 +79,9 @@ class CloudSyncModule(
   },
   localImages: () -> LocalImageStore = {
     LocalImageStore(reactContext.cacheDir, ContentResolverThumbnailSource(reactContext.contentResolver))
+  },
+  browsePreferences: () -> SharedPreferences = {
+    reactContext.getSharedPreferences(BrowsePreferences.FILE_NAME, Context.MODE_PRIVATE)
   },
 ) : NativeCloudSyncSpec(reactContext) {
 
@@ -103,6 +110,9 @@ class CloudSyncModule(
   private val defaultClients by lazy { RemoteClientFactory.default { hostKeys } }
 
   private val sources = SourceOperations(saf = saf, sources = sourceRootDao, envelope = envelope)
+
+  /** Opened on first use, on the background dispatcher. */
+  private val preferences = BrowsePreferences(memoize(browsePreferences), envelope)
 
   private val picker = SourcePicker(sources, envelope) { reactContext.currentActivity }
 
@@ -256,7 +266,7 @@ class CloudSyncModule(
         is PrepareOutcome.RemoteFailed -> {
           Log.w(TAG, "prepareLocalDeletion failed: ${outcome.error.code} reply=${outcome.error.replyCode}")
           val repository = outcome.repository
-          envelope.deletionRemoteFailure(outcome.error, listOf(repository.host, repository.username, repository.remoteRoot))
+          envelope.deletionRemoteFailure(outcome.error, listOf(repository.host, repository.username) + RemoteRoots.decode(repository.remoteRoots))
         }
       }
     }
@@ -269,6 +279,18 @@ class CloudSyncModule(
         is ExecuteOutcome.Refused -> envelope.deletionRefused(outcome.code)
       }
     }
+
+  override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
+    runOperation("getScrollIndex", promise) { scans.scrollIndex(snapshotId, querySpec, anchor) }
+
+  override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
+    runOperation("browseRemoteFolders", promise) { repositories.browse(config, transientPassword, path) }
+
+  override fun getBrowsePreferences(promise: Promise) =
+    runOperation("getBrowsePreferences", promise) { preferences.get() }
+
+  override fun setBrowsePreferences(preferences: ReadableMap, promise: Promise) =
+    runOperation("setBrowsePreferences", promise) { this.preferences.set(preferences) }
 
   private fun notImplemented(method: String, promise: Promise) =
     runOperation(method, promise) { envelope.notImplemented(method) }

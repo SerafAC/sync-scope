@@ -20,6 +20,7 @@ function active(overrides: Partial<ActiveSnapshotDto> = {}): ActiveSnapshotDto {
       unsynced: 3,
       unknown: 0,
       unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: [],
       remoteListingInterruptedBy: null,
       skippedSources: [],
     },
@@ -70,6 +71,29 @@ describe('ScanSummaryCard', () => {
       }),
     );
     expect(screen.getByText('3 remote folders could not be read')).toBeOnTheScreen();
+  });
+
+  it('names each saved folder the scan could not read (contract v6)', () => {
+    renderCard(
+      active({
+        coverage: 'INCOMPLETE',
+        summary: {
+          ...active().summary,
+          unknown: 5,
+          unreadRemoteFolders: ['/scan/partial/restricted', '/gallery-partial'],
+        },
+      }),
+    );
+
+    expect(screen.getByText('Could not read /scan/partial/restricted')).toBeOnTheScreen();
+    expect(screen.getByText('Could not read /gallery-partial')).toBeOnTheScreen();
+    expect(screen.queryByText(/remote folders? could not be read/)).toBeNull();
+  });
+
+  it('names no folder when every folder was read', () => {
+    renderCard(active());
+
+    expect(screen.queryByText(/^Could not read/)).toBeNull();
   });
 
   it('shows the interrupted listing with the text of its code', () => {

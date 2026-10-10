@@ -8,6 +8,9 @@ const INTERACTIVE_ROLES = new Set([
   'checkbox',
   'togglebutton',
   'tab',
+  // Feature 007: the scrollbar's thumb (FastScroller) and the drop-down options.
+  'adjustable',
+  'menuitem',
 ]);
 
 function isInteractive(node: ReactTestInstance): boolean {
@@ -48,8 +51,9 @@ function textOf(node: ReactTestInstance): string {
 
 /**
  * Fails when any interactive element in a rendered tree has no accessibility
- * label (FR-004, SC-003): every node with `onPress`, or with a button, link,
- * checkbox, togglebutton or tab role, must carry a non-empty
+ * label (FR-004, SC-003; 007 FR-017): every node with `onPress`, or with a
+ * button, link, checkbox, togglebutton, tab, adjustable or menuitem role,
+ * must carry a non-empty
  * `accessibilityLabel`, either itself or on the native element it renders
  * (so wrapper components that forward the label pass). The error names each
  * offending node by its text.

@@ -73,12 +73,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesFive() {
+  fun contractVersionResolvesSix() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(5, promise.resolved)
+    assertEquals(6, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -101,10 +101,46 @@ class CloudSyncModuleTest {
   }
 
   @Test
+  fun browseRemoteFoldersIsWiredAndValidatesTheDraftWithoutRejecting() {
+    for (path in listOf(null, "/photos")) {
+      val promise = RecordingPromise()
+      module.browseRemoteFolders(JavaOnlyMap.of("protocol", "SFTP"), "pw", path, promise)
+      val result = promise.resolved as ReadableMap
+      assertEquals("error", result.getString("status"))
+      assertEquals("INVALID_QUERY", result.getMap("error")!!.getString("code"))
+      assertEquals("host", result.getMap("error")!!.getString("field"))
+      assertNull(promise.rejectedCode)
+    }
+  }
+
+  @Test
+  fun browsePreferencesReadDefaultsAndStoreWhatIsSet() {
+    appContext.getSharedPreferences(BrowsePreferences.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+
+    val first = resolve { module.getBrowsePreferences(it) }
+    assertEquals("ok", first.getString("status"))
+    assertEquals(6, first.getInt("contractVersion"))
+    assertEquals("GALLERY", first.getMap("preferences")!!.getString("view"))
+    assertEquals("TIME_DESC", first.getMap("preferences")!!.getString("gallerySort"))
+    assertEquals("NAME_ASC", first.getMap("preferences")!!.getString("listSort"))
+
+    val saved = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "LIST", "listSort", "SIZE_DESC"), it) }
+    assertEquals("ok", saved.getString("status"))
+    val read = resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!
+    assertEquals("LIST", read.getString("view"))
+    assertEquals("TIME_DESC", read.getString("gallerySort"))
+    assertEquals("SIZE_DESC", read.getString("listSort"))
+
+    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }
+    assertEquals("INVALID_QUERY", refused.getMap("error")!!.getString("code"))
+    assertEquals("LIST", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
+  }
+
+  @Test
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(5, empty.getInt("contractVersion"))
+    assertEquals(6, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -228,10 +264,12 @@ class CloudSyncModuleTest {
           "getScanState" to { scans.getScanState(it) },
           "getLocalImageHandle" to { scans.getLocalImageHandle("snap", "entry", JavaOnlyMap.of("maxEdgePx", 256.0), it) },
           "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
+          "getScrollIndex" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
+          "getScrollIndex(anchor)" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 5, result.getInt("contractVersion"))
+        assertEquals(method, 6, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
@@ -251,6 +289,12 @@ class CloudSyncModuleTest {
           .getMap("error")!!
           .getString("code"),
       )
+      for (anchor in listOf(null, JavaOnlyMap.of("sortValue", 5.0, "sortName", "1a"))) {
+        assertEquals(
+          "SNAPSHOT_NOT_FOUND",
+          resolve { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY"), anchor, it) }.getMap("error")!!.getString("code"),
+        )
+      }
       val state = resolve { scans.getScanState(it) }
       assertEquals("ok", state.getString("status"))
       assertTrue(state.isNull("run"))
@@ -414,7 +458,7 @@ class CloudSyncModuleTest {
       )
       for (include in listOf(false, true)) {
         val result = resolve { deletions.executeLocalDeletion("plan", include, it) }
-        assertEquals(5, result.getInt("contractVersion"))
+        assertEquals(6, result.getInt("contractVersion"))
         assertEquals("PLAN_NOT_FOUND", result.getMap("error")!!.getString("code"))
       }
     } finally {

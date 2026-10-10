@@ -21,6 +21,7 @@ import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.RemoteRoots
 import com.syncscope.remote.SftpHostKeyException
 import com.syncscope.scan.MatchIndex
 import kotlinx.coroutines.runBlocking
@@ -87,6 +88,21 @@ class DeletionRecheckTest {
     assertEquals(0, result.movedByRecheck)
     assertEquals(PASSWORD, server.passwords.single())
     assertTrue("the session is closed", server.clients.all { it.closed })
+  }
+
+  @Test
+  fun aFileMatchedInTheSecondFolderIsConfirmedThere() = runBlocking {
+    // FR-012, D020: with several folders the re-check follows the stored directory, whichever folder it is in.
+    val twoFolders = repository.copy(remoteRoots = RemoteRoots.encode(listOf("/scan/clean/a", "/scan/clean/b")))
+    key("only-in-b.jpg", 64, "/scan/clean/b")
+    server.ok("/scan/clean/b", file("only-in-b.jpg", 64))
+    val row = row("e1", "only-in-b.jpg", 64)
+
+    val result = recheck.recheck(SNAPSHOT, twoFolders, listOf(row))
+
+    assertEquals(listOf(row), result.toDelete)
+    assertEquals(listOf("/scan/clean/b"), server.listed)
+    assertEquals(1, server.connects)
   }
 
   @Test
@@ -352,7 +368,7 @@ class DeletionRecheckTest {
       host = HOST,
       port = 22,
       username = USER,
-      remoteRoot = "/backup",
+      remoteRoots = RemoteRoots.encode(listOf("/backup")),
       precisionMillis = PRECISION,
       credentialVersion = credentialVersion,
       revision = 1,

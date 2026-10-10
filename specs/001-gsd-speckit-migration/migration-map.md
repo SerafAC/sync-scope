@@ -86,19 +86,19 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | R007 | transfer | specs/004-scan-engine-matching/spec.md#FR-002 (primary FR) | [X] |
 | R008 | transfer | specs/005-gallery-list-filtering/spec.md#FR-001 (primary FR) | [X] |
 | R009 | transfer | specs/005-gallery-list-filtering/spec.md#FR-002 (primary FR) | [X] |
-| R010 | transfer | specs/007-tree-view-image-preview/spec.md#FR-001 (primary FR) | [X] |
+| R010 | transfer | specs/009-tree-view-image-preview/spec.md#FR-001 (primary FR) | [X] |
 | R011 | transfer | specs/005-gallery-list-filtering/spec.md#FR-003 (primary FR) | [X] |
-| R012 | transfer | specs/008-multiselect-local-deletion/spec.md#FR-001 (primary FR) | [X] |
-| R013 | transfer | specs/008-multiselect-local-deletion/spec.md#FR-002 (primary FR) | [X] |
-| R014 | transfer | specs/007-tree-view-image-preview/spec.md#FR-002 (primary FR) | [X] |
+| R012 | transfer | specs/010-multiselect-local-deletion/spec.md#FR-001 (primary FR) | [X] |
+| R013 | transfer | specs/010-multiselect-local-deletion/spec.md#FR-002 (primary FR) | [X] |
+| R014 | transfer | specs/009-tree-view-image-preview/spec.md#FR-002 (primary FR) | [X] |
 | R015 | transfer | specs/004-scan-engine-matching/spec.md#FR-003 (primary FR) | [X] |
 | R016 | transfer | specs/004-scan-engine-matching/spec.md#FR-004 (primary FR) | [X] |
 | R017 | transfer | specs/004-scan-engine-matching/spec.md#FR-005 (primary FR) | [X] |
 | R018 | transfer | specs/002-native-cloudsync-connect/spec.md#FR-005 (primary FR) | [X] |
-| R019 | transfer | specs/009-full-loop-release/spec.md#FR-001 (primary FR) | [X] |
-| R020 | transfer | specs/009-full-loop-release/spec.md#FR-002 (primary FR) | [X] |
+| R019 | transfer | specs/011-full-loop-release/spec.md#FR-001 (primary FR) | [X] |
+| R020 | transfer | specs/011-full-loop-release/spec.md#FR-002 (primary FR) | [X] |
 | R021 | transfer | specs/005-gallery-list-filtering/spec.md#FR-004 (primary FR) | [X] |
-| R022 | transfer | specs/009-full-loop-release/spec.md#FR-003 (primary FR) | [X] |
+| R022 | transfer | specs/011-full-loop-release/spec.md#FR-003 (primary FR) | [X] |
 | R023 | transfer | docs/scope.md (Deferred, `### R023`) | [X] |
 | R024 | transfer | docs/scope.md (Deferred, `### R024`) | [X] |
 | R025 | transfer | docs/scope.md (Deferred, `### R025`) | [X] |
@@ -163,9 +163,9 @@ only after the destination has been read and its meaning confirmed. Rows are fil
 | S02 | transfer | specs/003-local-source-selection/spec.md (Draft (seeded)) | [X] |
 | S03 | transfer | specs/004-scan-engine-matching/spec.md (Draft (seeded)) | [X] |
 | S04 | transfer | specs/005-gallery-list-filtering/spec.md (Draft (seeded)) | [X] |
-| S05 | transfer | specs/007-tree-view-image-preview/spec.md (Draft (seeded)) | [X] |
-| S06 | transfer | specs/008-multiselect-local-deletion/spec.md (Draft (seeded)) | [X] |
-| S07 | transfer | specs/009-full-loop-release/spec.md (Draft (seeded)) | [X] |
+| S05 | transfer | specs/009-tree-view-image-preview/spec.md (Draft (seeded)) | [X] |
+| S06 | transfer | specs/010-multiselect-local-deletion/spec.md (Draft (seeded)) | [X] |
+| S07 | transfer | specs/011-full-loop-release/spec.md (Draft (seeded)) | [X] |
 
 ## Task
 

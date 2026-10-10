@@ -14,8 +14,8 @@ Android's "Cannot use this folder" message with no guidance in the app.
 
 **Scope extension** (user decision, 2026-10-02): "make it part of the mvp: multiselect; safe deleting
 selected files on local device; add counting total size of files on multiselect and display it at the
-bottom left corner". This merges the scope of the former feature 008 (multi-select and two-phase local
-deletion, roadmap slice M001/S06) into this feature; [008](../008-multiselect-local-deletion/spec.md) is
+bottom left corner". This merges the scope of the former feature 010 (multi-select and two-phase local
+deletion, roadmap slice M001/S06) into this feature; [010](../010-multiselect-local-deletion/spec.md) is
 kept only as a pointer here.
 
 **Depends on**: [002-native-cloudsync-connect](../002-native-cloudsync-connect/spec.md),
@@ -55,10 +55,10 @@ development machine.
 **Out of scope** (unchanged owners):
 
 - Tree view and image preview, including selection inside tree view and preview —
-  [007-tree-view-image-preview](../007-tree-view-image-preview/spec.md).
+  [009-tree-view-image-preview](../009-tree-view-image-preview/spec.md).
 - The include-hidden-files setting, snapshot retention, the
   full-loop proof on API 36 and the final docs pass —
-  [009-full-loop-release](../009-full-loop-release/spec.md).
+  [011-full-loop-release](../011-full-loop-release/spec.md).
 - Multiple repositories, removing a repository without replacing it, and any remote write (R026).
 
 ## Clarifications
@@ -391,7 +391,7 @@ against a live container, and checks that unknown-state files survive. A mocked 
   including folders that become empty, and never a folder added as a source.
 - **FR-021**: Deleting MUST be blocked while a scan runs, and a scan MUST not start while a deletion runs.
   Only one deletion (review or execution) can run at a time.
-- **FR-022** (constitution VI, moved from feature 009 FR-004): The APK's `versionName` and `versionCode`
+- **FR-022** (constitution VI, moved from feature 011 FR-004): The APK's `versionName` and `versionCode`
   MUST be derived from the `package.json` version, the single authoritative version source, and a test
   MUST prove the derivation. The installable APK is the first build meant for a real device, so it must
   carry the project's real version.
@@ -442,10 +442,10 @@ against a live container, and checks that unknown-state files survive. A mocked 
 
 - One repository per install, as in features 002–004; replacing it is the only way to change servers.
 - One personal release key signs every installable build from now on, so later builds (including
-  feature 009's) update in place; losing the key means uninstalling, which deletes the app's data. Play
+  feature 011's) update in place; losing the key means uninstalling, which deletes the app's data. Play
   Store distribution, CI and signing pipelines stay out of scope (R019 notes).
-- Scans still run with hidden files excluded; the setting stays with feature 009.
-- API 31 is this feature's proof level, as in features 002–005; API 36 is proven in feature 009.
+- Scans still run with hidden files excluded; the setting stays with feature 011.
+- API 31 is this feature's proof level, as in features 002–005; API 36 is proven in feature 011.
 - The camera folder (DCIM) is the most likely place for the photos the user wants to check.
 - Deletion through the Storage Access Framework is permanent; Android offers no recycle bin for it. The
   confirmation says so.
@@ -454,20 +454,20 @@ against a live container, and checks that unknown-state files survive. A mocked 
   granted read-only reports its files as "access lost" per file.
 - The staleness threshold for the server listing is the one feature 004 already uses for the freshness
   notice (R015, [D009](../../docs/decisions/0009-foreground-scan-and-freshness.md)).
-- Selection in tree view and in the image preview arrives with feature 007, which reuses this feature's
+- Selection in tree view and in the image preview arrives with feature 009, which reuses this feature's
   selection model and bar.
 
 ## Provides
 
-To [007-tree-view-image-preview](../007-tree-view-image-preview/spec.md) and
-[009-full-loop-release](../009-full-loop-release/spec.md):
+To [009-tree-view-image-preview](../009-tree-view-image-preview/spec.md) and
+[011-full-loop-release](../011-full-loop-release/spec.md):
 
-- A Connect (repository) screen, so 009's full-loop flow can drive "connect" through the UI as its spec
+- A Connect (repository) screen, so 011's full-loop flow can drive "connect" through the UI as its spec
   describes.
 - The setup checklist and the "go to where it is fixed" message convention for later error states.
-- The installable APK build command with version derivation, which 009 extends with its API 36 full-loop
+- The installable APK build command with version derivation, which 011 extends with its API 36 full-loop
   proof.
-- The view-agnostic selection model and selection bar (count and total size), which 007 extends to tree
+- The view-agnostic selection model and selection bar (count and total size), which 009 extends to tree
   view and preview.
 - Real `prepareLocalDeletion` and `executeLocalDeletion` with per-file outcomes, and a Maestro flow that
-  deletes real files, which 009's full-loop flow reuses.
+  deletes real files, which 011's full-loop flow reuses.

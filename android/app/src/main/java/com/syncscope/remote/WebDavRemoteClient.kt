@@ -40,7 +40,7 @@ class WebDavRemoteClient(
   private val httpClient: OkHttpClient = defaultHttpClient(),
 ) : RemoteClient {
 
-  private class Session(val base: HttpUrl, val authorization: String, val rootPath: String)
+  private class Session(val base: HttpUrl, val authorization: String, val rootPaths: List<String>)
 
   @Volatile private var session: Session? = null
 
@@ -54,8 +54,9 @@ class WebDavRemoteClient(
         // OkHttp's message quotes the host verbatim, so only the cause keeps it.
         throw WebDavFailures.failure(CloudSyncErrorCode.CONNECTION_REFUSED, cause = e)
       }
-    val candidate = Session(base, Credentials.basic(config.username, String(password)), config.rootPath)
-    val rootUrl = collectionUrl(base, config.rootPath)
+    val roots = config.rootPaths.ifEmpty { listOf("/") }
+    val candidate = Session(base, Credentials.basic(config.username, String(password)), roots)
+    val rootUrl = collectionUrl(base, roots.first())
 
     // OPTIONS proves reachability, credentials, and DAV class 1 support in one round trip.
     exchange(candidate, request(candidate, rootUrl).method("OPTIONS", null).build(), WebDavScope.CONNECT) {
@@ -66,23 +67,38 @@ class WebDavRemoteClient(
         throw WebDavFailures.notWebDav()
       }
     }
-    // Depth 0 PROPFIND proves the configured root exists and is a collection.
+    // Depth 0 PROPFIND proves a configured folder exists and is a collection. One readable folder is
+    // enough to connect: the others fail on their own when listed (research R12, R14). Only when every
+    // folder fails does the first folder's failure fail the connect, exactly as with one folder.
+    var firstFailure: RemoteClientException? = null
+    for (root in roots) {
+      try {
+        checkCollection(candidate, collectionUrl(base, root))
+        session = candidate
+        return ConnectOutcome.Connected
+      } catch (e: RemoteClientException) {
+        if (e.code !in FOLDER_CODES) throw e
+        if (firstFailure == null) firstFailure = e
+      }
+    }
+    throw checkNotNull(firstFailure)
+  }
+
+  private suspend fun checkCollection(session: Session, url: HttpUrl) {
     val root =
-      exchange(candidate, propfind(candidate, rootUrl, depth = "0"), WebDavScope.ROOT) { response ->
+      exchange(session, propfind(session, url, depth = "0"), WebDavScope.ROOT) { response ->
         PropfindParser.parse(response.body!!.byteStream())
       }
     if (root.none { it.isCollection }) {
       throw WebDavFailures.failure(CloudSyncErrorCode.DIRECTORY_UNREADABLE)
     }
-    session = candidate
-    return ConnectOutcome.Connected
   }
 
   override suspend fun list(directory: String): List<RemoteEntry> {
     val current = session()
     val url = collectionUrl(current.base, directory)
     val scope =
-      if (samePath(directory, current.rootPath)) WebDavScope.ROOT else WebDavScope.SUBDIRECTORY
+      if (current.rootPaths.any { samePath(directory, it) }) WebDavScope.ROOT else WebDavScope.SUBDIRECTORY
     return exchange(current, propfind(current, url, depth = "1"), scope) { response ->
       PropfindParser.children(url.encodedPath, PropfindParser.parse(response.body!!.byteStream()))
     }
@@ -168,6 +184,14 @@ class WebDavRemoteClient(
     val PRECISION = PrecisionFinding(1_000L, PrecisionBasis.RFC1123_WHOLE_SECONDS)
 
     private val XML = "application/xml; charset=utf-8".toMediaType()
+
+    /** A folder that is missing, refused or broken: another configured folder may still be readable. */
+    private val FOLDER_CODES =
+      setOf(
+        CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND,
+        CloudSyncErrorCode.DIRECTORY_UNREADABLE,
+        CloudSyncErrorCode.SERVER_ERROR,
+      )
 
     fun defaultHttpClient(): OkHttpClient =
       OkHttpClient.Builder()

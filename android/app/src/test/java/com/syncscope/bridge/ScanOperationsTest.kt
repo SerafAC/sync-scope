@@ -90,7 +90,7 @@ class ScanOperationsTest {
     h.configure()
     val error = assertError(ops.start(null), "NO_SOURCES_SELECTED")
     assertEquals("No folders are selected to check.", error.getString("message"))
-    assertEquals("Add a folder in Settings › Folders.", error.getString("action"))
+    assertEquals("Add a folder in Settings › Device folders.", error.getString("action"))
   }
 
   @Test
@@ -232,6 +232,7 @@ class ScanOperationsTest {
     assertEquals("unknown is the UNKNOWN file count", 2.0, summary.getDouble("unknown"), 0.0)
     assertEquals(1.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
     assertTrue(summary.isNull("remoteListingInterruptedBy"))
+    assertEquals("every folder was read", 0, summary.getArray("unreadRemoteFolders")!!.size())
     val skipped = summary.getArray("skippedSources")!!
     assertEquals(1, skipped.size())
     assertEquals("src-2", skipped.getMap(0)!!.getString("sourceId"))
@@ -270,6 +271,31 @@ class ScanOperationsTest {
     assertEquals(0.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
   }
 
+  @Test
+  fun unreadRemoteFoldersListsTheUnreadFoldersInFolderOrder() = runBlocking<Unit> {
+    h.configure(roots = listOf("/a", "/b", "/c"))
+    h.addSource("src-1")
+    h.remote.fail("/a", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    h.remote.dir("/b", remoteDir("restricted"), remoteFile("exact.txt", 22))
+    h.remote.fail("/b/restricted", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.remote.fail("/c", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "elsewhere.txt", size = 3))
+    ops.start(null)
+    coordinator.awaitIdle()
+
+    val active = ops.state().getMap("active")!!
+    val summary = active.getMap("summary")!!
+
+    assertEquals("INCOMPLETE", active.getString("coverage"))
+    val unread = summary.getArray("unreadRemoteFolders")!!
+    assertEquals(listOf("/a", "/c"), (0 until unread.size()).map { unread.getString(it) })
+    assertEquals("non-root directories only", 1.0, summary.getDouble("unreadableRemoteDirectories"), 0.0)
+    assertTrue(summary.isNull("remoteListingInterruptedBy"))
+    assertEquals(1.0, summary.getDouble("synced"), 0.0)
+    assertEquals(0.0, summary.getDouble("unsynced"), 0.0)
+    assertEquals(1.0, summary.getDouble("unknown"), 0.0)
+  }
+
   // --- queryFiles / queryTreeChildren ---
 
   @Test
@@ -295,7 +321,8 @@ class ScanOperationsTest {
     assertEquals(listOf("inner.jpg"), names(children.getMap("page")!!.getArray("entries")!!))
 
     val all = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!
-    assertEquals(listOf("Photos", "inner.jpg", "top.txt"), names(all.getArray("entries")!!))
+    // Name order is case-insensitive (contract version 6, research R1).
+    assertEquals(listOf("inner.jpg", "Photos", "top.txt"), names(all.getArray("entries")!!))
     assertNotNull(all.getArray("counts"))
   }
 
@@ -319,6 +346,42 @@ class ScanOperationsTest {
     val invalid = ops.queryFiles(snapshotId, JavaOnlyMap.of("filter", "SIDEWAYS"), null)
     assertEquals("INVALID_QUERY", invalid.getMap("error")!!.getString("code"))
     assertTrue(invalid.isNull("page"))
+  }
+
+  @Test
+  fun theQuerySpecAcceptsTheSizeSortsAndAKind() = runBlocking<Unit> {
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Photos"),
+      localDir("d2", "archive"),
+      localFile("d3", "small.txt", size = 5L),
+      localFile("d4", "Big.txt", size = 500L),
+      localFile("d5", "unknown.txt", size = null),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    suspend fun read(vararg pairs: Any?): ReadableMap = ops.queryTreeChildren(snapshotId, null, JavaOnlyMap.of(*pairs), null)
+    fun namesOf(result: ReadableMap): List<String> {
+      assertEquals("ok", result.getString("status"))
+      return names(result.getMap("page")!!.getArray("entries")!!)
+    }
+
+    assertEquals(listOf("Big.txt", "small.txt", "unknown.txt"), namesOf(read("sort", "SIZE_DESC", "kind", "FILE")))
+    assertEquals(listOf("small.txt", "Big.txt", "unknown.txt"), namesOf(read("sort", "SIZE_ASC", "kind", "FILE")))
+    assertEquals(listOf("archive", "Photos"), namesOf(read("sort", "NAME_ASC", "kind", "DIRECTORY")))
+    // No kind, or a null one, reads both.
+    assertEquals(5, namesOf(read("sort", "NAME_ASC")).size)
+    assertEquals(5, namesOf(read("sort", "NAME_ASC", "kind", null)).size)
+
+    for (kind in listOf<Any>("FOLDER", "file", 1.0)) {
+      val invalid = read("sort", "NAME_ASC", "kind", kind)
+      val error = assertError(invalid, "INVALID_QUERY")
+      assertEquals("$kind", "The query kind is invalid.", error.getString("message"))
+      assertTrue(invalid.isNull("page"))
+    }
+    assertEquals("The query sort is invalid.", assertError(read("sort", "SIZE_SIDEWAYS"), "INVALID_QUERY").getString("message"))
   }
 
   @Test
@@ -422,6 +485,87 @@ class ScanOperationsTest {
     val old = h.store.beginRun("run-old", "FULL", 1L, "CONNECTING", 0L)
     h.store.stageSnapshot(stagingSnapshot("snap-old", old.runId).copy(publishable = true))
     assertError(ops.listSelectableEntries("snap-old", JavaOnlyMap.of("view", "GALLERY")), "STALE_GENERATION")
+  }
+
+  // --- getScrollIndex ---
+
+  @Test
+  fun scrollIndexFollowsTheContract() = runBlocking<Unit> {
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d0", "Photos"),
+      localFile("d1", "apple.txt", size = 5L),
+      localFile("d2", "Banana.txt", size = 50_000L),
+      localFile("d3", "2024.txt", size = 7_000_000L),
+      localFile("d4", "kiwi.txt", size = null),
+      localFile("d5", "inner.txt", parent = "d0"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    val files = JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC", "sourceId", "src-1", "kind", "FILE")
+
+    val result = ops.scrollIndex(snapshotId, files, null)
+    assertEquals("ok", result.getString("status"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, result.getInt("contractVersion"))
+    val index = result.getMap("scrollIndex")!!
+    assertEquals(setOf("unit", "totalCount", "bands", "anchorIndex"), index.toHashMap().keys)
+    assertEquals("LETTER", index.getString("unit"))
+    // The top level's files only: the folder and its child are not counted.
+    assertEquals(4.0, index.getDouble("totalCount"), 0.0)
+    assertTrue(index.isNull("anchorIndex"))
+    val bands = index.getArray("bands")!!
+    assertEquals(listOf("#", "a", "b", "k"), (0 until bands.size()).map { bands.getMap(it)!!.getString("letter") })
+    val first = bands.getMap(0)!!
+    assertEquals(
+      setOf("startIndex", "count", "startToken", "letter", "startMillis", "lowerBytes", "unknown"),
+      first.toHashMap().keys,
+    )
+    assertTrue(first.isNull("startToken"))
+    assertTrue(first.isNull("startMillis"))
+    assertTrue(first.isNull("lowerBytes"))
+    assertFalse(first.getBoolean("unknown"))
+    assertNoPathOrHost(result)
+
+    // A band's start token pages queryTreeChildren from that band's first row.
+    val kiwi = bands.getMap(3)!!
+    assertEquals(3.0, kiwi.getDouble("startIndex"), 0.0)
+    val page = ops.queryTreeChildren(snapshotId, null, files, kiwi.getString("startToken"))
+    assertEquals(listOf("kiwi.txt"), names(page.getMap("page")!!.getArray("entries")!!))
+
+    // pageSize and pageToken are ignored; sizes have an unknown band last; an anchor gives its index.
+    val sizes = JavaOnlyMap.of("view", "LIST", "sort", "SIZE_DESC", "sourceId", "src-1", "kind", "FILE", "pageSize", 1.0, "pageToken", "x")
+    val bySize = ops.scrollIndex(snapshotId, sizes, JavaOnlyMap.of("sortValue", 50_000.0, "sortName", "1banana.txt")).getMap("scrollIndex")!!
+    assertEquals("SIZE", bySize.getString("unit"))
+    assertEquals(4.0, bySize.getDouble("totalCount"), 0.0)
+    assertEquals(1.0, bySize.getDouble("anchorIndex"), 0.0)
+    val sizeBands = bySize.getArray("bands")!!
+    assertTrue(sizeBands.getMap(sizeBands.size() - 1)!!.getBoolean("unknown"))
+    assertFalse(sizeBands.getMap(0)!!.isNull("lowerBytes"))
+
+    // A sort value of the wrong type gives no index; an anchor without a sortName is invalid.
+    for (value in listOf<Any>("big", true, JavaOnlyMap())) {
+      val anchor = JavaOnlyMap().apply {
+        when (value) {
+          is String -> putString("sortValue", value)
+          is Boolean -> putBoolean("sortValue", value)
+          else -> putMap("sortValue", value as JavaOnlyMap)
+        }
+        putString("sortName", "1apple.txt")
+      }
+      assertTrue("$value", ops.scrollIndex(snapshotId, sizes, anchor).getMap("scrollIndex")!!.isNull("anchorIndex"))
+    }
+    assertEquals("anchor", assertError(ops.scrollIndex(snapshotId, sizes, JavaOnlyMap.of("sortValue", 1.0)), "INVALID_QUERY").getString("field"))
+    assertEquals("sort", assertError(ops.scrollIndex(snapshotId, JavaOnlyMap.of("sort", "SIDEWAYS"), null), "INVALID_QUERY").getString("field"))
+    assertError(ops.scrollIndex("no-such-snapshot", files, null), "SNAPSHOT_NOT_FOUND")
+
+    // A published snapshot that is no longer the active one is stale.
+    val old = h.store.beginRun("run-old", "FULL", 1L, "CONNECTING", 0L)
+    h.store.stageSnapshot(stagingSnapshot("snap-old", old.runId).copy(publishable = true))
+    val stale = ops.scrollIndex("snap-old", files, null)
+    assertError(stale, "STALE_GENERATION")
+    assertFalse(stale.hasKey("scrollIndex"))
   }
 
   // --- getLocalImageHandle ---

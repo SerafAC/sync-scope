@@ -70,7 +70,7 @@ counts files only.
 ## Filters: isolating the synced and the unknown sets
 
 The four filters exist so the user can isolate the set that is safe to delete and the set that must never
-be deleted (R011). One filter is shared by every view (gallery, list and, in feature 007, tree), and it
+be deleted (R011). One filter is shared by every view (gallery, list and, in feature 009, tree), and it
 maps directly to the stored file status:
 
 | Filter | Files shown |
@@ -88,7 +88,7 @@ maps directly to the stored file status:
 - **Directories ignore the filter.** A filter narrows file rows only. Every directory stays listed, with
   the number of files beneath it that match the filter. A directory with no match is dimmed with
   "0 matching" but can still be opened, so the folder structure looks the same under every filter. Feature
-  007's tree view follows the same rule
+  009's tree view follows the same rule
   ([005 research R3](../specs/005-gallery-list-filtering/research.md#r3-directory-rows-under-a-filter-clarification-3)).
   A directory's own worst-of status is unchanged and still shown.
 
@@ -109,7 +109,8 @@ the file's own size or modified time ([D006](./decisions/0006-unknown-status-nev
 
 - It is a distinct status with its own `ISSUES_UNKNOWN` filter chip and an `issueCode` explaining why.
   Remote causes reuse the error codes (`DIRECTORY_UNREADABLE`, `CONNECTION_LOST`, `CONNECTION_TIMEOUT`,
-  `SERVER_ERROR`); the two scan-only codes are `REMOTE_MTIME_MISSING` and the local-side
+  `SERVER_ERROR`); the scan-only codes are `REMOTE_MTIME_MISSING`, `REMOTE_FOLDER_UNREAD` (one of the
+  configured remote folders could not be read; the file's issue text names it) and the local-side
   `LOCAL_UNAVAILABLE`.
 - `prepareLocalDeletion` refuses UNKNOWN entries outright, even behind a warning (R012, R017).
 - UNSYNCED files may be deleted, but only behind a stronger warning; SYNCED files are the default target
@@ -123,12 +124,17 @@ because each needs a different answer:
 
 | Failure | What the run does | Effect on files |
 | --- | --- | --- |
-| **Incomplete remote listing**: the remote root was listed, then a folder below it could not be read, or the connection dropped and three attempts failed | Completes and is promoted, marked incomplete | Matched files stay SYNCED; every unmatched file is UNKNOWN with the failure's code, never UNSYNCED, because its copy may be in the part that was not listed |
-| **Unreachable remote**: connect, login, host-key check or the root listing fails before anything is listed | Ends `FAILED` with the typed error and its recovery action; auth failures are never retried | No new snapshot; the previous one stays active, with its listing age shown |
+| **Incomplete remote listing**: at least one configured remote folder was listed, then a folder below it could not be read, or the connection dropped and three attempts failed | Completes and is promoted, marked incomplete | Matched files stay SYNCED; every unmatched file is UNKNOWN with the failure's code, never UNSYNCED, because its copy may be in the part that was not listed |
+| **Unread remote folder**: one or more of the configured remote folders could not be read after the retry policy, while at least one other was read ([D022](./decisions/0022-several-remote-folders-partial-scan.md)) | Completes and is promoted, marked incomplete; the summary names each unread folder | Files with a match in a folder that was read stay SYNCED; every other file is UNKNOWN with `REMOTE_FOLDER_UNREAD`, never UNSYNCED, because its copy may be in the folder that was not read |
+| **Unreachable remote**: connect, login, host-key check or the listing of every configured remote folder fails before anything is listed | Ends `FAILED` with the typed error and its recovery action; auth failures are never retried | No new snapshot; the previous one stays active, with its listing age shown |
 | **Unreadable local file or folder**: the device reports no size or modified time, or a folder's listing fails part way | Completes | The file is UNKNOWN with `LOCAL_UNAVAILABLE`; a folder that could not be listed fully, or was skipped (`GRANT_REVOKED`, `STORAGE_MISSING`), is named in the summary with its reason |
 
-- The completion summary states plainly how many files could not be checked, how many remote folders
-  could not be read, whether the listing was interrupted and which folders were skipped.
+- The completion summary states plainly how many files could not be checked, which configured remote
+  folders could not be read, how many folders below them could not be read, whether the listing was
+  interrupted and which device folders were skipped.
+- The unread configured folders are kept with the snapshot (`remote_ambiguity.remotePath`), so the
+  app-open refresh keeps the warning and the UNKNOWN verdicts until a full scan reads every folder. "Not
+  backed up" is never claimed from a listing that missed a configured folder.
 - Only a completed run becomes the active snapshot. A run that is cancelled, stopped because the user
   left the app, or `FAILED` has its staged snapshot deleted and is never promoted
   ([D009](./decisions/0009-foreground-scan-and-freshness.md)).
@@ -159,7 +165,8 @@ Before a plan is made, every selected SYNCED file is checked again on the server
 
 - Each scan stores, per match key, the server folders (at most 16) that held the matched files. The
   re-check connects once and lists only those folders, once each. It reads listings only: no file
-  content, no write (R026).
+  content, no write (R026). The stored folders are full server paths, so the re-check works the same
+  whichever of several configured remote folders the match was found in (feature 007 FR-012).
 - A file stays "to delete" only if one of its folders still lists a file with the same NFC name, size
   and modified-time bucket, by the same rules as the scan.
 - If every folder answered and none holds it, the file moves to **not backed up**

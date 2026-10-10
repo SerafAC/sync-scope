@@ -1,13 +1,13 @@
 import React from 'react';
-import {ScrollView, StyleSheet} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {RepositorySection} from '../repository/RepositorySection';
-import {SourcesSection} from '../sources/SourcesSection';
+import { RepositorySection } from '../repository/RepositorySection';
+import { SourcesSection } from '../sources/SourcesSection';
 
 /**
  * Settings tab. Hosts the "Repository" section (the saved server and the way
- * into the Repository form) above the "Folders" section (research R14).
+ * into the Repository form) above the "Device folders" section (research R14).
  */
 export function SettingsScreen(): React.JSX.Element {
   return (

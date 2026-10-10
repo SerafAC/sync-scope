@@ -1,10 +1,12 @@
 # Feature Specification: Full-Loop Integration, Docs and Release APK
 
-**Feature Branch**: `009-full-loop-release`
+**Feature Branch**: `011-full-loop-release`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S07)
 
 **Status**: Draft (seeded)
+
+**Numbering**: Moved from slot 010 to 011 on 2026-10-10 to put E2E performance work next.
 
 **Input**: Roadmap slice M001/S07, "Full-loop integration, docs, and release APK" (`risk:medium`,
 `depends:[S01,S02,S03,S04,S05,S06]`).
@@ -17,9 +19,10 @@
 [003-local-source-selection](../003-local-source-selection/spec.md),
 [004-scan-engine-matching](../004-scan-engine-matching/spec.md),
 [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md),
-[006-mvp](../006-mvp/spec.md) and
-[007-tree-view-image-preview](../007-tree-view-image-preview/spec.md). Feature
-[008](../008-multiselect-local-deletion/spec.md) was merged into 006.
+[006-mvp](../006-mvp/spec.md),
+[007-sort-scroll-remote-folders](../007-sort-scroll-remote-folders/spec.md) and
+[009-tree-view-image-preview](../009-tree-view-image-preview/spec.md). Feature
+[010](../010-multiselect-local-deletion/spec.md) was merged into 006.
 
 ## Dependencies (integration closure)
 
@@ -29,9 +32,9 @@ Consumes from all prior features (M001/S01–S06 → M001/S07): the assembled lo
 - persisted local sources with durable SAF grants (feature 003);
 - a completed snapshot with SYNCED, UNSYNCED and UNKNOWN statuses (feature 004);
 - the Connect (repository) screen, first-run guidance and the installable APK build (feature 006);
-- the three browsable views, gallery and list (feature 005) and tree with preview (feature 007);
+- the three browsable views, gallery and list (feature 005) and tree with preview (feature 009);
 - multi-select with the selection size, and two-phase local deletion with per-file outcomes (feature 006,
-  which absorbed feature 008).
+  which absorbed feature 010).
 
 This feature exercises that loop end to end on both API 31 and API 36, and documents it in `./docs` and
 `README.md`.
@@ -52,6 +55,12 @@ Settle these when this feature is specified:
   folders of each selected file from them, and a key without them is refused as `SCAN_TOO_OLD`
   ([D020](../../docs/decisions/0020-pre-delete-server-recheck.md)). A `LOCAL_REFRESH` copies the keys
   forward, so pruning older snapshots is safe as long as the active one keeps its keys.
+  It MUST also keep the active snapshot's `remote_ambiguity` rows with their `remotePath` column (schema
+  version 5, feature 007; spec follow-up, 2026-10-07): they record which configured remote folders could
+  not be read, so the scan summary's unread-folder warning and the `REMOTE_FOLDER_UNREAD` reasons survive
+  until a full scan reads every folder, and a `LOCAL_REFRESH` copies them forward
+  ([D022](../../docs/decisions/0022-several-remote-folders-partial-scan.md)). Keeping the active snapshot
+  whole already does this.
 
 ### Already delivered by feature 006 (spec follow-up, 2026-10-02)
 

@@ -1,0 +1,276 @@
+# Story 1 sc. 1-6 and 8, FR-001-FR-005, SC-001, SC-002 (WebDAV,
+# contracts/maestro-polish.md › Acceptance scenario mapping): the sort
+# drop-down sits left of the view drop-down, both above the filter chips. On
+# first run the gallery is "Date (newest first)" and the list "Name (A-Z)".
+# Each of the six sorts puts the manifest's first file first, in the gallery
+# and in the list (inside Scroll). Sort and filter are independent, each view
+# keeps its own sort across a switch, and the largest file is two taps from
+# Files. Every Scroll file is local only against the remote gallery/ tree, so
+# all are Unsynced. Expected names come from scroll-manifest.sh (FIRST_*),
+# never literals. Story 1 sc. 9 (unknown last) is a recorded deviation
+# (plan.md › Complexity Tracking), proven by SnapshotStoreTest and the scroll
+# index's Unknown band test.
+#
+# Scroll has no subfolders, so "folders above files" (sc. 4, FR-004) is shown
+# last, after the Gallery source (album/, drafts/ and three images) is added
+# and scanned; it is added only then so the gallery's first files stay the
+# manifest's. Self-contained: starts from clearState.
+appId: com.syncscope
+name: polish/01-sort
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "WEBDAV"
+      PORT: "${WEBDAV_PORT}"
+      USER: "${WEBDAV_USER}"
+      PASSWORD: "${WEBDAV_PASSWORD}"
+      ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Scroll"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible:
+      text: "Filter All, ${SCROLL_COUNT}"
+      selected: true
+    timeout: 30000
+
+# 1. The sort drop-down is left of the view drop-down, both above the filter
+#    chips (sc. 1); first run: the gallery is newest first (sc. 6).
+- assertVisible:
+    id: "files-sort"
+    leftOf:
+      id: "files-view"
+- assertVisible:
+    id: "files-view"
+    above:
+      id: "filter-chips"
+- assertVisible: "Sort: Date, newest first"
+- assertVisible: "View: Gallery"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+
+# 2. The largest file in two taps from Files (SC-002): open the sort
+#    drop-down, pick "Size (largest first)".
+- tapOn:
+    id: "files-sort"
+- tapOn: "Size \\(largest first\\)"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_SIZE_DESC}"
+
+# 3. The other sorts in the gallery (sc. 2, 3; SC-001).
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_SIZE_ASC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "NAME_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_ASC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "NAME_DESC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_DESC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "TIME_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_ASC}"
+# The open menu offers all six options (sc. 2).
+- tapOn:
+    id: "files-sort"
+- assertVisible: "Name \\(A–Z\\)"
+- assertVisible: "Name \\(Z–A\\)"
+- assertVisible: "Date \\(newest first\\)"
+- assertVisible: "Date \\(oldest first\\)"
+- assertVisible: "Size \\(largest first\\)"
+- assertVisible: "Size \\(smallest first\\)"
+- tapOn:
+    id: "files-sort-option-TIME_DESC"
+- extendedWaitUntil:
+    visible: "Sort: Date, newest first"
+    timeout: 15000
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+
+# 4. The list keeps its own sort: first run "Name (A-Z)" (sc. 6).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- assertVisible: "Sort: Name, A to Z"
+- tapOn: "Folder Scroll, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Scroll"
+    timeout: 15000
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_ASC}"
+
+# 5. Each of the six sorts in the list, inside Scroll (sc. 4).
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "NAME_DESC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_DESC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "TIME_DESC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "TIME_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_ASC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_SIZE_ASC}"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_DESC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_SIZE_DESC}"
+
+# 6. Sort and filter are independent (sc. 5): under Synced a sort change keeps
+#    the filter; back at All, the sort is kept.
+- tapOn: "Filter Synced(, \\d+)?"
+- extendedWaitUntil:
+    visible:
+      text: "Filter Synced(, \\d+)?"
+      selected: true
+    timeout: 15000
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "NAME_ASC"
+- extendedWaitUntil:
+    visible:
+      text: "Filter Synced(, \\d+)?"
+      selected: true
+    timeout: 15000
+- assertVisible: "Breadcrumb Scroll"
+- tapOn: "Filter All, ${SCROLL_COUNT}"
+- extendedWaitUntil:
+    visible:
+      text: "Filter All, ${SCROLL_COUNT}"
+      selected: true
+    timeout: 15000
+- assertVisible: "Sort: Name, A to Z"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_ASC}"
+
+# 7. Switch views and back: each keeps its sort, and the list its folder
+#    (sc. 6, 8).
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_DESC"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- assertVisible: "Sort: Date, newest first"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- assertVisible: "Sort: Size, largest first"
+- assertVisible: "Breadcrumb Scroll"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_SIZE_DESC}"
+
+# 8. Folders stay above the files, by name, under the size sort (sc. 4,
+#    FR-004): add Gallery, rescan, open it in the list.
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Gallery"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- assertVisible: "View: List"
+- assertVisible: "Sort: Size, largest first"
+# The list stays in Scroll across the new results; go up to the sources.
+- tapOn:
+    text: "Breadcrumb All folders"
+    optional: true
+- tapOn: "Folder Gallery, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Gallery"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- copyTextFrom:
+    text: "(Folder .+|.+\\.png, (Synced|Unsynced|Unknown).*)"
+    index: 0
+- assertTrue: "${maestro.copiedText.indexOf('Folder album') === 0}"
+- copyTextFrom:
+    text: "(Folder .+|.+\\.png, (Synced|Unsynced|Unknown).*)"
+    index: 1
+- assertTrue: "${maestro.copiedText.indexOf('Folder drafts') === 0}"
+- copyTextFrom:
+    text: "(Folder .+|.+\\.png, (Synced|Unsynced|Unknown).*)"
+    index: 2
+- assertTrue: "${maestro.copiedText.indexOf('Folder ') !== 0}"

@@ -1,17 +1,19 @@
 import React from 'react';
-import {render, screen} from '@testing-library/react-native';
-import {PaperProvider} from 'react-native-paper';
+import { render, screen } from '@testing-library/react-native';
+import { PaperProvider } from 'react-native-paper';
 
-import {getRepositorySummary} from '../../native/CloudSync';
-import {SettingsScreen} from '../SettingsScreen';
-import {useSources} from '../../sources/useSources';
+import { getRepositorySummary } from '../../native/CloudSync';
+import { SettingsScreen } from '../SettingsScreen';
+import { useSources } from '../../sources/useSources';
 
-jest.mock('../../sources/useSources', () => ({useSources: jest.fn()}));
-jest.mock('../../native/CloudSync', () => ({getRepositorySummary: jest.fn()}));
+jest.mock('../../sources/useSources', () => ({ useSources: jest.fn() }));
+jest.mock('../../native/CloudSync', () => ({
+  getRepositorySummary: jest.fn(),
+}));
 jest.mock('@react-navigation/native', () => {
-  const {useEffect} = jest.requireActual<typeof import('react')>('react');
+  const { useEffect } = jest.requireActual<typeof import('react')>('react');
   return {
-    useNavigation: () => ({navigate: jest.fn()}),
+    useNavigation: () => ({ navigate: jest.fn() }),
     useFocusEffect: (callback: () => void) => {
       useEffect(() => callback(), [callback]);
     },
@@ -24,7 +26,7 @@ const summaryMock = getRepositorySummary as jest.MockedFunction<
 >;
 
 describe('SettingsScreen', () => {
-  it('hosts the Repository section above the Folders section', async () => {
+  it('hosts the Repository section above the Device folders section', async () => {
     useSourcesMock.mockReturnValue({
       sources: [],
       loading: false,
@@ -55,7 +57,7 @@ describe('SettingsScreen', () => {
       await screen.findByLabelText('Repository not set up'),
     ).toBeOnTheScreen();
     const headers = screen.getAllByRole('header').map(h => h.props.children);
-    expect(headers).toEqual(['Repository', 'Folders']);
+    expect(headers).toEqual(['Repository', 'Device folders']);
     expect(screen.getByTestId('sources.add')).toBeOnTheScreen();
     expect(
       screen.queryByText('Repository and folder settings will appear here.'),

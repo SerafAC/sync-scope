@@ -61,7 +61,7 @@ class WebDavRemoteClientTest {
   }
 
   private fun config(webdavHttps: Boolean) =
-    RemoteConfig(RemoteProtocol.WEBDAV, HOST, 443, "user", "/photos", webdavHttps)
+    RemoteConfig(RemoteProtocol.WEBDAV, HOST, 443, "user", listOf("/photos"), webdavHttps)
 
   private companion object {
     const val HOST = "nas.example.test"

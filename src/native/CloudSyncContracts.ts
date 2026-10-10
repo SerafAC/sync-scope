@@ -8,7 +8,7 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 5;
+export const CLOUD_SYNC_CONTRACT_VERSION = 6;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -32,6 +32,15 @@ export const REPOSITORY_DEFAULT_PORTS = {
 
 /** A deletion plan expires this long after prepareLocalDeletion made it (contract version 5). */
 export const MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000;
+
+/**
+ * Scroll index band bounds (contract version 6). A date scrollbar uses the coarsest unit (year, month,
+ * day) that gives at least SCROLL_BANDS_MIN bands (research R6); a size scrollbar has between
+ * SCROLL_BANDS_MIN and SCROLL_BANDS_MAX bands (research R5). Mirrored by the Kotlin
+ * `CloudSyncContracts` under CloudSyncContractsParityTest.
+ */
+export const SCROLL_BANDS_MIN = 5;
+export const SCROLL_BANDS_MAX = 15;
 
 export const CloudSyncErrorCode = {
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
@@ -103,7 +112,7 @@ export type SourceErrorCode =
  * same text; CloudSyncContractsParityTest fails on any drift.
  */
 export const SOURCE_ERROR_TEXT: Readonly<
-  Record<SourceErrorCode, {message: string; action: string}>
+  Record<SourceErrorCode, { message: string; action: string }>
 > = {
   SOURCE_OVERLAP: {
     message: 'This folder overlaps a folder you already added.',
@@ -136,14 +145,15 @@ export type ScanErrorCode =
 /**
  * Exact redacted message and recovery action for the scan error codes
  * (contract version 3). Mirrored by the Kotlin `CloudSyncErrorCode` entries and
- * checked by CloudSyncContractsParityTest.
+ * checked by CloudSyncContractsParityTest. Contract version 6 points the
+ * NO_SOURCES_SELECTED action at the "Device folders" section (research R16).
  */
 export const SCAN_ERROR_TEXT: Readonly<
-  Record<ScanErrorCode, {message: string; action: string}>
+  Record<ScanErrorCode, { message: string; action: string }>
 > = {
   NO_SOURCES_SELECTED: {
     message: 'No folders are selected to check.',
-    action: 'Add a folder in Settings › Folders.',
+    action: 'Add a folder in Settings › Device folders.',
   },
   SCAN_IN_PROGRESS: {
     message: 'A scan is already running.',
@@ -167,7 +177,7 @@ export type ImageErrorCode = 'IMAGE_UNAVAILABLE';
  * checked by CloudSyncContractsParityTest.
  */
 export const IMAGE_ERROR_TEXT: Readonly<
-  Record<ImageErrorCode, {message: string; action: string}>
+  Record<ImageErrorCode, { message: string; action: string }>
 > = {
   IMAGE_UNAVAILABLE: {
     message: 'This image could not be read on the device.',
@@ -188,7 +198,7 @@ export type MvpErrorCode =
  * entries and checked by CloudSyncContractsParityTest.
  */
 export const MVP_ERROR_TEXT: Readonly<
-  Record<MvpErrorCode, {message: string; action: string}>
+  Record<MvpErrorCode, { message: string; action: string }>
 > = {
   TLS_UNTRUSTED: {
     message: "The server's certificate is not trusted by this phone.",
@@ -216,13 +226,23 @@ export const MVP_ERROR_TEXT: Readonly<
  * User-facing text of the file issue codes that are not error codes. Mirrored
  * by the Kotlin `enum class FileIssueCode` under the parity test. A remote
  * cause reuses the matching `CloudSyncErrorCode` value and its text instead.
+ * REMOTE_FOLDER_UNREAD (contract version 6, research R14): a configured backup
+ * folder could not be listed, so a file without an exact match is UNKNOWN.
  */
 export const FILE_ISSUE_TEXT: Readonly<
-  Record<Extract<FileIssueCode, 'REMOTE_MTIME_MISSING' | 'LOCAL_UNAVAILABLE'>, string>
+  Record<
+    Extract<
+      FileIssueCode,
+      'REMOTE_MTIME_MISSING' | 'LOCAL_UNAVAILABLE' | 'REMOTE_FOLDER_UNREAD'
+    >,
+    string
+  >
 > = {
   REMOTE_MTIME_MISSING:
     'The backup has this file but no modified time, so it could not be compared.',
   LOCAL_UNAVAILABLE: 'This file could not be read on the device.',
+  REMOTE_FOLDER_UNREAD:
+    'A backup folder could not be read, so this file may be backed up there.',
 };
 
 export interface CloudSyncError {
@@ -242,12 +262,17 @@ export interface CloudSyncError {
    * overlaps, carried as structured data so the alias never passes through
    * message redaction.
    */
-  conflictingSource?: {sourceId: string; alias: string} | null;
+  conflictingSource?: { sourceId: string; alias: string } | null;
   /**
    * saveRepository rejections (INVALID_QUERY) only: the form field to fix
    * (contract version 5). The rejected value is never echoed.
    */
   field?: RepositoryField | null;
+  /**
+   * With `field: 'remoteRoots'` only: the index of the folder to fix, in the
+   * list as sent (contract version 6). Absent when the whole list is at fault.
+   */
+  fieldIndex?: number | null;
 }
 
 /** The repository form fields an error can name in `CloudSyncError.field`. */
@@ -257,7 +282,7 @@ export const REPOSITORY_FIELDS = [
   'port',
   'username',
   'password',
-  'remoteRoot',
+  'remoteRoots',
 ] as const;
 
 export type RepositoryField = (typeof REPOSITORY_FIELDS)[number];
@@ -287,8 +312,12 @@ export interface RepositoryConfigInput {
   /** null → REPOSITORY_DEFAULT_PORTS for the protocol (WebDAV over HTTPS → 443). */
   port: number | null;
   username: string;
-  /** Absolute folder path on the server. */
-  remoteRoot: string;
+  /**
+   * The folders on the server, in order (contract version 6). Native
+   * normalizes them and refuses an empty list, a line break and overlaps,
+   * naming the folder with `error.fieldIndex`.
+   */
+  remoteRoots: string[];
   /** WebDAV only: connect over HTTPS. Absent means false, so existing callers keep HTTP (contract v5). */
   webdavHttps?: boolean;
 }
@@ -299,7 +328,8 @@ export interface RepositorySummaryDto {
   host: string;
   port: number;
   username: string;
-  remoteRoot: string;
+  /** The saved folders, normalized, in order; at least one (contract version 6). */
+  remoteRoots: string[];
   /** Timestamp precision found by testRepository; null until a test succeeded. */
   precisionMillis: number | null;
   /** A stored password is present and readable; the password itself never crosses the bridge. */
@@ -320,12 +350,23 @@ export interface RepositorySummaryOk {
 
 export type RepositorySummaryResult = RepositorySummaryOk | OperationError;
 
-/** What testRepository found at the saved repository's remote folder. */
+/** One saved folder's line in the connection test (contract version 6, research R12). */
+export interface RepositoryFolderResultDto {
+  path: string;
+  /** Direct children of the folder; null when it could not be listed. */
+  entryCount: number | null;
+  /** Why the folder could not be listed, with its action; null when it was. */
+  error: CloudSyncError | null;
+}
+
+/** What testRepository found at the saved repository's remote folders. */
 export interface RepositoryConnectionDto {
   protocol: RepositoryProtocol;
   reachable: boolean;
-  /** Direct children of the remote folder. */
+  /** Direct children of every folder that could be listed, summed. */
   entryCount: number;
+  /** One line per saved folder, in order (contract version 6). */
+  folders: RepositoryFolderResultDto[];
   precisionMillis: number;
   precisionBasis: string;
   /** False when a save landed during the test, so the precision was not written. */
@@ -340,12 +381,63 @@ export interface TestRepositoryOk {
 
 export type TestRepositoryResult = TestRepositoryOk | OperationError;
 
+/** One folder listing of the server folder browser (contract version 6, research R13). */
+export interface RemoteFoldersDto {
+  /** The listed folder, normalized. */
+  path: string;
+  /** The folder above [path]; null at `/`. */
+  parent: string | null;
+  /** Names of the folders directly inside [path], sorted case-insensitively. Files and links never appear. */
+  folders: string[];
+  /** The requested folder could not be listed, so `/` was. */
+  fellBackToRoot: boolean;
+}
+
+export interface BrowseRemoteFoldersOk {
+  contractVersion: number;
+  status: 'ok';
+  remoteFolders: RemoteFoldersDto;
+}
+
+export type BrowseRemoteFoldersResult = BrowseRemoteFoldersOk | OperationError;
+
+/** The connection part of the repository form, as browseRemoteFolders takes it: no folders needed. */
+export type RemoteBrowseConfigInput = Omit<
+  RepositoryConfigInput,
+  'remoteRoots'
+>;
+
 export type FileStatus = 'SYNCED' | 'UNSYNCED' | 'UNKNOWN';
 export type LocalNodeKind = 'FILE' | 'DIRECTORY';
 
 export type FileFilter = 'ALL' | 'SYNCED' | 'UNSYNCED' | 'ISSUES_UNKNOWN';
 export type FileView = 'LIST' | 'GALLERY';
-export type FileSort = 'NAME_ASC' | 'NAME_DESC' | 'TIME_ASC' | 'TIME_DESC';
+/**
+ * Every sort orders by (key, sortName, entryId) in its direction, with unknown
+ * values last in both directions (contract version 6, research R1). Mirrored by
+ * the Kotlin `FileSort` under CloudSyncContractsParityTest.
+ */
+export type FileSort =
+  | 'NAME_ASC'
+  | 'NAME_DESC'
+  | 'TIME_ASC'
+  | 'TIME_DESC'
+  | 'SIZE_ASC'
+  | 'SIZE_DESC';
+
+/**
+ * Narrows a read to folders or files (contract version 6, research R3): list
+ * view reads a folder's subfolders, then its files. Mirrored by the Kotlin
+ * `FileKind` under CloudSyncContractsParityTest.
+ */
+export type FileKind = 'DIRECTORY' | 'FILE';
+
+/**
+ * What a scroll index band stands for (contract version 6): a first letter
+ * (research R4), a year, month or day (research R6), or a size (research R5).
+ * Mirrored by the Kotlin `ScrollUnit` under CloudSyncContractsParityTest.
+ */
+export type ScrollUnit = 'LETTER' | 'YEAR' | 'MONTH' | 'DAY' | 'SIZE';
 
 export interface QuerySpec {
   filter: FileFilter;
@@ -355,6 +447,8 @@ export interface QuerySpec {
   parentId?: string | null;
   search?: string | null;
   pageSize?: number | null;
+  /** Narrows the rows to folders or files; part of the token fingerprint (contract v6, research R3). */
+  kind?: FileKind | null;
 }
 
 export interface FileEntryDto {
@@ -378,7 +472,93 @@ export interface FileEntryDto {
    * dimmed. null for FILE rows and for snapshots written before contract 4.
    */
   matchingFileCount: number | null;
+  /**
+   * The name's sort key: NFKD, accents removed, lowercased, prefixed `0` (`#`
+   * band) or `1` (a letter) (contract v6, research R2). Name sorts order by
+   * it, and a view builds its `ScrollAnchor` from it without a second read.
+   */
+  sortName: string;
 }
+
+/**
+ * One band of the scrollbar (contract v6, research R4–R6). Exactly one lower
+ * bound is set, matching the index's `unit`, unless `unknown` is true.
+ */
+export interface ScrollBandDto {
+  /** Position of the band's first file among the result's files (0-based). */
+  startIndex: number;
+  count: number;
+  /** null for the first band: read it with a null token. */
+  startToken: string | null;
+  /** LETTER: '#' or 'a'…'z'. */
+  letter?: string | null;
+  /** YEAR / MONTH / DAY: local start of the period. */
+  startMillis?: number | null;
+  /** SIZE: the band holds files from this size up to the next band's. */
+  lowerBytes?: number | null;
+  /** Last band only: files without a size or date (they sort last, research R1). */
+  unknown?: boolean;
+}
+
+/** What getScrollIndex returns under payload key `scrollIndex` (contract v6, research R4). */
+export interface ScrollIndexDto {
+  unit: ScrollUnit;
+  /** FILE rows only; in LIST the folder read is separate. */
+  totalCount: number;
+  /** In sort order; never an empty band. */
+  bands: ScrollBandDto[];
+  /** Only when an anchor was passed: the number of files that sort before it. */
+  anchorIndex: number | null;
+}
+
+/** The first visible file, passed to getScrollIndex to keep the place (contract v6, research R8). */
+export interface ScrollAnchor {
+  sortValue: string | number | null;
+  sortName: string;
+}
+
+export interface ScrollIndexOk {
+  contractVersion: number;
+  status: 'ok';
+  scrollIndex: ScrollIndexDto;
+}
+
+export type ScrollIndexResult = ScrollIndexOk | OperationError;
+
+/**
+ * The remembered browse choices (contract v6, research R10). Missing or
+ * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC.
+ */
+export interface BrowsePreferencesDto {
+  view: 'GALLERY' | 'LIST';
+  gallerySort: FileSort;
+  listSort: FileSort;
+}
+
+/** First-run browse choices, also used for any unknown stored value (research R10). */
+export const DEFAULT_BROWSE_PREFERENCES: Readonly<BrowsePreferencesDto> = {
+  view: 'GALLERY',
+  gallerySort: 'TIME_DESC',
+  listSort: 'NAME_ASC',
+};
+
+/** Every `FileSort`, in the order the sort menu lists them. */
+export const FILE_SORTS: readonly FileSort[] = [
+  'NAME_ASC',
+  'NAME_DESC',
+  'TIME_DESC',
+  'TIME_ASC',
+  'SIZE_DESC',
+  'SIZE_ASC',
+];
+
+export interface BrowsePreferencesOk {
+  contractVersion: number;
+  status: 'ok';
+  preferences: BrowsePreferencesDto;
+}
+
+export type BrowsePreferencesResult = BrowsePreferencesOk | OperationError;
 
 export interface StatusCountDto {
   status: FileStatus;
@@ -510,7 +690,9 @@ export interface ListSelectableEntriesOk {
   selectable: SelectableEntriesDto;
 }
 
-export type ListSelectableEntriesResult = ListSelectableEntriesOk | OperationError;
+export type ListSelectableEntriesResult =
+  | ListSelectableEntriesOk
+  | OperationError;
 
 /**
  * `SelectableEntriesDto` as the `listSelectableEntries` wrapper returns it:
@@ -535,11 +717,11 @@ export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
 export interface DeletionPlanDto {
   planToken: string;
   /** Backed up, confirmed on the server. `bytes` sums known sizes only. */
-  toDelete: {count: number; bytes: number};
+  toDelete: { count: number; bytes: number };
   /** Not backed up, including files the re-check moved out of toDelete. */
-  unsynced: {count: number; bytes: number};
+  unsynced: { count: number; bytes: number };
   /** Unknown state, never deleted (D006). */
-  refused: {count: number; scanTooOld: number};
+  refused: { count: number; scanTooOld: number };
   /** SYNCED rows the re-check moved out of toDelete. */
   movedByRecheck: number;
   /** IDs that are not FILE rows of the snapshot. */
@@ -556,7 +738,9 @@ export interface PrepareLocalDeletionOk {
   plan: DeletionPlanDto;
 }
 
-export type PrepareLocalDeletionResult = PrepareLocalDeletionOk | OperationError;
+export type PrepareLocalDeletionResult =
+  | PrepareLocalDeletionOk
+  | OperationError;
 
 export type DeletionFailureReason =
   | 'ALREADY_GONE'
@@ -587,7 +771,9 @@ export interface ExecuteLocalDeletionOk {
   result: DeletionResultDto;
 }
 
-export type ExecuteLocalDeletionResult = ExecuteLocalDeletionOk | OperationError;
+export type ExecuteLocalDeletionResult =
+  | ExecuteLocalDeletionOk
+  | OperationError;
 
 export type ScanMode = 'FULL' | 'LOCAL_REFRESH';
 
@@ -602,7 +788,11 @@ export type ScanPhase =
   | 'FAILED'
   | 'ABORTED';
 
-export type ScanTerminalState = 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'ABORTED';
+export type ScanTerminalState =
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED'
+  | 'ABORTED';
 
 export interface ScanProgressDto {
   remoteDirectoriesListed: number;
@@ -638,7 +828,14 @@ export interface ScanSummaryDto {
   unsynced: number;
   /** "Files that could not be checked" (FR-005, FR-007). */
   unknown: number;
+  /** Non-root directories below the folders that could not be listed. */
   unreadableRemoteDirectories: number;
+  /**
+   * Saved folders the last full scan could not read, in folder order; empty
+   * when every folder was read (contract version 6). Not empty means
+   * `coverage` is INCOMPLETE.
+   */
+  unreadRemoteFolders: string[];
   /** Code of the transient failure that stopped the remote walk, or null. */
   remoteListingInterruptedBy: string | null;
   skippedSources: SkippedSourceDto[];
@@ -685,7 +882,8 @@ export type FileIssueCode =
   | 'CONNECTION_TIMEOUT'
   | 'SERVER_ERROR'
   | 'REMOTE_MTIME_MISSING'
-  | 'LOCAL_UNAVAILABLE';
+  | 'LOCAL_UNAVAILABLE'
+  | 'REMOTE_FOLDER_UNREAD';
 
 export function isErrorResult(
   result: OperationResult | QueryFilesResult,

@@ -1,5 +1,5 @@
-import type {TurboModule} from 'react-native';
-import {TurboModuleRegistry} from 'react-native';
+import type { TurboModule } from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
 /**
  * Codegen contract for the single CloudSync TurboModule.
@@ -21,6 +21,8 @@ export type CloudSyncErrorDto = {
   action?: string | null;
   /** saveRepository rejections only: the offending config key (contract v5). */
   field?: string | null;
+  /** With `field: 'remoteRoots'`: the folder's index in the list (contract v6). */
+  fieldIndex?: number | null;
 };
 
 export type FileEntryDto = {
@@ -68,6 +70,8 @@ export type QuerySpecInput = {
   parentId?: string | null;
   search?: string | null;
   pageSize?: number | null;
+  /** 'DIRECTORY' | 'FILE': narrows the rows; part of the token fingerprint (contract v6). */
+  kind?: string | null;
 };
 
 export interface Spec extends TurboModule {
@@ -131,6 +135,29 @@ export interface Spec extends TurboModule {
     planToken: string,
     includeUnsynced: boolean,
   ): Promise<OperationResultDto>;
+  /**
+   * The scrollbar bands of the query's files, payload key `scrollIndex`; with
+   * an anchor `{sortValue, sortName}` also its `anchorIndex` (contract v6).
+   */
+  getScrollIndex(
+    snapshotId: string,
+    querySpec: QuerySpecInput,
+    anchor?: Object | null,
+  ): Promise<OperationResultDto>;
+  /**
+   * Lists the folders under `path` (null or empty: '/') on the server the
+   * draft `config` describes, payload key `remoteFolders`. Lists only; never
+   * writes and never saves (contract v6).
+   */
+  browseRemoteFolders(
+    config: Object,
+    transientPassword?: string | null,
+    path?: string | null,
+  ): Promise<OperationResultDto>;
+  /** The remembered view and sorts, payload key `preferences`; never fails (contract v6). */
+  getBrowsePreferences(): Promise<OperationResultDto>;
+  /** Stores the given view or sorts; an unknown value is INVALID_QUERY (contract v6). */
+  setBrowsePreferences(preferences: Object): Promise<OperationResultDto>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('CloudSync');

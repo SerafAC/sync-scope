@@ -6,6 +6,7 @@ import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.bridge.FileIssueCode
 import com.syncscope.bridge.connectRepository
+import com.syncscope.bridge.toRemoteConfig
 import com.syncscope.credential.CredentialStore
 import com.syncscope.persistence.LocalNodeEntity
 import com.syncscope.persistence.RemoteAmbiguityEntity
@@ -136,7 +137,7 @@ class ScanEngine(
    */
   suspend fun begin(mode: ScanMode): ScanTicket {
     val config = repositories.get() ?: throw RepositoryNotConfigured()
-    val protocol = RemoteProtocol.entries.firstOrNull { it.name == config.protocol } ?: throw RepositoryNotConfigured()
+    if (RemoteProtocol.entries.none { it.name == config.protocol }) throw RepositoryNotConfigured()
     if (mode == ScanMode.FULL && !credentials.isCurrent(config.credentialVersion)) throw CredentialUnavailable()
     val sources = sourceRoots.all()
     if (sources.isEmpty()) throw NoSourcesSelected()
@@ -173,7 +174,8 @@ class ScanEngine(
       }
       throw t
     }
-    val remote = RemoteConfig(protocol, config.host, config.port, config.username, config.remoteRoot, config.webdavHttps)
+    // Every configured folder, in order; the protocol was checked above, so the config always exists.
+    val remote = checkNotNull(config.toRemoteConfig())
     return ScanTicket(run, snapshotId, config, remote, sources, refreshFrom)
   }
 
@@ -212,7 +214,7 @@ class ScanEngine(
         repositories.updatePrecision(ticket.config.revision, precision)
         progress.phase = ScanPhase.LISTING_REMOTE.name
         val result =
-          walker.walk(session, ticket.config.remoteRoot, precision) { listed ->
+          walker.walk(session, ticket.remote.rootPaths, precision) { listed ->
             progress.update {
               it.copy(remoteDirectoriesListed = listed.directoriesListed.toLong(), remoteFilesListed = listed.filesListed)
             }
@@ -240,9 +242,14 @@ class ScanEngine(
     store.copyRemoteState(from.snapshotId, ticket.snapshotId)
     val keys = store.matchKeys(ticket.snapshotId)
     val precision = keys.firstOrNull()?.precisionMillis ?: store.precisionOf(from.snapshotId) ?: fallbackPrecision(ticket)
-    val firstGap =
-      store.ambiguities(ticket.snapshotId).firstOrNull { it.scope in REMOTE_SCOPES }?.let { CloudSyncErrorCode.valueOf(it.reason) }
-    val listing = firstGap?.let { ListingState.Incomplete(it) } ?: ListingState.Complete
+    val gaps = store.ambiguities(ticket.snapshotId).filter { it.scope in REMOTE_SCOPES }
+    val listing =
+      gaps.firstOrNull()?.let { first ->
+        ListingState.Incomplete(
+          CloudSyncErrorCode.valueOf(first.reason),
+          folderUnread = gaps.any { it.scope == RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER },
+        )
+      } ?: ListingState.Complete
     return RemoteSide(MatchIndex.fromRows(keys, precision), listing)
   }
 
@@ -341,6 +348,9 @@ class ScanEngine(
           precisionMillis = acc.precisionMillis,
           status = FileStatus.SYNCED.name,
           issueCode = null,
+          // Every FILE and DIRECTORY row, FULL and LOCAL_REFRESH alike, so a refresh over a snapshot
+          // migrated from schema 4 replaces its ASCII-only key (research R2).
+          sortName = SortName.of(file.name),
         )
       if (file.isDirectory) {
         directoryIds[file.documentId] = entryId
@@ -412,6 +422,10 @@ class ScanEngine(
 
     private val LOCAL_UNAVAILABLE = FileIssueCode.LOCAL_UNAVAILABLE.name
     private val REMOTE_SCOPES =
-      setOf(RemoteAmbiguityEntity.SCOPE_REMOTE_DIRECTORY, RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING)
+      setOf(
+        RemoteAmbiguityEntity.SCOPE_REMOTE_DIRECTORY,
+        RemoteAmbiguityEntity.SCOPE_REMOTE_LISTING,
+        RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER,
+      )
   }
 }

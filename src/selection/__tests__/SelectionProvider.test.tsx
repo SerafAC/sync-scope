@@ -18,6 +18,9 @@ import {
 } from '../SelectionProvider';
 
 jest.mock('../../native/CloudSync', () => ({
+  // The remembered view and sorts do not matter here: the read never answers.
+  getBrowsePreferences: jest.fn(() => new Promise(() => {})),
+  setBrowsePreferences: jest.fn(),
   listSelectableEntries: jest.fn(),
 }));
 
@@ -77,6 +80,7 @@ function file(entryId: string, overrides: Partial<FileEntryDto> = {}): FileEntry
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${entryId}.png`,
     ...overrides,
   };
 }

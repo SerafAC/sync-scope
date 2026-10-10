@@ -33,6 +33,10 @@ class SnapshotQueryTest {
     assertNotEquals(base.fingerprint(), base.copy(sourceId = "s1").fingerprint())
     assertNotEquals(base.fingerprint(), base.copy(parentId = "p1").fingerprint())
     assertNotEquals(base.fingerprint(), base.copy(search = "abc").fingerprint())
+    assertNotEquals(base.fingerprint(), base.copy(sort = FileSort.SIZE_DESC).fingerprint())
+    assertNotEquals(base.fingerprint(), base.copy(kind = FileKind.FILE).fingerprint())
+    // Two specs that differ only in kind select different rows (research R3).
+    assertNotEquals(base.copy(kind = FileKind.FILE).fingerprint(), base.copy(kind = FileKind.DIRECTORY).fingerprint())
     // Page size never changes which rows match, only how many are returned.
     assertEquals(base.fingerprint(), base.copy(pageSize = 10).fingerprint())
   }

@@ -1,5 +1,7 @@
 package com.syncscope.bridge
 
+import com.syncscope.persistence.FileKind
+import com.syncscope.persistence.FileSort
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -72,8 +74,36 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
-  fun contractVersionIsFive() {
-    assertEquals(5, CloudSyncContracts.CONTRACT_VERSION)
+  fun contractVersionIsSix() {
+    assertEquals(6, CloudSyncContracts.CONTRACT_VERSION)
+  }
+
+  /** The members of a TS string-literal union `export type <name> = 'A' | 'B' …;`, in source order. */
+  private fun tsUnion(name: String): List<String> {
+    val body = Regex("""export type $name =([^;]*);""").find(tsSource)!!.groupValues[1]
+    return Regex("""'(\w+)'""").findAll(body).map { it.groupValues[1] }.toList()
+  }
+
+  @Test
+  fun sortKindAndScrollUnitEnumsMatchTs() {
+    val sorts = listOf("NAME_ASC", "NAME_DESC", "TIME_ASC", "TIME_DESC", "SIZE_ASC", "SIZE_DESC")
+    assertEquals(sorts, tsUnion("FileSort"))
+    assertEquals(sorts, FileSort.entries.map { it.name })
+
+    assertEquals(listOf("DIRECTORY", "FILE"), tsUnion("FileKind"))
+    assertEquals(listOf("DIRECTORY", "FILE"), FileKind.entries.map { it.name })
+
+    val units = listOf("LETTER", "YEAR", "MONTH", "DAY", "SIZE")
+    assertEquals(units, tsUnion("ScrollUnit"))
+    assertEquals(units, ScrollUnit.entries.map { it.name })
+  }
+
+  @Test
+  fun scrollBandBoundsMatchTs() {
+    assertEquals(tsNumber("SCROLL_BANDS_MIN"), CloudSyncContracts.SCROLL_BANDS_MIN)
+    assertEquals(tsNumber("SCROLL_BANDS_MAX"), CloudSyncContracts.SCROLL_BANDS_MAX)
+    assertEquals(5, CloudSyncContracts.SCROLL_BANDS_MIN)
+    assertEquals(15, CloudSyncContracts.SCROLL_BANDS_MAX)
   }
 
   @Test
@@ -160,7 +190,7 @@ class CloudSyncContractsParityTest {
       ktText["IMAGE_UNAVAILABLE"],
     )
     assertEquals(
-      "No folders are selected to check." to "Add a folder in Settings › Folders.",
+      "No folders are selected to check." to "Add a folder in Settings › Device folders.",
       ktText["NO_SOURCES_SELECTED"],
     )
     assertEquals(
@@ -185,6 +215,10 @@ class CloudSyncContractsParityTest {
       FileIssueCode.REMOTE_MTIME_MISSING.text,
     )
     assertEquals("This file could not be read on the device.", FileIssueCode.LOCAL_UNAVAILABLE.text)
+    assertEquals(
+      "A backup folder could not be read, so this file may be backed up there.",
+      FileIssueCode.REMOTE_FOLDER_UNREAD.text,
+    )
   }
 
   @Test

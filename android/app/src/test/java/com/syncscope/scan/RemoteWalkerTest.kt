@@ -1,6 +1,7 @@
 package com.syncscope.scan
 
 import com.syncscope.bridge.CloudSyncErrorCode
+import com.syncscope.persistence.RemoteAmbiguityEntity
 import com.syncscope.remote.ConnectOutcome
 import com.syncscope.remote.PrecisionFinding
 import com.syncscope.remote.RemoteClient
@@ -11,11 +12,15 @@ import com.syncscope.remote.RemoteEntryType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Research R5: breadth-first walk, retry policy and the FAILED boundary, against a scripted fake client. */
+/**
+ * Research R5: breadth-first walk, retry policy and the FAILED boundary, against a scripted fake client.
+ * Research R14: several folders, a `REMOTE_FOLDER` gap per unread folder, and the all-folders-failed boundary.
+ */
 class RemoteWalkerTest {
 
   private val script = Script()
@@ -94,7 +99,7 @@ class RemoteWalkerTest {
   fun rootWithTrailingSlashJoinsCleanly() = runBlocking {
     script.ok("/", dir("a"))
     script.ok("/a", file("x", 1))
-    val result = walker.walk(session(), "/", PRECISION)
+    val result = walker.walk(session(), listOf("/"), PRECISION)
     assertEquals(listOf("/", "/a"), script.listed)
     assertEquals(1, result.index.keyCount)
   }
@@ -105,7 +110,7 @@ class RemoteWalkerTest {
       val script = Script()
       script.fail("/root", code)
       val failure = assertThrows(RootListingFailed::class.java) {
-        runBlocking { RemoteWalker(delay = {}).walk(RemoteSession(script.client()) { script.client() }, "/root", PRECISION) }
+        runBlocking { RemoteWalker(delay = {}).walk(RemoteSession(script.client()) { script.client() }, listOf("/root"), PRECISION) }
       }
       assertEquals(code, failure.code)
       assertEquals(0, script.reconnects)
@@ -242,11 +247,122 @@ class RemoteWalkerTest {
     script.ok("/root", file("a", 1), file("b", 2), dir("d"), other("l"))
     script.ok("/root/d", file("c", 3))
     val progress = mutableListOf<WalkProgress>()
-    walker.walk(session(), "/root", PRECISION) { progress += it }
+    walker.walk(session(), listOf("/root"), PRECISION) { progress += it }
     assertEquals(listOf(WalkProgress(1, 2), WalkProgress(2, 3)), progress)
   }
 
-  private suspend fun walk(): WalkResult = walker.walk(session(), "/root", PRECISION)
+  // --- several folders (research R14) ---
+
+  @Test
+  fun everyFolderIsListedFirstInOrderThenTheirSubdirectories() = runBlocking {
+    script.ok("/a", file("one.jpg", 1), dir("sub"))
+    script.ok("/b", file("two.jpg", 2))
+    script.ok("/a/sub", file("three.jpg", 3))
+
+    val result = walk(listOf("/a", "/b"))
+
+    assertEquals(ListingState.Complete, result.listing)
+    assertTrue(result.ambiguities.isEmpty())
+    assertEquals(listOf("/a", "/b", "/a/sub"), script.listed)
+    assertEquals(3, result.index.keyCount)
+    assertEquals(listOf("/b"), result.index.directoriesOf("two.jpg", 2, MatchIndex.bucketOf(MTIME, PRECISION)))
+  }
+
+  @Test
+  fun aFailingFolderAddsARemoteFolderGapWithItsPathAndTheWalkContinues() = runBlocking {
+    script.fail("/a", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    script.ok("/b", file("two.jpg", 2), dir("sub"))
+    script.ok("/b/sub", file("three.jpg", 3))
+
+    val result = walk(listOf("/a", "/b"))
+
+    assertEquals(
+      listOf(WalkAmbiguity.remoteFolder(CloudSyncErrorCode.DIRECTORY_UNREADABLE, "/a")),
+      result.ambiguities,
+    )
+    assertEquals(ListingState.Incomplete(CloudSyncErrorCode.DIRECTORY_UNREADABLE, folderUnread = true), result.listing)
+    assertEquals(2, result.index.keyCount)
+    assertEquals(listOf("/a", "/b", "/b/sub"), script.listed)
+
+    val row = result.ambiguities.single().toEntity("snap")
+    assertEquals(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, row.scope)
+    assertEquals("/a", row.remotePath)
+    assertEquals("DIRECTORY_UNREADABLE", row.reason)
+  }
+
+  @Test
+  fun aFolderFailsOnlyAfterTheRetryPolicy() = runBlocking {
+    script.ok("/a", file("one.jpg", 1))
+    repeat(3) { script.fail("/b", CloudSyncErrorCode.CONNECTION_TIMEOUT) }
+    script.ok("/c", file("three.jpg", 3))
+
+    val result = walk(listOf("/a", "/b", "/c"))
+
+    assertEquals(listOf(1_000L, 2_000L), backoffs)
+    assertEquals(listOf(WalkAmbiguity.remoteFolder(CloudSyncErrorCode.CONNECTION_TIMEOUT, "/b")), result.ambiguities)
+    assertEquals(2, result.index.keyCount)
+  }
+
+  @Test
+  fun aFolderRecoveringOnRetryIsNoGap() = runBlocking {
+    script.fail("/a", CloudSyncErrorCode.CONNECTION_LOST)
+    script.ok("/a", file("one.jpg", 1))
+    script.ok("/b", file("two.jpg", 2))
+
+    val result = walk(listOf("/a", "/b"))
+
+    assertEquals(ListingState.Complete, result.listing)
+    assertTrue(result.ambiguities.isEmpty())
+  }
+
+  @Test
+  fun everyFolderFailingRaisesRootListingFailedWithTheFirstFoldersCode() {
+    script.fail("/a", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    script.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+
+    val failure = assertThrows(RootListingFailed::class.java) { runBlocking { walk(listOf("/a", "/b")) } }
+
+    assertEquals(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, failure.code)
+    assertEquals(listOf("/a", "/b"), script.listed)
+  }
+
+  @Test
+  fun onlyConfiguredFoldersAreRecordedNeverDiscoveredPaths() = runBlocking {
+    script.fail("/a", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    script.ok("/b", dir("private"))
+    script.fail("/b/private", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+
+    val result = walk(listOf("/a", "/b"))
+
+    assertEquals(
+      listOf(
+        WalkAmbiguity.remoteFolder(CloudSyncErrorCode.DIRECTORY_UNREADABLE, "/a"),
+        WalkAmbiguity.remoteDirectory(CloudSyncErrorCode.DIRECTORY_UNREADABLE),
+      ),
+      result.ambiguities,
+    )
+    val rows = result.ambiguities.map { it.toEntity("snap") }
+    assertEquals(listOf("/a", null), rows.map { it.remotePath })
+    assertEquals(ListingState.Incomplete(CloudSyncErrorCode.DIRECTORY_UNREADABLE, folderUnread = true), result.listing)
+  }
+
+  @Test
+  fun oneFolderBehavesExactlyAsBefore() {
+    script.fail("/root", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    val failure = assertThrows(RootListingFailed::class.java) { runBlocking { walk() } }
+    assertEquals(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, failure.code)
+  }
+
+  @Test
+  fun aSubdirectoryGapLeavesTheFolderFlagUnset() = runBlocking {
+    script.ok("/root", dir("x"))
+    script.fail("/root/x", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    val result = walk()
+    assertEquals(ListingState.Incomplete(CloudSyncErrorCode.DIRECTORY_UNREADABLE, folderUnread = false), result.listing)
+    assertNull(result.ambiguities.single().toEntity("snap").remotePath)
+  }
+
+  private suspend fun walk(roots: List<String> = listOf("/root")): WalkResult = walker.walk(session(), roots, PRECISION)
 
   private fun session() = RemoteSession(script.client()) { script.reconnect() }
 

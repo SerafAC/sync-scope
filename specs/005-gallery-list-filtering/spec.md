@@ -26,12 +26,12 @@ Consumes from feature 004 (M001/S03 → M001/S04):
 - Working `queryTreeChildren` with `parentId` and `kind` on every `local_node` row (M001/S03 → M001/S05,
   used here by the browsable list).
 
-**Moved here from 007** (user decision, 2026-10-01): `getLocalImageHandle`, the local-only image read,
-because gallery tiles need thumbnails. Feature 007 reuses it for the full preview
+**Moved here from 009** (user decision, 2026-10-01): `getLocalImageHandle`, the local-only image read,
+because gallery tiles need thumbnails. Feature 009 reuses it for the full preview
 ([research R7](./research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-007-user-decision-2026-10-01)).
 
 **Not owned here**: the include-hidden-files setting (`getSettings` / `setIncludeHidden`) is reassigned to
-feature 009. This feature keeps scanning with `includeHidden = false` and leaves both methods
+feature 011. This feature keeps scanning with `includeHidden = false` and leaves both methods
 `NOT_IMPLEMENTED`, as feature 004 does
 ([004 research R8](../004-scan-engine-matching/research.md#r8-hidden-files)).
 
@@ -40,8 +40,8 @@ feature 009. This feature keeps scanning with `includeHidden = false` and leaves
 ### Session 2026-10-01
 
 - Q: When should two gallery tiles count as "duplicates" and get an origin badge? → A: When the same file name appears in two or more different source folders; the badge shows the source folder's name.
-- Q: Should this feature own the include-hidden-files setting (`getSettings` / `setIncludeHidden`)? → A: No; reassigned to feature 009. Both methods stay `NOT_IMPLEMENTED` here.
-- Q: In list view, when a filter is active and none of a directory's files match it, what happens to that directory row? → A: It stays visible, dimmed, with a count of matching files (0), and can still be opened; same rule as tree view (feature 007).
+- Q: Should this feature own the include-hidden-files setting (`getSettings` / `setIncludeHidden`)? → A: No; reassigned to feature 011. Both methods stay `NOT_IMPLEMENTED` here.
+- Q: In list view, when a filter is active and none of a directory's files match it, what happens to that directory row? → A: It stays visible, dimmed, with a count of matching files (0), and can still be opened; same rule as tree view (feature 009).
 - Q: When a page request fails with `STALE_GENERATION` because a rescan published a new snapshot, what should the view do? → A: Reload automatically from page 1 of the new snapshot, keeping filter, sort and folder, with a short "Results updated" snackbar; if the folder no longer exists, fall back to its nearest existing ancestor.
 - Q: Should users get sort or name-search controls in this feature? → A: No; fixed sort, no search. Gallery uses `TIME_DESC`, list view uses `NAME_ASC`.
 
@@ -78,7 +78,7 @@ the unknown set is how they avoid deleting what was never checked.
 
 - A filter that leaves a directory with no matching files beneath it in list view: the directory row stays
   visible, dimmed, with a matching-file count of 0, and can still be opened (showing an empty filtered
-  state). Feature 007's tree view uses the same rule.
+  state). Feature 009's tree view uses the same rule.
 - A rescan publishes a new snapshot while a view is paging (the active snapshot changes, or a read fails
   with `STALE_GENERATION`, `SNAPSHOT_NOT_FOUND` or `PAGE_TOKEN_MISMATCH`): the view discards its loaded rows
   and reloads from page 1 of the new active snapshot, keeping the current filter, sort and folder, and
@@ -124,8 +124,8 @@ the unknown set is how they avoid deleting what was never checked.
 
 Supporting requirements (primary FR in another feature):
 
-- R020 (feature 009): the browse and filter loop is proven by a Maestro flow.
-- R022 (feature 009): `./docs` is updated in the same change as this feature's behaviour.
+- R020 (feature 011): the browse and filter loop is proven by a Maestro flow.
+- R022 (feature 011): `./docs` is updated in the same change as this feature's behaviour.
 
 ### Key Entities
 
@@ -137,7 +137,7 @@ Supporting requirements (primary FR in another feature):
 
 ## Provides
 
-To feature 007 (tree view and preview, M001/S04 → M001/S05):
+To feature 009 (tree view and preview, M001/S04 → M001/S05):
 
 - The Material 3 shell: theme, spacing and density scale, filter-chip component, and the
   accessibility-label convention Maestro selectors depend on.

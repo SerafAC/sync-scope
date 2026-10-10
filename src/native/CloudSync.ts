@@ -1,9 +1,11 @@
-import {TurboModuleRegistry} from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
 import {
   CLOUD_SYNC_CONTRACT_VERSION,
   CLOUD_SYNC_MODULE_NAME,
   CloudSyncErrorCode,
+  DEFAULT_BROWSE_PREFERENCES,
+  FILE_SORTS,
   REPOSITORY_FIELDS,
   clampImageEdge,
   clampPageSize,
@@ -25,14 +27,26 @@ import {
   type QueryFilesResult,
   type QuerySpec,
   type RepositoryConfigInput,
+  type BrowseRemoteFoldersResult,
+  type RemoteBrowseConfigInput,
+  type RemoteFoldersDto,
   type RepositoryConnectionDto,
   type RepositoryField,
+  type RepositoryFolderResultDto,
   type RepositorySummaryDto,
   type RepositorySummaryResult,
   type ActiveSnapshotDto,
+  type BrowsePreferencesDto,
+  type BrowsePreferencesResult,
+  type FileSort,
   type ScanMode,
   type ScanRunDto,
   type ScanStateResult,
+  type ScrollAnchor,
+  type ScrollBandDto,
+  type ScrollIndexDto,
+  type ScrollIndexResult,
+  type ScrollUnit,
   type SelectableEntries,
   type SelectableEntriesResult,
   type SourceDto,
@@ -40,7 +54,7 @@ import {
   type StartScanResult,
   type TestRepositoryResult,
 } from './CloudSyncContracts';
-import type {Spec} from './specs/NativeCloudSync';
+import type { Spec } from './specs/NativeCloudSync';
 
 /**
  * Typed client for the single generated CloudSync TurboModule. Presentation
@@ -72,7 +86,7 @@ export async function queryFiles(
 ): Promise<QueryFilesResult> {
   const result = await nativeModule().queryFiles(
     snapshotId,
-    {...querySpec, pageSize: clampPageSize(querySpec.pageSize)},
+    { ...querySpec, pageSize: clampPageSize(querySpec.pageSize) },
     pageToken ?? null,
   );
   return normalizePageResult(result);
@@ -87,7 +101,7 @@ export async function queryTreeChildren(
   const result = await nativeModule().queryTreeChildren(
     snapshotId,
     parentId,
-    {...querySpec, pageSize: clampPageSize(querySpec.pageSize)},
+    { ...querySpec, pageSize: clampPageSize(querySpec.pageSize) },
     pageToken ?? null,
   );
   return normalizePageResult(result);
@@ -97,7 +111,7 @@ function normalizePageResult(result: {
   contractVersion: number;
   status: string;
   page?: unknown;
-  error?: {code: string; message: string; action?: string | null} | null;
+  error?: { code: string; message: string; action?: string | null } | null;
 }): QueryFilesResult {
   // The generated bridge returns plain objects; re-tag them into the
   // discriminated union without trusting arbitrary fields.
@@ -145,15 +159,19 @@ type NativeEnvelope = {
   connection?: unknown;
   plan?: unknown;
   result?: unknown;
+  preferences?: unknown;
+  remoteFolders?: unknown;
+  scrollIndex?: unknown;
 };
 
 type NativeErrorShape = {
   code?: unknown;
   message?: unknown;
   action?: unknown;
-  conflictingSource?: {sourceId?: unknown; alias?: unknown} | null;
+  conflictingSource?: { sourceId?: unknown; alias?: unknown } | null;
   hostKeyChallenge?: unknown;
   field?: unknown;
+  fieldIndex?: unknown;
 };
 
 function isRepositoryField(value: unknown): value is RepositoryField {
@@ -192,18 +210,27 @@ function contractVersionOf(result: NativeEnvelope): number {
 }
 
 function normalizeOperationError(result: NativeEnvelope): OperationError {
-  const nativeError = result.error as NativeErrorShape | null | undefined;
-  if (nativeError == null || typeof nativeError.code !== 'string') {
-    return {
-      contractVersion: contractVersionOf(result),
-      status: 'error',
-      error: {
-        code: CloudSyncErrorCode.INTERNAL_ERROR,
-        message: 'Native operation failed without a typed error.',
-        action: null,
-        conflictingSource: null,
-      },
-    };
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'error',
+    error: cloudSyncErrorOf(result.error) ?? {
+      code: CloudSyncErrorCode.INTERNAL_ERROR,
+      message: 'Native operation failed without a typed error.',
+      action: null,
+      conflictingSource: null,
+    },
+  };
+}
+
+/** A typed error from native's error map; null when it has no code. */
+function cloudSyncErrorOf(value: unknown): CloudSyncError | null {
+  const nativeError = value as NativeErrorShape | null | undefined;
+  if (
+    nativeError == null ||
+    typeof nativeError !== 'object' ||
+    typeof nativeError.code !== 'string'
+  ) {
+    return null;
   }
   const conflict = nativeError.conflictingSource;
   const error: CloudSyncError = {
@@ -214,18 +241,23 @@ function normalizeOperationError(result: NativeEnvelope): OperationError {
       conflict != null &&
       typeof conflict.sourceId === 'string' &&
       typeof conflict.alias === 'string'
-        ? {sourceId: conflict.sourceId, alias: conflict.alias}
+        ? { sourceId: conflict.sourceId, alias: conflict.alias }
         : null,
   };
   // Kept only when typed: an unknown field name never reaches the form.
   if (isRepositoryField(nativeError.field)) {
     error.field = nativeError.field;
+    // The folder to fix (contract v6); a malformed index is dropped, so the
+    // error shows for the whole list instead.
+    if (isCount(nativeError.fieldIndex)) {
+      error.fieldIndex = nativeError.fieldIndex;
+    }
   }
   const challenge = hostKeyChallengeOf(nativeError.hostKeyChallenge);
   if (challenge != null) {
     error.hostKeyChallenge = challenge;
   }
-  return {contractVersion: contractVersionOf(result), status: 'error', error};
+  return error;
 }
 
 export async function listSources(): Promise<ListSourcesResult> {
@@ -274,7 +306,7 @@ export async function removeSource(sourceId: string): Promise<OperationResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /**
@@ -312,8 +344,11 @@ export async function startScan(mode?: ScanMode): Promise<StartScanResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  if (typeof result.runId !== 'string' || typeof result.generation !== 'number') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+  if (
+    typeof result.runId !== 'string' ||
+    typeof result.generation !== 'number'
+  ) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
@@ -333,7 +368,7 @@ export async function cancelScan(runId: string): Promise<OperationResult> {
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /** The running run (else the latest one) and the active snapshot; safe to poll. */
@@ -363,12 +398,31 @@ function activeSnapshotOf(value: unknown): ActiveSnapshotDto | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const active = value as ActiveSnapshotDto & {configRevision?: unknown};
+  const active = value as ActiveSnapshotDto & { configRevision?: unknown };
+  const summary = (active.summary ?? {}) as ActiveSnapshotDto['summary'] & {
+    unreadRemoteFolders?: unknown;
+  };
   return {
     ...active,
     configRevision:
       typeof active.configRevision === 'number' ? active.configRevision : 0,
+    // Contract v6: missing or malformed reads as "every folder was read".
+    summary: {
+      ...summary,
+      unreadRemoteFolders: stringsOf(summary.unreadRemoteFolders),
+    },
   };
+}
+
+/** The strings of [value] when it is an array; otherwise none. */
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
 /**
@@ -395,19 +449,19 @@ export async function getLocalImageHandle(
     result = null;
   }
   if (result == null || typeof result !== 'object') {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  const handle = result.handle as {uri?: unknown} | null | undefined;
+  const handle = result.handle as { uri?: unknown } | null | undefined;
   if (handle == null || typeof handle.uri !== 'string') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    handle: {uri: handle.uri},
+    handle: { uri: handle.uri },
   };
 }
 
@@ -428,24 +482,168 @@ export async function listSelectableEntries(
   }
   let result: NativeEnvelope | null | undefined;
   try {
-    result = (await module.listSelectableEntries(
-      snapshotId,
-      querySpec,
-    )) as NativeEnvelope | null | undefined;
+    result = (await module.listSelectableEntries(snapshotId, querySpec)) as
+      | NativeEnvelope
+      | null
+      | undefined;
   } catch {
     result = null;
   }
   if (result == null || typeof result !== 'object') {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const selectable = selectableEntriesOf(result.selectable);
   if (selectable == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', selectable};
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    selectable,
+  };
+}
+
+/**
+ * The scrollbar bands of the files [querySpec] shows in the active snapshot
+ * [snapshotId] (contract v6, research R4), with `anchorIndex` when an [anchor]
+ * is given. Native ignores `pageSize`; each band's `startToken` pages the same
+ * query from that band's first row. A malformed index (an unknown unit, counts
+ * that do not add up, a band without its unit's bound) is INTERNAL_ERROR.
+ */
+export async function getScrollIndex(
+  snapshotId: string,
+  querySpec: QuerySpec,
+  anchor?: ScrollAnchor | null,
+): Promise<ScrollIndexResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    native =>
+      native.getScrollIndex(
+        snapshotId,
+        querySpec,
+        anchor == null
+          ? null
+          : { sortValue: anchor.sortValue, sortName: anchor.sortName },
+      ),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const scrollIndex = scrollIndexOf(result.scrollIndex);
+  if (scrollIndex == null) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    scrollIndex,
+  };
+}
+
+const SCROLL_UNITS: readonly unknown[] = [
+  'LETTER',
+  'YEAR',
+  'MONTH',
+  'DAY',
+  'SIZE',
+] satisfies ScrollUnit[];
+
+function isOptionalNumber(value: unknown): value is number | null | undefined {
+  return value == null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function scrollBandOf(value: unknown, unit: ScrollUnit): ScrollBandDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const b = value as Record<string, unknown>;
+  if (
+    !isCount(b.startIndex) ||
+    !isCount(b.count) ||
+    b.count === 0 ||
+    (b.startToken != null && typeof b.startToken !== 'string') ||
+    (b.letter != null && typeof b.letter !== 'string') ||
+    !isOptionalNumber(b.startMillis) ||
+    !isOptionalNumber(b.lowerBytes) ||
+    (b.unknown != null && typeof b.unknown !== 'boolean')
+  ) {
+    return null;
+  }
+  const band: ScrollBandDto = {
+    startIndex: b.startIndex,
+    count: b.count,
+    startToken: typeof b.startToken === 'string' ? b.startToken : null,
+    letter: typeof b.letter === 'string' ? b.letter : null,
+    startMillis: b.startMillis ?? null,
+    lowerBytes: b.lowerBytes ?? null,
+    unknown: b.unknown === true,
+  };
+  if (band.unknown) {
+    return band;
+  }
+  // Every known band carries the bound of the index's unit.
+  const bound =
+    unit === 'LETTER'
+      ? band.letter
+      : unit === 'SIZE'
+      ? band.lowerBytes
+      : band.startMillis;
+  return bound == null ? null : band;
+}
+
+/**
+ * A `ScrollIndexDto`, or null when it is malformed: the bands must be in order
+ * (each `startIndex` the sum of the counts before it), add up to `totalCount`,
+ * and only the last may be `unknown`; `anchorIndex` is null or a row index.
+ */
+function scrollIndexOf(value: unknown): ScrollIndexDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const r = value as Record<string, unknown>;
+  if (
+    !SCROLL_UNITS.includes(r.unit) ||
+    !isCount(r.totalCount) ||
+    !Array.isArray(r.bands)
+  ) {
+    return null;
+  }
+  const unit = r.unit as ScrollUnit;
+  const bands: ScrollBandDto[] = [];
+  let next = 0;
+  for (const raw of r.bands) {
+    const band = scrollBandOf(raw, unit);
+    if (
+      band == null ||
+      band.startIndex !== next ||
+      bands.some(earlier => earlier.unknown)
+    ) {
+      return null;
+    }
+    bands.push(band);
+    next += band.count;
+  }
+  if (next !== r.totalCount) {
+    return null;
+  }
+  const anchorIndex = r.anchorIndex ?? null;
+  if (
+    anchorIndex != null &&
+    (!isCount(anchorIndex) || anchorIndex >= r.totalCount)
+  ) {
+    return null;
+  }
+  return { unit, totalCount: r.totalCount, bands, anchorIndex };
 }
 
 const FILE_STATUSES: readonly unknown[] = [
@@ -458,7 +656,10 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const {entryIds, sizes, statuses, images} = value as Record<string, unknown>;
+  const { entryIds, sizes, statuses, images } = value as Record<
+    string,
+    unknown
+  >;
   if (
     !Array.isArray(entryIds) ||
     !Array.isArray(sizes) ||
@@ -511,11 +712,11 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-function isTotals(value: unknown): value is {count: number; bytes: number} {
+function isTotals(value: unknown): value is { count: number; bytes: number } {
   if (value == null || typeof value !== 'object') {
     return false;
   }
-  const {count, bytes} = value as Record<string, unknown>;
+  const { count, bytes } = value as Record<string, unknown>;
   return isCount(count) && isCount(bytes);
 }
 
@@ -543,9 +744,9 @@ function deletionPlanOf(value: unknown): DeletionPlanDto | null {
   }
   return {
     planToken: v.planToken,
-    toDelete: {count: v.toDelete.count, bytes: v.toDelete.bytes},
-    unsynced: {count: v.unsynced.count, bytes: v.unsynced.bytes},
-    refused: {count: refused.count, scanTooOld: refused.scanTooOld},
+    toDelete: { count: v.toDelete.count, bytes: v.toDelete.bytes },
+    unsynced: { count: v.unsynced.count, bytes: v.unsynced.bytes },
+    refused: { count: refused.count, scanTooOld: refused.scanTooOld },
     movedByRecheck: v.movedByRecheck,
     missing: v.missing,
     unknownSizeCount: v.unknownSizeCount,
@@ -564,7 +765,7 @@ function deletionFailureOf(value: unknown): DeletionFailureDto | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const {entryId, name, reason} = value as Record<string, unknown>;
+  const { entryId, name, reason } = value as Record<string, unknown>;
   if (
     typeof entryId !== 'string' ||
     typeof name !== 'string' ||
@@ -572,7 +773,7 @@ function deletionFailureOf(value: unknown): DeletionFailureDto | null {
   ) {
     return null;
   }
-  return {entryId, name, reason: reason as DeletionFailureReason};
+  return { entryId, name, reason: reason as DeletionFailureReason };
 }
 
 function deletionResultOf(value: unknown): DeletionResultDto | null {
@@ -619,16 +820,16 @@ export async function prepareLocalDeletion(
     module,
   );
   if (result == null) {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const plan = deletionPlanOf(result.plan);
   if (plan == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', plan};
+  return { contractVersion: contractVersionOf(result), status: 'ok', plan };
 }
 
 /**
@@ -649,14 +850,14 @@ export async function executeLocalDeletion(
     module,
   );
   if (result == null) {
-    return normalizeOperationError({status: 'error', error: null});
+    return normalizeOperationError({ status: 'error', error: null });
   }
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
   const deletion = deletionResultOf(result.result);
   if (deletion == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
@@ -677,9 +878,13 @@ export async function getRepositorySummary(): Promise<RepositorySummaryResult> {
   }
   const repository = repositorySummaryOf(result.repository);
   if (repository == null) {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok', repository};
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    repository,
+  };
 }
 
 function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
@@ -688,11 +893,14 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
   }
   const r = value as Record<string, unknown>;
   if (
-    (r.protocol !== 'FTP' && r.protocol !== 'SFTP' && r.protocol !== 'WEBDAV') ||
+    (r.protocol !== 'FTP' &&
+      r.protocol !== 'SFTP' &&
+      r.protocol !== 'WEBDAV') ||
     typeof r.host !== 'string' ||
     typeof r.port !== 'number' ||
     typeof r.username !== 'string' ||
-    typeof r.remoteRoot !== 'string'
+    !isStringArray(r.remoteRoots) ||
+    r.remoteRoots.length === 0
   ) {
     return null;
   }
@@ -701,7 +909,7 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
     host: r.host,
     port: r.port,
     username: r.username,
-    remoteRoot: r.remoteRoot,
+    remoteRoots: [...r.remoteRoots],
     precisionMillis:
       typeof r.precisionMillis === 'number' ? r.precisionMillis : null,
     credentialPresent: r.credentialPresent === true,
@@ -715,7 +923,8 @@ function repositorySummaryOf(value: unknown): RepositorySummaryDto | null {
 /**
  * Saves the single repository. [password] is sent only when typed: null keeps the
  * stored one for the same server and account (native rule). A parse failure is
- * INVALID_QUERY with `error.field` naming the form field.
+ * INVALID_QUERY with `error.field` naming the form field, and for a folder
+ * (`remoteRoots`) `error.fieldIndex` naming which one (contract v6).
  */
 export async function saveRepository(
   config: RepositoryConfigInput,
@@ -731,7 +940,7 @@ export async function saveRepository(
       host: config.host,
       port: config.port,
       username: config.username,
-      remoteRoot: config.remoteRoot,
+      remoteRoots: [...config.remoteRoots],
       webdavHttps: config.webdavHttps ?? false,
     },
     password != null && password !== '' ? password : null,
@@ -739,12 +948,14 @@ export async function saveRepository(
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /**
- * Connects to the saved repository and lists its folder. An unknown or changed SFTP
- * key resolves SFTP_HOST_KEY_UNVERIFIED / _CHANGED with `error.hostKeyChallenge`.
+ * Connects to the saved repository and lists each of its folders. An unknown or
+ * changed SFTP key resolves SFTP_HOST_KEY_UNVERIFIED / _CHANGED with
+ * `error.hostKeyChallenge`. A folder that could not be listed fails only its
+ * own line in `connection.folders` (contract v6, research R12).
  */
 export async function testRepository(): Promise<TestRepositoryResult> {
   const module = scanModule();
@@ -760,12 +971,106 @@ export async function testRepository(): Promise<TestRepositoryResult> {
     | null
     | undefined;
   if (connection == null || typeof connection.entryCount !== 'number') {
-    return normalizeOperationError({...result, status: 'error', error: null});
+    return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    connection: connection as RepositoryConnectionDto,
+    connection: {
+      ...(connection as RepositoryConnectionDto),
+      folders: folderResultsOf(connection.folders),
+    },
+  };
+}
+
+/** The per-folder lines; a malformed line is dropped, a missing list is empty. */
+function folderResultsOf(value: unknown): RepositoryFolderResultDto[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item: unknown) => {
+    if (item == null || typeof item !== 'object') {
+      return [];
+    }
+    const line = item as Record<string, unknown>;
+    if (typeof line.path !== 'string') {
+      return [];
+    }
+    return [
+      {
+        path: line.path,
+        entryCount: isCount(line.entryCount) ? line.entryCount : null,
+        error: cloudSyncErrorOf(line.error),
+      },
+    ];
+  });
+}
+
+function remoteFoldersOf(value: unknown): RemoteFoldersDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const r = value as Record<string, unknown>;
+  if (
+    typeof r.path !== 'string' ||
+    (r.parent != null && typeof r.parent !== 'string') ||
+    !isStringArray(r.folders)
+  ) {
+    return null;
+  }
+  return {
+    path: r.path,
+    parent: typeof r.parent === 'string' ? r.parent : null,
+    folders: [...r.folders],
+    fellBackToRoot: r.fellBackToRoot === true,
+  };
+}
+
+/**
+ * Lists the folders directly inside [path] on the server of the form's draft
+ * (contract v6, research R13). [password] is sent only when typed; without it
+ * native uses the stored one for the same account, or answers
+ * CREDENTIAL_UNAVAILABLE. A null or empty [path] lists `/`. Errors follow
+ * testRepository, including the SFTP host-key challenge. Nothing is saved.
+ */
+export async function browseRemoteFolders(
+  config: RemoteBrowseConfigInput,
+  password?: string | null,
+  path?: string | null,
+): Promise<BrowseRemoteFoldersResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    native =>
+      native.browseRemoteFolders(
+        {
+          protocol: config.protocol,
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          webdavHttps: config.webdavHttps ?? false,
+        },
+        password != null && password !== '' ? password : null,
+        path != null && path !== '' ? path : null,
+      ),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const remoteFolders = remoteFoldersOf(result.remoteFolders);
+  if (remoteFolders == null) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    remoteFolders,
   };
 }
 
@@ -777,11 +1082,13 @@ export async function approveSftpHostKey(
   if (module == null) {
     return moduleUnavailable();
   }
-  const result = (await module.approveSftpHostKey(challengeId)) as NativeEnvelope;
+  const result = (await module.approveSftpHostKey(
+    challengeId,
+  )) as NativeEnvelope;
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 /** Rejects the SFTP key of [challengeId]; nothing is trusted. */
@@ -792,11 +1099,104 @@ export async function rejectSftpHostKey(
   if (module == null) {
     return moduleUnavailable();
   }
-  const result = (await module.rejectSftpHostKey(challengeId)) as NativeEnvelope;
+  const result = (await module.rejectSftpHostKey(
+    challengeId,
+  )) as NativeEnvelope;
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  return {contractVersion: contractVersionOf(result), status: 'ok'};
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
+}
+
+const BROWSE_VIEWS: readonly unknown[] = [
+  'GALLERY',
+  'LIST',
+] satisfies BrowsePreferencesDto['view'][];
+
+function sortOr(value: unknown, fallback: FileSort): FileSort {
+  return (FILE_SORTS as readonly unknown[]).includes(value)
+    ? (value as FileSort)
+    : fallback;
+}
+
+/** Each field of [value] that is not a known value reads as its default (contract v6). */
+function browsePreferencesOf(value: unknown): BrowsePreferencesDto {
+  const fields =
+    value != null && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    view: BROWSE_VIEWS.includes(fields.view)
+      ? (fields.view as BrowsePreferencesDto['view'])
+      : DEFAULT_BROWSE_PREFERENCES.view,
+    gallerySort: sortOr(
+      fields.gallerySort,
+      DEFAULT_BROWSE_PREFERENCES.gallerySort,
+    ),
+    listSort: sortOr(fields.listSort, DEFAULT_BROWSE_PREFERENCES.listSort),
+  };
+}
+
+/**
+ * The remembered view mode and each view's sort (contract v6, research R10).
+ * Native never fails this read; an unknown or missing value reads as its
+ * default. A rejected call is INTERNAL_ERROR and a missing module
+ * NATIVE_MODULE_UNAVAILABLE, so the caller can fall back to the defaults.
+ */
+export async function getBrowsePreferences(): Promise<BrowsePreferencesResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.getBrowsePreferences()) as
+      | NativeEnvelope
+      | null
+      | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    preferences: browsePreferencesOf(result.preferences),
+  };
+}
+
+/** Stores the given fields only; an unknown value is INVALID_QUERY and stores nothing. */
+export async function setBrowsePreferences(
+  preferences: Partial<BrowsePreferencesDto>,
+): Promise<OperationResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const given = Object.fromEntries(
+    Object.entries(preferences).filter(([, value]) => value !== undefined),
+  );
+  let result: NativeEnvelope | null | undefined;
+  try {
+    result = (await module.setBrowsePreferences(given)) as
+      | NativeEnvelope
+      | null
+      | undefined;
+  } catch {
+    result = null;
+  }
+  if (result == null || typeof result !== 'object') {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  return { contractVersion: contractVersionOf(result), status: 'ok' };
 }
 
 export const CloudSync = {
@@ -812,11 +1212,15 @@ export const CloudSync = {
   getScanState,
   getLocalImageHandle,
   listSelectableEntries,
+  getScrollIndex,
   prepareLocalDeletion,
   executeLocalDeletion,
   getRepositorySummary,
   saveRepository,
   testRepository,
+  browseRemoteFolders,
   approveSftpHostKey,
   rejectSftpHostKey,
+  getBrowsePreferences,
+  setBrowsePreferences,
 };

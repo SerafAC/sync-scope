@@ -8,6 +8,12 @@ import { FILTER_ORDER, FilterChips } from '../FilterChips';
 import { FilesProvider } from '../FilesProvider';
 import { useFiles } from '../useFiles';
 
+jest.mock('../../native/CloudSync', () => ({
+  // The remembered view and sorts do not matter here: the read never answers.
+  getBrowsePreferences: jest.fn(() => new Promise(() => {})),
+  setBrowsePreferences: jest.fn(),
+}));
+
 const COUNTS: StatusCountDto[] = [
   { status: 'SYNCED', count: 3 },
   { status: 'UNSYNCED', count: 3 },

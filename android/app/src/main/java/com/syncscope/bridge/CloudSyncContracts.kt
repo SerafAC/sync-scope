@@ -8,7 +8,7 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 5
+  const val CONTRACT_VERSION = 6
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -19,6 +19,14 @@ object CloudSyncContracts {
 
   /** A deletion plan expires this long after prepareLocalDeletion made it (`MAX_DELETION_PLAN_AGE_MILLIS`). */
   const val MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000L
+
+  /**
+   * Scroll index band bounds (`SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX`, contract version 6): a date scrollbar
+   * uses the coarsest unit with at least [SCROLL_BANDS_MIN] bands (research R6); a size scrollbar has
+   * [SCROLL_BANDS_MIN] to [SCROLL_BANDS_MAX] bands (research R5).
+   */
+  const val SCROLL_BANDS_MIN = 5
+  const val SCROLL_BANDS_MAX = 15
 
   /** Same clamp as the TS `clampPageSize`, so either side yields an identical bound. */
   fun clampPageSize(pageSize: Double?): Int {
@@ -104,9 +112,10 @@ enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAct
     "The folder picker is already open.",
     "Finish or close the picker, then try again.",
   ),
+  /** The action names the "Device folders" settings section (contract version 6, research R16). */
   NO_SOURCES_SELECTED(
     "No folders are selected to check.",
-    "Add a folder in Settings › Folders.",
+    "Add a folder in Settings › Device folders.",
   ),
   SCAN_IN_PROGRESS(
     "A scan is already running.",
@@ -166,4 +175,19 @@ enum class CloudSyncErrorCode(val defaultMessage: String? = null, val defaultAct
 enum class FileIssueCode(val text: String) {
   REMOTE_MTIME_MISSING("The backup has this file but no modified time, so it could not be compared."),
   LOCAL_UNAVAILABLE("This file could not be read on the device."),
+
+  /** A configured backup folder could not be listed, so the file is UNKNOWN (contract version 6, research R14). */
+  REMOTE_FOLDER_UNREAD("A backup folder could not be read, so this file may be backed up there."),
+}
+
+/**
+ * What a scroll index band stands for (`ScrollUnit`, contract version 6): a first letter (research R4), a
+ * year, month or day (research R6), or a size (research R5). The wire value is the enum name.
+ */
+enum class ScrollUnit {
+  LETTER,
+  YEAR,
+  MONTH,
+  DAY,
+  SIZE,
 }

@@ -1,0 +1,149 @@
+# Story 4 sc. 1, 3 and 4, FR-014, SC-005 (WebDAV, contracts/maestro-polish.md
+# › Acceptance scenario mapping); replaces browse/05-results-updated.
+#
+# When a rescan publishes new results, both views keep their place:
+# - Gallery (Scroll, 5,000 files): scroll down about 40 rows and note the
+#   first tile's label.
+# - List: open Scroll, scroll down and note the first file row's label.
+# - Scan tab › Rescan from scratch, back to Files: "Results updated" shows,
+#   the list is still inside Scroll (sc. 3) with the noted row on top (sc. 1).
+# - Switch to the gallery, which was hidden when the results arrived (sc. 4):
+#   the noted tile is on top.
+#
+# The swipes are slow and the flow waits for the list to come to rest before
+# it notes a file, so the note is taken where the app's anchor is.
+# The noted names are read from the screen into variables, never literals.
+# A file's label is `<name>, <status>`; only the name is compared. The first
+# label on screen is the first visible file (copyTextFrom index 0), so a
+# noted file further down fails. Story 4 sc. 2 (the noted file is gone) is a
+# recorded deviation proven by the JVM anchorIndex tests and the Jest view
+# tests. Self-contained: starts from clearState.
+appId: com.syncscope
+name: polish/07-results-updated-keeps-place
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "WEBDAV"
+      PORT: "${WEBDAV_PORT}"
+      USER: "${WEBDAV_USER}"
+      PASSWORD: "${WEBDAV_PASSWORD}"
+      ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Scroll"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible:
+      text: "Filter All, ${SCROLL_COUNT}"
+      selected: true
+    timeout: 30000
+- assertVisible: "View: Gallery"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+
+# 1. Gallery: scroll down about 40 rows and note the first tile.
+- repeat:
+    times: 6
+    commands:
+      - swipe:
+          start: "50%, 80%"
+          end: "50%, 25%"
+          duration: 1500
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    notVisible: "Loading file"
+    timeout: 15000
+- waitForAnimationToEnd:
+    timeout: 5000
+# A fling's last points of travel can outlast the animation check: wait 2 s
+# more for the list to rest (an optional wait for text that never shows).
+- extendedWaitUntil:
+    visible: "Settle 07"
+    timeout: 2000
+    optional: true
+- copyTextFrom:
+    text: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    index: 0
+- evalScript: "${output.galleryFirst = maestro.copiedText.split(', ')[0]}"
+- assertTrue: "${output.galleryFirst !== FIRST_TIME_DESC}"
+
+# 2. List: open Scroll, scroll down and note the first file row.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- tapOn: "Folder Scroll, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Scroll"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- repeat:
+    times: 6
+    commands:
+      - swipe:
+          start: "50%, 80%"
+          end: "50%, 25%"
+          duration: 1500
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    notVisible: "Loading file"
+    timeout: 15000
+- waitForAnimationToEnd:
+    timeout: 5000
+# A fling's last points of travel can outlast the animation check: wait 2 s
+# more for the list to rest (an optional wait for text that never shows).
+- extendedWaitUntil:
+    visible: "Settle 07"
+    timeout: 2000
+    optional: true
+- copyTextFrom:
+    text: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    index: 0
+- evalScript: "${output.listFirst = maestro.copiedText.split(', ')[0]}"
+- assertTrue: "${output.listFirst !== FIRST_NAME_ASC}"
+
+# 3. A new full scan publishes new results.
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+
+# 4. Back on Files: the notice, the same folder, and the noted row on top.
+- tapOn:
+    text: "Files"
+    leftOf: "Scan"
+- extendedWaitUntil:
+    visible: "Results updated"
+    timeout: 15000
+- assertVisible: "Breadcrumb Scroll"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${output.listFirst}"
+
+# 5. The gallery, hidden when the results arrived: the noted tile on top.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${output.galleryFirst}"

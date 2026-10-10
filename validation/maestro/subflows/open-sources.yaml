@@ -1,4 +1,4 @@
-# Subflow: launch SyncScope without clearing state and open Settings › Folders.
+# Subflow: launch SyncScope without clearing state and open Settings › Device folders.
 # Never run on its own; feature flows call it with runFlow.
 appId: com.syncscope
 ---
@@ -7,7 +7,7 @@ appId: com.syncscope
     visible: "Settings"
     timeout: 60000
 - tapOn: "Settings"
-# Settings › Repository sits above Folders (feature 006), so once folders are
+# Settings › Repository sits above Device folders (feature 006), so once folders are
 # listed, Add folder can be below the fold: scroll to it.
 - scrollUntilVisible:
     element:

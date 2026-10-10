@@ -11,7 +11,7 @@ const SEPARATOR_SIZE = 16;
 /**
  * The list view's path (FR-002): `All folders › <alias> › …`. Pressing a
  * crumb goes back up to it; the last crumb is where the user is, so it is
- * disabled. Feature 007's tree view reuses it with `useListNavigation`.
+ * disabled. Feature 009's tree view reuses it with `useListNavigation`.
  */
 export function Breadcrumb({
   crumbs,
@@ -26,6 +26,7 @@ export function Breadcrumb({
       contentContainerStyle={styles.row}
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.bar}
       testID="breadcrumb"
     >
       {crumbs.map((crumb, position) => {
@@ -56,6 +57,11 @@ export function Breadcrumb({
 }
 
 const styles = StyleSheet.create({
+  // A ScrollView grows by default: the trail keeps its own height and the
+  // folder's list below gets the rest.
+  bar: {
+    flexGrow: 0,
+  },
   crumb: {
     alignItems: 'center',
     flexDirection: 'row',

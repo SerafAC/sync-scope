@@ -3,26 +3,41 @@ import * as path from 'path';
 
 import type {
   ActiveSnapshotDto,
+  BrowsePreferencesDto,
+  BrowsePreferencesResult,
+  BrowseRemoteFoldersResult,
   CloudSyncError,
   DeletionFailureReason,
   DeletionPlanDto,
   ExecuteLocalDeletionResult,
   FileEntryDto,
   FileIssueCode,
+  FileKind,
+  FileSort,
   LocalImageHandleResult,
   LocalImageSpec,
   LaunchSourcePickerResult,
   ListSelectableEntriesResult,
   ListSourcesResult,
   PrepareLocalDeletionResult,
+  RemoteBrowseConfigInput,
+  RemoteFoldersDto,
   RepositoryConfigInput,
+  RepositoryConnectionDto,
   RepositoryField,
   RepositorySummaryResult,
   ScanMode,
   ScanPhase,
   ScanRunDto,
   ScanStateResult,
+  ScanSummaryDto,
   ScanTerminalState,
+  QuerySpec,
+  ScrollAnchor,
+  ScrollBandDto,
+  ScrollIndexDto,
+  ScrollIndexResult,
+  ScrollUnit,
   SourceDto,
   StartScanResult,
 } from '../CloudSyncContracts';
@@ -41,6 +56,8 @@ import {
   MVP_ERROR_TEXT,
   REPOSITORY_DEFAULT_PORTS,
   SCAN_ERROR_TEXT,
+  SCROLL_BANDS_MAX,
+  SCROLL_BANDS_MIN,
   STALE_REMOTE_LISTING_MILLIS,
   SOURCE_ERROR_TEXT,
   clampImageEdge,
@@ -50,7 +67,7 @@ import {
 
 describe('CloudSync versioned contract', () => {
   it('exposes a stable positive contract version', () => {
-    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(5);
+    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(6);
     expect(Number.isInteger(CLOUD_SYNC_CONTRACT_VERSION)).toBe(true);
   });
 
@@ -168,7 +185,7 @@ describe('CloudSync versioned contract', () => {
     expect(SCAN_ERROR_TEXT).toEqual({
       NO_SOURCES_SELECTED: {
         message: 'No folders are selected to check.',
-        action: 'Add a folder in Settings › Folders.',
+        action: 'Add a folder in Settings › Device folders.',
       },
       SCAN_IN_PROGRESS: {
         message: 'A scan is already running.',
@@ -190,6 +207,170 @@ describe('CloudSync versioned contract', () => {
       REMOTE_MTIME_MISSING:
         'The backup has this file but no modified time, so it could not be compared.',
       LOCAL_UNAVAILABLE: 'This file could not be read on the device.',
+      REMOTE_FOLDER_UNREAD:
+        'A backup folder could not be read, so this file may be backed up there.',
+    });
+  });
+
+  describe('sorting and scrolling (contract v6)', () => {
+    const contract = (): string =>
+      fs.readFileSync(path.join(__dirname, '..', 'CloudSyncContracts.ts'), 'utf8');
+
+    /** Members of `export type <name> = 'A' | 'B' …;` as written in the source, in order. */
+    const unionMembers = (name: string): string[] => {
+      const match = new RegExp(`export type ${name} =([^;]*);`).exec(contract());
+      expect(match).not.toBeNull();
+      return [...(match?.[1] ?? '').matchAll(/'(\w+)'/g)].map(m => m[1] ?? '');
+    };
+
+    it('offers exactly the six sorts, the two kinds and the five scroll units', () => {
+      const sorts: FileSort[] = [
+        'NAME_ASC',
+        'NAME_DESC',
+        'TIME_ASC',
+        'TIME_DESC',
+        'SIZE_ASC',
+        'SIZE_DESC',
+      ];
+      const kinds: FileKind[] = ['DIRECTORY', 'FILE'];
+      const units: ScrollUnit[] = ['LETTER', 'YEAR', 'MONTH', 'DAY', 'SIZE'];
+      // @ts-expect-error there is no sort by type
+      const badSort: FileSort = 'TYPE_ASC';
+      // @ts-expect-error a kind is a closed set
+      const badKind: FileKind = 'LINK';
+      // @ts-expect-error a scroll unit is a closed set
+      const badUnit: ScrollUnit = 'WEEK';
+      expect(unionMembers('FileSort')).toEqual(sorts);
+      expect(unionMembers('FileKind')).toEqual(kinds);
+      expect(unionMembers('ScrollUnit')).toEqual(units);
+      expect([badSort, badKind, badUnit]).toHaveLength(3);
+    });
+
+    it('bounds the number of scroll bands', () => {
+      expect(SCROLL_BANDS_MIN).toBe(5);
+      expect(SCROLL_BANDS_MAX).toBe(15);
+    });
+
+    it('carries the unread remote folder issue code', () => {
+      const unread: FileIssueCode = 'REMOTE_FOLDER_UNREAD';
+      expect(FILE_ISSUE_TEXT[unread]).toBe(
+        'A backup folder could not be read, so this file may be backed up there.',
+      );
+    });
+
+    it('types the scroll index with one lower bound per band and an unknown last band', () => {
+      const first: ScrollBandDto = {
+        startIndex: 0,
+        count: 3,
+        startToken: null,
+        letter: '#',
+      };
+      const letters: ScrollIndexDto = {
+        unit: 'LETTER',
+        totalCount: 7,
+        bands: [first, {startIndex: 3, count: 4, startToken: 't-1', letter: 'e'}],
+        anchorIndex: null,
+      };
+      const sizes: ScrollIndexDto = {
+        unit: 'SIZE',
+        totalCount: 5,
+        bands: [
+          {startIndex: 0, count: 4, startToken: null, lowerBytes: 3_000_000},
+          {startIndex: 4, count: 1, startToken: 't-2', unknown: true},
+        ],
+        anchorIndex: 2,
+      };
+      const months: ScrollIndexDto = {
+        unit: 'MONTH',
+        totalCount: 1,
+        bands: [{startIndex: 0, count: 1, startToken: null, startMillis: 1704067200000}],
+        anchorIndex: 0,
+      };
+      const ok: ScrollIndexResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        scrollIndex: letters,
+      };
+      // @ts-expect-error a band's start token is a string or null, never absent
+      const noToken: ScrollBandDto = {startIndex: 0, count: 1};
+      // @ts-expect-error anchorIndex is a number or null, never absent
+      const noAnchor: ScrollIndexDto = {unit: 'DAY', totalCount: 0, bands: []};
+      const total = (index: ScrollIndexDto): number =>
+        index.bands.reduce((sum, band) => sum + band.count, 0);
+      expect(total(letters)).toBe(letters.totalCount);
+      expect(total(sizes)).toBe(sizes.totalCount);
+      expect(total(months)).toBe(months.totalCount);
+      expect(isErrorResult(ok)).toBe(false);
+      expect([noToken, noAnchor]).toHaveLength(2);
+    });
+
+    it('types the scroll anchor with a sort value of the sort column and a sortName', () => {
+      const byName: ScrollAnchor = {sortValue: '1eclair', sortName: '1eclair'};
+      const bySize: ScrollAnchor = {sortValue: 4_000_000, sortName: '1a'};
+      const unknown: ScrollAnchor = {sortValue: null, sortName: '02024.jpg'};
+      // @ts-expect-error the sortName is required
+      const noName: ScrollAnchor = {sortValue: 1};
+      // @ts-expect-error a sort value is never a boolean
+      const badValue: ScrollAnchor = {sortValue: true, sortName: '1a'};
+      expect([byName, bySize, unknown, noName, badValue]).toHaveLength(5);
+    });
+
+    it('carries sortName on every entry and an optional kind on the query spec', () => {
+      const unsorted: Omit<FileEntryDto, 'sortName'> = {
+        entryId: 'e-1',
+        sourceId: 'src-1',
+        parentId: null,
+        kind: 'FILE',
+        name: 'Éclair.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 70,
+        modifiedUtcMillis: null,
+        status: 'SYNCED',
+        issueCode: null,
+        nameInOtherSource: false,
+        matchingFileCount: null,
+      };
+      const entry: FileEntryDto = {...unsorted, sortName: '1eclair.jpg'};
+      // @ts-expect-error sortName is required in contract v6
+      const missing: FileEntryDto = unsorted;
+      const folders: QuerySpec = {
+        filter: 'ALL',
+        view: 'LIST',
+        sort: 'NAME_ASC',
+        kind: 'DIRECTORY',
+      };
+      const files: QuerySpec = {...folders, sort: 'SIZE_DESC', kind: 'FILE'};
+      const any: QuerySpec = {...folders, kind: null};
+      // @ts-expect-error kind is DIRECTORY or FILE
+      const badKind: QuerySpec = {...folders, kind: 'LINK'};
+      expect(entry.sortName).toBe('1eclair.jpg');
+      expect([missing, files, any, badKind]).toHaveLength(4);
+    });
+
+    it('types the browse preferences', () => {
+      const defaults: BrowsePreferencesDto = {
+        view: 'GALLERY',
+        gallerySort: 'TIME_DESC',
+        listSort: 'NAME_ASC',
+      };
+      const ok: BrowsePreferencesResult = {
+        contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+        status: 'ok',
+        preferences: {...defaults, view: 'LIST', listSort: 'SIZE_ASC'},
+      };
+      // @ts-expect-error the view is GALLERY or LIST
+      const badView: BrowsePreferencesDto = {...defaults, view: 'TREE'};
+      // @ts-expect-error a remembered sort is a FileSort
+      const badSort: BrowsePreferencesDto = {...defaults, listSort: 'TYPE_ASC'};
+      expect(isErrorResult(ok)).toBe(false);
+      expect([badView, badSort]).toHaveLength(2);
+    });
+
+    it('points at Settings › Device folders, never Settings › Folders', () => {
+      expect(SCAN_ERROR_TEXT.NO_SOURCES_SELECTED.action).toBe(
+        'Add a folder in Settings › Device folders.',
+      );
+      expect(contract()).not.toContain('Settings › Folders');
     });
   });
 
@@ -316,6 +497,7 @@ describe('CloudSync versioned contract', () => {
         unsynced: 2,
         unknown: 3,
         unreadableRemoteDirectories: 1,
+        unreadRemoteFolders: [],
         remoteListingInterruptedBy: null,
         skippedSources: [
           {sourceId: 'src-1', alias: 'Camera', reason: 'GRANT_REVOKED'},
@@ -404,6 +586,7 @@ describe('CloudSync versioned contract', () => {
       expect(remoteCauses).toHaveLength(4);
       expect(Object.keys(FILE_ISSUE_TEXT).sort()).toEqual([
         'LOCAL_UNAVAILABLE',
+        'REMOTE_FOLDER_UNREAD',
         'REMOTE_MTIME_MISSING',
       ]);
     });
@@ -443,6 +626,7 @@ describe('CloudSync versioned contract', () => {
         issueCode: null,
         nameInOtherSource: true,
         matchingFileCount: null,
+        sortName: '1sunset.png',
       };
       const folder: FileEntryDto = {
         ...tile,
@@ -511,7 +695,7 @@ describe('CloudSync versioned contract', () => {
         'port',
         'username',
         'password',
-        'remoteRoot',
+        'remoteRoots',
       ];
       const invalidPort: CloudSyncError = {
         code: CloudSyncErrorCode.INVALID_QUERY,
@@ -542,7 +726,7 @@ describe('CloudSync versioned contract', () => {
           host: 'nas.local',
           port: 443,
           username: 'me',
-          remoteRoot: '/backup',
+          remoteRoots: ['/backup', '/phone'],
           precisionMillis: null,
           credentialPresent: true,
           hostKeyTrusted: null,
@@ -555,7 +739,7 @@ describe('CloudSync versioned contract', () => {
         host: 'nas.local',
         port: null,
         username: 'me',
-        remoteRoot: '/backup',
+        remoteRoots: ['/backup'],
       };
       const https: RepositoryConfigInput = {
         ...legacyCaller,
@@ -567,7 +751,10 @@ describe('CloudSync versioned contract', () => {
         // @ts-expect-error the summary always carries its revision in contract v5
         repository: {...summary.repository, revision: undefined},
       };
+      // @ts-expect-error contract v6 replaced the single remoteRoot with remoteRoots
+      const singleRoot: RepositoryConfigInput = {...legacyCaller, remoteRoot: '/x'};
       expect(isErrorResult(summary)).toBe(false);
+      expect(singleRoot.remoteRoots).toEqual(['/backup']);
       expect(legacyCaller.webdavHttps).toBeUndefined();
       expect(https.webdavHttps).toBe(true);
       expect(noRevision.status).toBe('ok');
@@ -586,6 +773,7 @@ describe('CloudSync versioned contract', () => {
           unsynced: 0,
           unknown: 0,
           unreadableRemoteDirectories: 0,
+          unreadRemoteFolders: [],
           remoteListingInterruptedBy: null,
           skippedSources: [],
         },
@@ -676,5 +864,61 @@ describe('CloudSync versioned contract', () => {
       expect(reasons).toHaveLength(4);
       expect([badReason, noPlan]).toHaveLength(2);
     });
+  });
+});
+
+describe('several remote folders (contract v6)', () => {
+  it('names the folder to fix with fieldIndex', () => {
+    const overlap: CloudSyncError = {
+      code: CloudSyncErrorCode.INVALID_QUERY,
+      message: 'This folder is the same as, inside or around /scan/clean/a.',
+      action: null,
+      field: 'remoteRoots',
+      fieldIndex: 1,
+    };
+    // @ts-expect-error fieldIndex is a number
+    const badIndex: CloudSyncError = {...overlap, fieldIndex: '1'};
+    expect(overlap.fieldIndex).toBe(1);
+    expect(badIndex.field).toBe('remoteRoots');
+  });
+
+  it('types the per-folder connection lines, the browser listing and the unread folders', () => {
+    const connection: RepositoryConnectionDto = {
+      protocol: 'FTP',
+      reachable: true,
+      entryCount: 3,
+      folders: [
+        {path: '/a', entryCount: 3, error: null},
+        {
+          path: '/missing',
+          entryCount: null,
+          error: {code: 'REMOTE_ROOT_NOT_FOUND', message: 'Not found.', action: 'Check the folder.'},
+        },
+      ],
+      precisionMillis: 1000,
+      precisionBasis: 'MLSD_WHOLE_SECONDS',
+      precisionPersisted: true,
+    };
+    const listing: BrowseRemoteFoldersResult = {
+      contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
+      status: 'ok',
+      remoteFolders: {path: '/scan', parent: '/', folders: ['clean'], fellBackToRoot: false},
+    };
+    const draft: RemoteBrowseConfigInput = {protocol: 'SFTP', host: 'h', port: null, username: 'u'};
+    const folders: RemoteFoldersDto = {path: '/', parent: null, folders: [], fellBackToRoot: true};
+    const summary: ScanSummaryDto = {
+      synced: 1,
+      unsynced: 0,
+      unknown: 2,
+      unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: ['/scan/partial/restricted'],
+      remoteListingInterruptedBy: null,
+      skippedSources: [],
+    };
+    expect(connection.folders.map(line => line.entryCount)).toEqual([3, null]);
+    expect(isErrorResult(listing)).toBe(false);
+    expect(draft).not.toHaveProperty('remoteRoots');
+    expect(folders.parent).toBeNull();
+    expect(summary.unreadRemoteFolders).toHaveLength(1);
   });
 });

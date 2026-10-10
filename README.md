@@ -2,7 +2,7 @@
 
 SyncScope is an Android app that tells you which of your local files are already backed up to your cloud,
 so you can safely delete them from the device. You point it at one remote repository over FTP, SFTP or
-WebDAV, select local folders, and scan. Each local file comes back marked **SYNCED**, **UNSYNCED** or
+WebDAV and the folders on it that hold your backup, select local folders, and scan. Each local file comes back marked **SYNCED**, **UNSYNCED** or
 **UNKNOWN**, and only files proven to be backed up are offered for deletion by default. A partial or stale
 result is never shown as a clean one.
 
@@ -35,7 +35,8 @@ Developers can also install a debug APK, which needs a computer running the deve
 
 ## Set up your server
 
-SyncScope compares your phone with **one** backup server. It supports three protocols:
+SyncScope compares your phone with **one** backup server, and with one or more folders on it. It supports
+three protocols:
 
 | Protocol | Authentication | Encrypted |
 | --- | --- | --- |
@@ -54,12 +55,28 @@ repository** and fill in:
 - **Host** and **Port**. Leave the port empty to use the standard one (FTP 21, SFTP 22, WebDAV 80, or 443
   with HTTPS).
 - **User name** and **Password**.
-- **Remote folder**: the folder on the server that holds your backup, for example `/photos`.
+- **Remote folder 1**: the folder on the server that holds your backup, for example `/photos`. Type it,
+  or tap **Browse** (below).
+
+**Several folders.** If your backup is spread over more than one folder on the server, for example
+`/photos` and `/phone-backup/DCIM`, tap **Add another folder** for each one. A file counts as backed up
+when it is in any of them. **Remove** takes a folder out of the list; at least one must stay. Folders
+cannot overlap: a folder that is the same as, inside or around another one is refused, and the message
+names the other folder.
+
+**Browse the server.** **Browse** next to a folder opens a list of the folders on the server, using the
+details you have typed so far, saved or not (type the password first if none is stored yet). Tap a folder
+to open it, tap a part of the path at the top (or **Up**) to go back up, and tap **Use this folder** to put
+the folder you are in into the field. If the folder in the field cannot be opened, the browser starts at
+the top and says so. A server problem (wrong password, unreachable host, an SFTP key to confirm) shows the
+same way as in the connection test. Browsing only lists folder names; it never opens or changes a file.
 
 Tap **Save and test**. SyncScope saves the details and connects to the server. On success the form shows
-**Connected** and how many entries the remote folder holds, and the Repository section shows the server,
-user, folder and **Password stored**. If something is wrong (wrong password, unreachable host, missing
-folder), the form says what and what to do; what you typed stays there except the password.
+**Connected** and a line for each folder with how many entries it holds, for example `/photos: 1200
+entries`, or `could not be read`, with what is wrong under that folder's field. The Repository section
+shows the server, user, folders and **Password stored**. If something is wrong (wrong password,
+unreachable host, a missing folder), the form says what and what to do; what you typed stays there except
+the password. A folder that could not be read does not undo the save, so you can fix just that folder.
 
 - **Unencrypted connections.** With FTP, or WebDAV without HTTPS, the password and file names travel
   unencrypted, and the form warns you. Use them only on a network you trust; prefer SFTP.
@@ -79,8 +96,8 @@ were made with the previous server settings; scan again.
 
 ## Pick folders
 
-SyncScope checks only the folders you choose. Open the **Settings** tab; the **Folders** section lists the
-folders you have added.
+SyncScope checks only the folders you choose. Open the **Settings** tab; the **Device folders** section
+lists the folders on your phone you have added.
 
 **Folders Android will not let you pick.** Since Android 11 the system picker refuses the top level of
 internal storage, the `Download` folder, and the `Android/data` and `Android/obb` folders ("Cannot use
@@ -91,6 +108,10 @@ folder**. Pick a folder inside internal storage instead, such as `DCIM` or `Pict
 - **Add a folder.** Tap **Add folder**. Android's own folder picker opens: go to the folder, tap **Use this
   folder**, then **Allow**. The folder appears in the list with a short name, such as **Camera**. If you
   back out of the picker, nothing changes.
+- **A folder with thousands of files**, such as `Camera`, can look empty in the picker for a few seconds
+  (longer on a slow phone), with no sign that it is loading. The hint above **Add folder** reminds you:
+  open the folder and tap **Use this folder** straight away; you do not need to wait for its files to
+  show. The picker is Android's, so SyncScope cannot make it faster.
 - **Folders on an SD card.** In the picker, open the menu of storage locations and choose the SD card, then
   pick a folder as above. When two folders share a name, the list adds where they are, for example
   **Camera** and **Camera (SDCARD)**. The names are chosen by the app and cannot be edited.
@@ -126,6 +147,10 @@ When a scan fails because something needs fixing, the message says where, with a
 - **When you reopen the app**, SyncScope checks your folders again by itself, so new photos show up, but
   it reuses the last listing of the remote repository instead of listing it again. Only a rescan lists it
   again.
+- **Several server folders** are all listed in one scan. If some of them cannot be read (for example a
+  share that is offline or a folder that was renamed), the scan still finishes; see
+  [Unread server folders](#unread-server-folders). Only when none of them can be read does the scan
+  fail.
 
 ### What the results mean
 
@@ -149,6 +174,15 @@ or **Storage missing**). A scan that could not check everything is never shown a
 If the server cannot be reached at all, or rejects the login, the scan shows **Scan failed** with what to
 do next, and your previous result stays on screen.
 
+### Unread server folders
+
+When one of your server folders could not be read during a scan, the **Scan summary** says **Could not
+read** followed by the folder, once for each such folder. Files found in the folders that were read are
+still **SYNCED**. Every other file is **UNKNOWN**, never UNSYNCED, because its copy may be in the folder
+that could not be read; its reason reads "A backup folder could not be read, so this file may be backed
+up there." and names the folder. Fix the folder (or its access on the server) and tap **Rescan from
+scratch**. Until then the warning stays, also after the app checks your device folders again on reopen.
+
 ### How old the result is
 
 The summary shows when the remote repository was last listed, for example **Remote listing from … (2 days
@@ -165,10 +199,11 @@ a scan, the scan is cancelled and its partial result is thrown away. The screen 
 ## Browse your files
 
 The **Files** tab shows the result of your last scan, file by file. Before your first scan it says that
-results appear after a scan, with a **Go to Scan** button. Switch between two views at the top:
+results appear after a scan, with a **Go to Scan** button. Choose one of two views with the **View**
+drop-down at the top:
 
-- **Gallery** shows the photos in your folders as a grid of thumbnails, newest first. Only images are
-  shown here. Each photo carries its status (**Synced**, **Unsynced** or **Unknown**).
+- **Gallery** shows the photos in your folders as a grid of thumbnails, newest first unless you sort it
+  otherwise. Only images are shown here. Each photo carries its status (**Synced**, **Unsynced** or **Unknown**).
 - **List** shows your folders by name. Tap a folder to open it, and keep going down into its subfolders.
   Each file shows its size, date and status. The path at the top (**All folders › Camera › 2024**) takes
   you back up: tap any part of it.
@@ -176,9 +211,32 @@ results appear after a scan, with a **Go to Scan** button. Switch between two vi
 Thumbnails are made from the photos on your device. SyncScope never downloads anything from the remote
 repository to show them.
 
+### Sort and jump through your files
+
+The **Sort** drop-down to the left of **View** orders the files:
+
+- **Name (A–Z)** or **Name (Z–A)**. Upper and lower case and accents do not matter (`apple`, `Banana`,
+  `Éclair`), and names that do not start with a letter, such as `2024-05.jpg`, come first.
+- **Date (newest first)** or **Date (oldest first)**, by when the file was last changed.
+- **Size (largest first)** or **Size (smallest first)**.
+
+A file whose date or size is not known comes last either way. In the list, folders always stay above
+the files, ordered by name. Gallery and list each keep their own sort, and SyncScope remembers both sorts
+and the view you used last when you close and reopen it. On first use the gallery shows the newest files
+first and the list orders by name.
+
+**The scrollbar.** When a view holds more than about three screens of files, a scrollbar appears on its
+right edge. Drag its thumb to jump anywhere, also to files that are not loaded yet; while you drag, a
+label shows where you are: a year (`2024`), a month (`05.2024`) or a day (`17.05.2024`) when sorting by
+date, a letter or `#` when sorting by name, and a size such as `2 MB` when sorting by size. Files with an
+unknown date or size are under **Unknown** at the end. The labels fit the files you are looking at: a few
+weeks of photos are labelled by day, years of photos by year, and size steps follow the sizes you
+actually have. Files that are still loading show as empty tiles or rows for a moment. With TalkBack, the
+scrollbar announces where you are, and swiping up or down moves one step.
+
 ### Filters
 
-The chips under the view switch narrow what you see, in both views. Each chip shows how many files it
+The chips under the sort and view drop-downs narrow what you see, in both views. Each chip shows how many files it
 matches (in the gallery, how many photos):
 
 - **All**: every file.
@@ -206,8 +264,10 @@ look the same. You can still open it; it then shows **No files match this filter
 
 When a new result arrives while you are looking at the Files tab, for example after **Rescan from
 scratch** or when you come back to the app, the Files tab reloads by itself and shows **Results updated**
-for a moment. It keeps your view, your filter and the folder you were in. If that folder no longer exists,
-you are taken to the closest folder above it that does.
+for a moment. It keeps your view, your sort, your filter and the folder you were in, and it stays where
+you were scrolled to: the file at the top stays at the top. If that file is gone, you stay where it would
+have been. If the folder you were in no longer exists, you are taken to the closest folder above it that
+does.
 
 ## Free up space safely
 

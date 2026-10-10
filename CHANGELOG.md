@@ -9,6 +9,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- E2E performance draft in `specs/008-e2e-performance/`, with measured bottlenecks, verified headless
+  hardware acceleration on both API levels and a prioritized optimization scope that preserves the
+  existing proof bar. Later specs move to 009 (tree and preview), 010 (the merged deletion placeholder)
+  and 011 (full-loop release), with cross-feature references updated.
+- Sorting, a smart scrollbar and several server folders (feature 007): gallery and list view each have
+  a sort drop-down with name, date (last modified) and size, ascending and descending, and files with
+  an unknown size or date come last; list view keeps folders above files, by name, under every sort; a
+  scrollbar on the right edge of a result longer than three screens jumps anywhere in it, also to files
+  not read yet, and shows the band under the thumb: a year, month or day for the date sort, a letter or
+  `#` for the name sort and a size range for the size sort, with an `Unknown` band last, and it can be
+  stepped band by band with TalkBack; the repository holds several remote folders on the one server,
+  each with a **Browse** button that opens a folder-only browser of the server, and saving tests every
+  folder and reports each one (D022). A script, `scripts/icon/generate-icons.sh`, builds the adaptive,
+  monochrome and legacy launcher icons and a 512 px image from one source image with ImageMagick; the
+  app's own icon is generated from the owner's artwork, including a themed monochrome layer. Proven by
+  Maestro flows in `validation/maestro/polish/`.
 - Repository setup screen, first-run guidance, multi-select with selection size, safe two-phase deletion
   and a release APK build (feature 006, MVP): Settings › Repository sets up and edits the FTP, SFTP or
   WebDAV server and tests it, with SFTP key approval in the app (and a warning when a trusted key
@@ -59,6 +75,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- The gallery / list switch in the Files tab is now a view drop-down next to the sort drop-down, and the
+  view and each view's sort are remembered across restarts, starting at date, newest first for gallery
+  and name, A to Z for list (feature 007).
+- Settings › Folders is now **Settings › Device folders**, and every message that points to it says so
+  (feature 007).
+- A scan that cannot read some of the remote folders still completes: files found in a folder that was
+  read stay backed up, every other file is unknown with a reason naming the unread folder, never not
+  backed up, and the scan summary names each folder it could not read. A scan that can read none of
+  them fails and keeps the current result, as before (D022).
+- Name order ignores case and accents (`apple`, `Banana`, `Éclair`), and `#` collects names that do not
+  start with a letter. A result kept from before the update ignores case at once and accents after the
+  next scan or app-open refresh (feature 007).
+- CloudSync contract version 6 (feature 007): `SIZE_ASC` and `SIZE_DESC` sorts, `FileKind`, `ScrollUnit`
+  and the scroll band bounds, the `REMOTE_FOLDER_UNREAD` file issue code, and the `NO_SOURCES_SELECTED`
+  action now points to Settings › Device folders; `getScrollIndex`, `browseRemoteFolders`,
+  `getBrowsePreferences` and `setBrowsePreferences`; the repository's `remoteRoot` became the list
+  `remoteRoots`, the connection test reports each folder, and a field error carries `fieldIndex`.
+- Scan store schema version 5 (feature 007): `repository_config.remoteRoot` renamed to `remoteRoots`
+  (one folder per line), `local_node.sortName` with two indexes, and `remote_ambiguity.remotePath`, by a
+  Room auto-migration from version 4. A repository saved before keeps its folder as the only entry.
 - Release builds allow user-chosen unencrypted connections (FTP, and WebDAV without HTTPS), with a
   warning in the repository form; WebDAV can use HTTPS, on by default for a new setup, and an untrusted
   certificate is reported as `TLS_UNTRUSTED` (D021).
@@ -88,6 +124,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 - Project management migrated from GSD to Spec Kit; see
   [`specs/001-gsd-speckit-migration/migration-map.md`](./specs/001-gsd-speckit-migration/migration-map.md)
   for where each GSD artifact went.
+
+### Fixed
+
+- Android 16 debug builds no longer lose the first tap on selection controls to React Native's
+  disconnected Fast Refresh banner after the system folder picker closes the Metro connection.
+  Maestro setup flows also wait for the fresh app's empty state instead of the previous window.
+- The Files views no longer jump to the top when new results arrive: each view keeps the file that was
+  at the top, or the place where it would be in the current sort when it is gone, and still shows
+  "Results updated"; the view that is not showing keeps its place too (feature 007).
+- Adding a device folder with thousands of files, such as Camera: Android's folder picker shows such a
+  folder blank, with no progress indicator, for a few seconds, which looked like an empty folder. The
+  app cannot change the picker, so the hint before it opens now says that the folder can look empty for
+  a while and that **Use this folder** works without waiting for its files (feature 007, research R15).
+- FTP: a remote folder the server account cannot open is reported as unreadable even when vsftpd lists it
+  as a single entry of its own name, instead of being walked into as a subfolder (found by the feature
+  007 flow `polish/05-remote-folder-unread-ftp`).
 
 ### Removed
 

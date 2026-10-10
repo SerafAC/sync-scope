@@ -1,0 +1,114 @@
+# Story 3 sc. 5 and 6, FR-011, SC-004a (FTP, contracts/maestro-polish.md ›
+# Acceptance scenario mapping): one of two remote folders cannot be read.
+# Through the D018 seam the repository gets scan/clean/a and
+# scan/partial/restricted (0700 on the host, so the FTP account cannot list
+# it). A scan of TwoFolders still completes and names the unread folder; the
+# reusable.jpg copies are Synced through scan/clean/a, and b-only-kept.jpg,
+# backed up only in scan/clean/b, is Unknown, never Unsynced (D006). Then the
+# seam sets two unreadable folders (scan/partial/restricted and
+# gallery-partial/restricted): the scan fails as a whole and Files still shows
+# the previous result (sc. 6).
+# Self-contained: starts from clearState. TwoFolders/b/b-only-deleted.jpg is
+# gone when polish/04 ran before, so only counts that do not depend on it are
+# asserted.
+appId: com.syncscope
+name: polish/05-remote-folder-unread-ftp
+---
+- evalScript: "${output.root = FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT}"
+- evalScript: "${output.restricted = output.root + '/scan/partial/restricted'}"
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "FTP"
+      PORT: "${FTP_PORT}"
+      USER: "${FTP_USER}"
+      PASSWORD: "${FTP_PASSWORD}"
+      ROOT: "${output.root + '/scan/clean/a'}"
+      ROOT_2: "${output.restricted}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "TwoFolders"
+
+# 1. One folder unread: the scan completes with a warning naming it (sc. 5).
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- assertVisible: "Scan summary"
+- assertVisible: "Could not read ${output.restricted}"
+- assertVisible: "Unsynced: 0"
+- assertVisible: "Synced: 2"
+- assertVisible: "Files that could not be checked: [1-9][0-9]*"
+
+# Files: nothing is Unsynced; the file only scan/clean/b backs up is Unknown.
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "Filter Unsynced, 0"
+    timeout: 15000
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- tapOn: "Folder TwoFolders.*"
+- extendedWaitUntil:
+    visible: "Breadcrumb TwoFolders"
+    timeout: 15000
+- tapOn: "Folder b.*"
+- extendedWaitUntil:
+    visible: "b-only-kept.jpg, Unknown"
+    timeout: 15000
+- assertVisible: "reusable.jpg, Synced"
+- assertNotVisible: ".+, Unsynced"
+
+# 2. No folder can be read: the scan fails as a whole and the previous
+#    result stays (sc. 6).
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "FTP"
+      PORT: "${FTP_PORT}"
+      USER: "${FTP_USER}"
+      PASSWORD: "${FTP_PASSWORD}"
+      ROOT: "${output.restricted}"
+      ROOT_2: "${output.root + '/gallery-partial/restricted'}"
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+# The connect step fails fast, so progress may never be drawn: wait for the
+# outcome instead (as scan/06-unreachable-fails).
+- tapOn:
+    text: "Rescan from scratch"
+    below: "Checks every file in your folders against the backup."
+    above: "Settings"
+- extendedWaitUntil:
+    visible: "Scan failed"
+    timeout: 60000
+- assertVisible: "The previous results below are unchanged."
+- scrollUntilVisible:
+    element: "Could not read ${output.restricted}"
+    direction: DOWN
+    timeout: 15000
+- assertVisible: "Synced: 2"
+- assertVisible: "Unsynced: 0"
+
+# Files still shows the previous result.
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "Filter Unsynced, 0"
+    timeout: 15000
+- runFlow:
+    when:
+      visible: "Folder TwoFolders.*"
+    commands:
+      - tapOn: "Folder TwoFolders.*"
+- runFlow:
+    when:
+      visible: "Folder b.*"
+    commands:
+      - tapOn: "Folder b.*"
+- extendedWaitUntil:
+    visible: "b-only-kept.jpg, Unknown"
+    timeout: 15000
+- assertVisible: "reusable.jpg, Synced"

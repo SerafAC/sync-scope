@@ -1,6 +1,6 @@
 # Feature Specification: Multi-Select and Two-Phase Local Deletion
 
-**Feature Branch**: `008-multiselect-local-deletion`
+**Feature Branch**: `010-multiselect-local-deletion`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S06)
 
@@ -15,8 +15,12 @@ Where the requirements now live:
 
 - R012 (multi-select and local-only deletion, D006): [006 FR-015, FR-019](../006-mvp/spec.md#functional-requirements).
 - R013 (two-phase deletion with per-file outcomes, D008): [006 FR-018, FR-020](../006-mvp/spec.md#functional-requirements).
-- Selection in tree view and preview, which this draft expected from feature 007, is now delivered by
-  [007-tree-view-image-preview](../007-tree-view-image-preview/spec.md) on top of the MVP's selection model.
+- Selection in tree view and preview, which this draft expected from feature 009, is now delivered by
+  [009-tree-view-image-preview](../009-tree-view-image-preview/spec.md) on top of the MVP's selection model.
 
 The directory is kept so links from the migration records (feature 001) and the decision records stay
-valid, and so feature numbers 007 and 009 do not move again.
+valid. It was numbered 008 until feature 007 (sorting, fast scrolling and several server folders) was
+inserted on 2026-10-05.
+
+The merged placeholder moved from slot 009 to 010 on 2026-10-10 when the E2E performance draft was
+inserted at 008. This changes only its roadmap position, not its merged status or scope.

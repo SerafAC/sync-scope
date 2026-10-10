@@ -39,6 +39,7 @@ function entry(overrides: Partial<FileEntryDto> = {}): FileEntryDto {
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: '1sunset.png',
     ...overrides,
   };
 }

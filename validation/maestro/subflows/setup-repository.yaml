@@ -9,8 +9,11 @@
 #   PORT      the host port of the container
 #   USER      the per-run container user (android-flow.sh, D014)
 #   PASSWORD  the password to type
-#   ROOT      the remote folder, for example /srv/fixtures/gallery (callers
-#             prefix their root with ${<P>_ROOT}, as the D018 seam does)
+#   ROOT      the first remote folder (field repository.remoteRoots.0), for
+#             example /srv/fixtures/gallery (callers prefix their root with
+#             ${<P>_ROOT}, as the D018 seam does). Other folder fields are
+#             left as they are; flows that need several folders fill them
+#             with fill-field.yaml (feature 007)
 #   HTTPS     optional, WebDAV only: "true" or "false" sets the Use HTTPS
 #             switch; omitted, the switch is left as it is
 #   START     optional: "settings" (default) opens Settings and taps Set up
@@ -18,7 +21,8 @@
 #             open already (the Scan checklist, or a retry after a failure)
 #   EXPECT    optional: the status to wait for after Save and test (a regex).
 #             Omitted, an SFTP key prompt is answered with Trust server key
-#             and the flow waits for "Connected, <n> entries". Given, the
+#             and the flow waits for "Connected" and the line
+#             "<ROOT>: <n> entries" (one line per folder, feature 007). Given, the
 #             subflow stops once it is visible and answers nothing, so a flow
 #             can assert the key prompt or a failure itself.
 #
@@ -107,7 +111,7 @@ appId: com.syncscope
 - runFlow:
     file: fill-field.yaml
     env:
-      FIELD: "repository.remoteRoot"
+      FIELD: "repository.remoteRoots.0"
       TEXT: "${ROOT}"
 - scrollUntilVisible:
     element: "Save and test"
@@ -129,7 +133,7 @@ appId: com.syncscope
       true: "${output.setupExpect == ''}"
     commands:
       - scrollUntilVisible:
-          element: "(Connected, [0-9]+ entries|Server key fingerprint .+|Connection failed: .+)"
+          element: "(Connected|Server key fingerprint .+|Connection failed: .+)"
           direction: DOWN
           timeout: 60000
       - runFlow:
@@ -138,6 +142,11 @@ appId: com.syncscope
           commands:
             - tapOn: "Trust server key"
       - scrollUntilVisible:
-          element: "Connected, [0-9]+ entries"
+          element: "Connected"
           direction: DOWN
           timeout: 60000
+      # One line per folder under the status (feature 007); ROOT is the first.
+      - scrollUntilVisible:
+          element: "${ROOT}: [0-9]+ entries"
+          direction: DOWN
+          timeout: 15000

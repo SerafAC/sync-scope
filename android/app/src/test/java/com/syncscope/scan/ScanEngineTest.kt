@@ -3,6 +3,7 @@ package com.syncscope.scan
 import androidx.test.core.app.ApplicationProvider
 import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.persistence.LocalNodeEntity
+import com.syncscope.persistence.Migration4To5
 import com.syncscope.persistence.RemoteAmbiguityEntity
 import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.remote.HostKeyChallenge
@@ -167,6 +168,105 @@ class ScanEngineTest {
     assertEquals(previous, h.store.activeSnapshot()!!.snapshotId)
     assertEquals(1L, h.db.localNodeDao().countFor(previous))
     assertTrue(h.remote.created.all { it.closed })
+  }
+
+  // --- several remote folders (research R14) ---
+
+  @Test
+  fun everyFolderIsWalkedAndMatched() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("one.jpg", 1))
+    h.remote.dir("/b", remoteFile("two.jpg", 2))
+    h.enumerator.files("src-1", localFile("d1", "one.jpg", size = 1), localFile("d2", "two.jpg", size = 2), localFile("d3", "new.jpg", size = 3))
+
+    val snapshotId = (h.scan() as ScanOutcome.Published).snapshotId
+
+    assertEquals("COMPLETE", h.db.snapshotDao().byId(snapshotId)!!.coverage)
+    val nodes = h.nodes(snapshotId).associateBy { it.name }
+    assertVerdict(nodes, "one.jpg", "SYNCED", null)
+    assertVerdict(nodes, "two.jpg", "SYNCED", null)
+    assertVerdict(nodes, "new.jpg", "UNSYNCED", null)
+    assertTrue(h.store.ambiguities(snapshotId).isEmpty())
+    assertEquals(listOf("/a", "/b"), h.remote.created.first().connectedTo!!.rootPaths)
+  }
+
+  @Test
+  fun anUnreadFolderPublishesAnIncompleteSnapshotWithRemoteFolderUnreadVerdicts() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "elsewhere.txt", size = 3))
+
+    val outcome = h.scan()
+
+    val snapshotId = (outcome as ScanOutcome.Published).snapshotId
+    assertEquals(snapshotId, h.store.activeSnapshot()!!.snapshotId)
+    assertEquals("INCOMPLETE", h.db.snapshotDao().byId(snapshotId)!!.coverage)
+    val nodes = h.nodes(snapshotId).associateBy { it.name }
+    assertVerdict(nodes, "exact.txt", "SYNCED", null)
+    assertVerdict(nodes, "elsewhere.txt", "UNKNOWN", "REMOTE_FOLDER_UNREAD")
+    assertFalse("never UNSYNCED (D006)", nodes.values.any { it.status == "UNSYNCED" })
+    val gap = h.store.ambiguities(snapshotId).single()
+    assertEquals(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, gap.scope)
+    assertEquals("DIRECTORY_UNREADABLE", gap.reason)
+    assertEquals("/b", gap.remotePath)
+  }
+
+  @Test
+  fun withoutAnUnreadFolderTheFirstFailureCodeStays() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteDir("restricted"))
+    h.remote.fail("/a/restricted", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.remote.dir("/b", remoteFile("exact.txt", 22))
+    h.enumerator.files("src-1", localFile("d1", "only-here.txt", size = 3))
+
+    val snapshotId = (h.scan() as ScanOutcome.Published).snapshotId
+
+    assertVerdict(h.nodes(snapshotId).associateBy { it.name }, "only-here.txt", "UNKNOWN", "DIRECTORY_UNREADABLE")
+    assertNull(h.store.ambiguities(snapshotId).single().remotePath)
+  }
+
+  @Test
+  fun everyFolderFailingFailsTheRunWithTheFirstFoldersCodeAndKeepsThePreviousSnapshot() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.dir("/b")
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22))
+    val previous = (h.scan() as ScanOutcome.Published).snapshotId
+
+    h.remote.fail("/a", CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND)
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    val outcome = h.scan()
+
+    assertEquals(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, (outcome as ScanOutcome.Failed).code)
+    assertEquals(previous, h.store.activeSnapshot()!!.snapshotId)
+  }
+
+  @Test
+  fun refreshCopiesRemoteFolderGapsWithTheirPathsAndKeepsTheVerdicts() = runBlocking {
+    h.configure(roots = listOf("/a", "/b"))
+    h.addSource("src-1")
+    h.remote.dir("/a", remoteFile("exact.txt", 22))
+    h.remote.fail("/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22))
+    h.scan()
+    h.enumerator.files("src-1", localFile("d1", "exact.txt", size = 22), localFile("d2", "brand-new.txt", size = 4))
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    val gaps = h.store.ambiguities(refreshed)
+    assertEquals(
+      listOf(Triple(RemoteAmbiguityEntity.SCOPE_REMOTE_FOLDER, "DIRECTORY_UNREADABLE", "/b")),
+      gaps.map { Triple(it.scope, it.reason, it.remotePath) },
+    )
+    assertEquals("INCOMPLETE", h.db.snapshotDao().byId(refreshed)!!.coverage)
+    val nodes = h.nodes(refreshed).associateBy { it.name }
+    assertVerdict(nodes, "exact.txt", "SYNCED", null)
+    assertVerdict(nodes, "brand-new.txt", "UNKNOWN", "REMOTE_FOLDER_UNREAD")
   }
 
   @Test
@@ -451,6 +551,72 @@ class ScanEngineTest {
       assertNull("${file.name}.descUnsynced", file.descUnsynced)
       assertNull("${file.name}.descUnknown", file.descUnknown)
     }
+  }
+
+  // --- sortName (schema version 5, research R2) ---
+
+  @Test
+  fun fullAndRefreshScansWriteSortNameOnEveryFileAndDirectory() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+    h.enumerator.files(
+      "src-1",
+      localFile("d-exact", "exact.txt", size = 22),
+      localFile("d-accent", "Émile.jpg", size = 3),
+      localFile("d-digit", "2024 trip.png", size = 4),
+      localDir("d-photos", "Photos"),
+      localDir("d-umlaut", "Älter", parent = "d-photos"),
+      localFile("d-inner", "Zebra.JPG", size = 5, parent = "d-umlaut"),
+    )
+
+    val full = (h.scan() as ScanOutcome.Published).snapshotId
+    assertSortNames(full, 6)
+    val byName = h.nodes(full).associateBy { it.name }
+    assertEquals("1emile.jpg", byName.getValue("Émile.jpg").sortName)
+    assertEquals("1alter", byName.getValue("Älter").sortName)
+    assertEquals("02024 trip.png", byName.getValue("2024 trip.png").sortName)
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+    assertTrue(full != refreshed)
+    assertSortNames(refreshed, 6)
+  }
+
+  @Test
+  fun refreshOverASnapshotMigratedFromVersion4RewritesSortNameOnEveryRow() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+    h.enumerator.files(
+      "src-1",
+      localFile("d-exact", "exact.txt", size = 22),
+      localFile("d-accent", "Émile.jpg", size = 3),
+      localDir("d-umlaut", "Älter"),
+      localFile("d-inner", "Zebra.JPG", size = 5, parent = "d-umlaut"),
+    )
+    val migrated = (h.scan() as ScanOutcome.Published).snapshotId
+    // Stand in for a version-4 snapshot: the migration's SQL key does not fold accents, so `É` and `Ä` sit
+    // under `#` (whether SQLite lowercases them depends on its build, so only the band is checked).
+    Migration4To5().onPostMigrate(h.db.openHelper.writableDatabase)
+    val before = h.nodes(migrated).associate { it.name to it.sortName }
+    assertTrue(before.getValue("Émile.jpg"), before.getValue("Émile.jpg").startsWith("0"))
+    assertTrue(before.getValue("Älter"), before.getValue("Älter").startsWith("0"))
+    assertEquals("1zebra.jpg", before.getValue("Zebra.JPG"))
+
+    // Nothing changed on the device: the refresh still rewrites every row of the new snapshot.
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    assertSortNames(refreshed, 4)
+    val after = h.nodes(refreshed).associate { it.name to it.sortName }
+    assertEquals("1emile.jpg", after.getValue("Émile.jpg"))
+    assertEquals("1alter", after.getValue("Älter"))
+    assertEquals("1exact.txt", after.getValue("exact.txt"))
+  }
+
+  private suspend fun assertSortNames(snapshotId: String, expectedRows: Int) {
+    val nodes = h.nodes(snapshotId)
+    assertEquals(expectedRows, nodes.size)
+    for (node in nodes) assertEquals("${node.kind} ${node.name}", SortName.of(node.name), node.sortName)
   }
 
   // --- start preconditions ---

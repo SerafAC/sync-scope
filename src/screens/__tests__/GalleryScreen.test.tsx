@@ -5,18 +5,28 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { Dimensions } from 'react-native';
+import { Dimensions, FlatList } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { FilesProvider } from '../../files/FilesProvider';
 import { FilterChips } from '../../files/FilterChips';
+import { SortMenu } from '../../files/SortMenu';
+import { useFiles } from '../../files/useFiles';
 import { galleryTileSize } from '../../files/GalleryTile';
 import type { FilesViewProps } from '../../files/FilesViewParts';
-import { getLocalImageHandle, queryFiles } from '../../native/CloudSync';
+import {
+  getBrowsePreferences,
+  getLocalImageHandle,
+  getScrollIndex,
+  queryFiles,
+  setBrowsePreferences,
+} from '../../native/CloudSync';
 import {
   CloudSyncErrorCode,
   type FileEntryDto,
   type QueryFilesResult,
+  type ScrollBandDto,
+  type ScrollIndexResult,
   type StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import { ScanContext, type ScanState } from '../../scan/useScan';
@@ -26,11 +36,35 @@ import { density } from '../../theme/spacing';
 import { GalleryScreen } from '../GalleryScreen';
 
 jest.mock('../../native/CloudSync', () => ({
+  getBrowsePreferences: jest.fn(),
+  setBrowsePreferences: jest.fn(),
   queryFiles: jest.fn(),
+  getScrollIndex: jest.fn(),
   getLocalImageHandle: jest.fn(),
 }));
 
+const getScrollIndexMock = getScrollIndex as jest.MockedFunction<
+  typeof getScrollIndex
+>;
+
 const queryFilesMock = queryFiles as jest.MockedFunction<typeof queryFiles>;
+const getBrowsePreferencesMock = getBrowsePreferences as jest.MockedFunction<
+  typeof getBrowsePreferences
+>;
+const setBrowsePreferencesMock = setBrowsePreferences as jest.MockedFunction<
+  typeof setBrowsePreferences
+>;
+
+/** The Files toolbar's sort drop-down, as FilesScreen wires it for the gallery. */
+function GallerySort(): React.JSX.Element {
+  const { sorts, setSort } = useFiles();
+  return (
+    <SortMenu
+      onChange={sort => setSort('GALLERY', sort)}
+      sort={sorts.GALLERY}
+    />
+  );
+}
 const getLocalImageHandleMock = getLocalImageHandle as jest.MockedFunction<
   typeof getLocalImageHandle
 >;
@@ -58,6 +92,7 @@ function file(
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${name.toLowerCase()}`,
     ...overrides,
   };
 }
@@ -112,6 +147,7 @@ function renderGallery(overrides: Partial<FilesViewProps> = {}) {
       <ScanContext.Provider value={scanState(p.snapshotId)}>
         <FilesProvider>
           <SelectionProvider>
+            <GallerySort />
             <FilterChips counts={null} />
             <GalleryScreen {...p} />
           </SelectionProvider>
@@ -130,6 +166,29 @@ function renderGallery(overrides: Partial<FilesViewProps> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Without an index the gallery pages linearly, as before 007 (research R7).
+  getScrollIndexMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'error',
+    error: {
+      code: CloudSyncErrorCode.INTERNAL_ERROR,
+      message: 'No index.',
+      action: null,
+    },
+  });
+  getBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+    preferences: {
+      view: 'GALLERY',
+      gallerySort: 'TIME_DESC',
+      listSort: 'NAME_ASC',
+    },
+  });
+  setBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+  });
   getLocalImageHandleMock.mockResolvedValue({
     contractVersion: 4,
     status: 'ok',
@@ -282,6 +341,88 @@ describe('GalleryScreen', () => {
     expect(() => a11ySweep(result)).not.toThrow();
   });
 
+  describe('sort (Story 1, FR-003)', () => {
+    it("puts the gallery's sort into the query spec", async () => {
+      queryFilesMock.mockResolvedValue(page([file('e-1', 'beach.png')]));
+      getBrowsePreferencesMock.mockResolvedValue({
+        contractVersion: 6,
+        status: 'ok',
+        preferences: {
+          view: 'GALLERY',
+          gallerySort: 'SIZE_DESC',
+          listSort: 'NAME_ASC',
+        },
+      });
+      renderGallery();
+
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          {
+            filter: 'ALL',
+            view: 'GALLERY',
+            sort: 'SIZE_DESC',
+            pageSize: 100,
+          },
+          null,
+        ),
+      );
+      expect(
+        await screen.findByLabelText('beach.png, Synced'),
+      ).toBeOnTheScreen();
+    });
+
+    it('a sort change reloads from page 1 and keeps the filter and the selection', async () => {
+      queryFilesMock.mockImplementation(async (_, query, token) =>
+        query.sort === 'SIZE_DESC'
+          ? page([file('e-2', 'b.png'), file('e-1', 'a.png')])
+          : token == null
+          ? page([file('e-1', 'a.png')], 'token-2')
+          : page([file('e-2', 'b.png')], null, null),
+      );
+      renderGallery();
+      await screen.findByLabelText('a.png, Synced');
+      fireEvent(screen.getByTestId('gallery-grid'), 'onEndReached');
+      await screen.findByLabelText('b.png, Synced');
+      fireEvent.press(screen.getByLabelText('Filter Synced'));
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ filter: 'SYNCED', sort: 'TIME_DESC' }),
+          null,
+        ),
+      );
+      fireEvent(await screen.findByLabelText('a.png, Synced'), 'longPress');
+      await screen.findByLabelText('a.png, Synced, selected');
+
+      queryFilesMock.mockClear();
+      fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
+      fireEvent.press(screen.getByLabelText('Size (largest first)'));
+
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenCalledWith(
+          'snap-1',
+          {
+            filter: 'SYNCED',
+            view: 'GALLERY',
+            sort: 'SIZE_DESC',
+            pageSize: 100,
+          },
+          null,
+        ),
+      );
+      expect(queryFilesMock).toHaveBeenCalledTimes(1);
+      expect(
+        await screen.findByLabelText('a.png, Synced, selected'),
+      ).toBeSelected();
+      expect(screen.getByLabelText('b.png, Synced')).not.toBeSelected();
+      expect(screen.getByLabelText('Filter Synced')).toBeSelected();
+      expect(setBrowsePreferencesMock).toHaveBeenCalledWith({
+        gallerySort: 'SIZE_DESC',
+      });
+    });
+  });
+
   describe('selection (FR-015, FR-017)', () => {
     beforeEach(() => {
       queryFilesMock.mockResolvedValue(
@@ -362,5 +503,300 @@ describe('GalleryScreen', () => {
 
       expect(() => a11ySweep(result)).not.toThrow();
     });
+  });
+});
+
+/** Letter bands of the given counts; band k starts at token `band-<k>`. */
+function scrollIndex(counts: number[]): ScrollIndexResult {
+  let start = 0;
+  const bands = counts.map((count, k): ScrollBandDto => {
+    const band = {
+      startIndex: start,
+      count,
+      startToken: k === 0 ? null : `band-${k}`,
+      letter: String.fromCharCode(97 + k),
+    };
+    start += count;
+    return band;
+  });
+  return {
+    contractVersion: 6,
+    status: 'ok',
+    scrollIndex: {
+      unit: 'LETTER',
+      totalCount: start,
+      bands,
+      anchorIndex: null,
+    },
+  };
+}
+
+/** Files `<k>-<i>.png` of band k, read from token `band-<k>` (or null for band 0). */
+function bandReader(counts: number[]) {
+  return async (
+    _snapshotId: string,
+    _query: unknown,
+    pageToken?: string | null,
+  ): Promise<QueryFilesResult> => {
+    const k = pageToken == null ? 0 : Number(pageToken.split('-')[1]);
+    const count = Math.min(counts[k] ?? 0, 100);
+    return page(
+      Array.from({ length: count }, (_, i) =>
+        file(`e-${k}-${i}`, `${k}-${i}.png`),
+      ),
+      // A band longer than a page reads on (the next page is never read here).
+      (counts[k] ?? 0) > count ? `band-${k}-more` : null,
+      k === 0 ? COUNTS : null,
+    );
+  };
+}
+
+describe('GalleryScreen with the scroll index (Story 2, research R7)', () => {
+  it('requests the index with page 1 and shows placeholder tiles for bands not read yet', async () => {
+    getScrollIndexMock.mockResolvedValue(scrollIndex([3, 3]));
+    queryFilesMock.mockImplementation(bandReader([3, 3]));
+    renderGallery();
+
+    expect(await screen.findByLabelText('0-2.png, Synced')).toBeOnTheScreen();
+    expect(await screen.findAllByLabelText('Loading file')).toHaveLength(3);
+    expect(getScrollIndexMock).toHaveBeenCalledWith('snap-1', {
+      filter: 'ALL',
+      view: 'GALLERY',
+      sort: 'TIME_DESC',
+      pageSize: 100,
+    });
+    expect(queryFilesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads a band when it comes into view', async () => {
+    getScrollIndexMock.mockResolvedValue(scrollIndex([3, 3]));
+    queryFilesMock.mockImplementation(bandReader([3, 3]));
+    renderGallery();
+    await screen.findAllByLabelText('Loading file');
+
+    fireEvent(screen.getByTestId('gallery-grid'), 'onViewableItemsChanged', {
+      viewableItems: [{ index: 3 }, { index: 4 }],
+      changed: [],
+    });
+
+    expect(await screen.findByLabelText('1-0.png, Synced')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Loading file')).toBeNull();
+    expect(queryFilesMock).toHaveBeenLastCalledWith(
+      'snap-1',
+      expect.objectContaining({ view: 'GALLERY' }),
+      'band-1',
+    );
+  });
+
+  it('jumps with the scrollbar: scrolls to the band and reads it', async () => {
+    const counts = [600, 600, 600, 600, 600];
+    getScrollIndexMock.mockResolvedValue(scrollIndex(counts));
+    queryFilesMock.mockImplementation(bandReader(counts));
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, 'scrollToIndex')
+      .mockImplementation(() => {});
+    try {
+      renderGallery();
+      const thumb = await screen.findByTestId('files.scroller.thumb');
+      expect(thumb.props.accessibilityValue).toEqual({ text: 'A' });
+
+      fireEvent(thumb, 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+
+      expect(scrollToIndex).toHaveBeenCalledWith({
+        index: 600 / 3,
+        animated: false,
+      });
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ view: 'GALLERY' }),
+          'band-1',
+        ),
+      );
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  it('starts every band on a new grid row', async () => {
+    getScrollIndexMock.mockResolvedValue(scrollIndex([2, 3]));
+    queryFilesMock.mockImplementation(bandReader([2, 3]));
+    renderGallery();
+    await screen.findByLabelText('0-1.png, Synced');
+
+    const data = screen.getByTestId('gallery-grid').props.data as {
+      entryId?: string;
+      filler?: boolean;
+    }[];
+    expect(data).toHaveLength(6);
+    expect(data[2]?.filler).toBe(true);
+    expect(screen.getAllByTestId('gallery-filler')).toHaveLength(1);
+  });
+
+  it('has no scrollbar for a short result', async () => {
+    getScrollIndexMock.mockResolvedValue(scrollIndex([3, 3]));
+    queryFilesMock.mockImplementation(bandReader([3, 3]));
+    renderGallery();
+    await screen.findByLabelText('0-0.png, Synced');
+    await waitFor(() =>
+      expect(screen.getAllByLabelText('Loading file')).toHaveLength(3),
+    );
+
+    expect(screen.queryByTestId('files.scroller.thumb')).toBeNull();
+  });
+
+  it('reads the bands of the filtered result (Story 2 sc. 8)', async () => {
+    const counts = [600, 600, 600, 600, 600];
+    getScrollIndexMock.mockResolvedValue(scrollIndex(counts));
+    queryFilesMock.mockImplementation(bandReader(counts));
+    renderGallery();
+    await screen.findByTestId('files.scroller.thumb');
+
+    getScrollIndexMock.mockResolvedValue(scrollIndex([3]));
+    fireEvent.press(screen.getByLabelText('Filter Synced'));
+
+    await waitFor(() =>
+      expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+        'snap-1',
+        expect.objectContaining({ filter: 'SYNCED' }),
+      ),
+    );
+    await screen.findByLabelText('0-0.png, Synced');
+    await waitFor(() =>
+      expect(screen.queryByTestId('files.scroller.thumb')).toBeNull(),
+    );
+  });
+
+  describe('keeps the place when results update (Story 4, research R8)', () => {
+    const COUNTS_5 = [600, 600, 600, 600, 600];
+
+    /** Scrolls to band 2's fourth file (cell 1203): the view records it once its band is read. */
+    async function scrollToBand2() {
+      const grid = await screen.findByTestId('gallery-grid');
+      const viewable = {
+        viewableItems: Array.from({ length: 12 }, (_, i) => ({
+          index: 1203 + i,
+        })),
+        changed: [],
+      };
+      fireEvent(grid, 'onViewableItemsChanged', viewable);
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ view: 'GALLERY' }),
+          'band-2',
+        ),
+      );
+      await waitFor(() =>
+        expect(
+          (
+            screen.getByTestId('gallery-grid').props.data as {
+              entryId?: string;
+            }[]
+          )[1203]?.entryId,
+        ).toBe('e-2-3'),
+      );
+      // The grid comes to rest with row 401 (cells 1203…1205) on top.
+      const rowLength =
+        galleryTileSize(Dimensions.get('window').width) + density.tileGap;
+      fireEvent.scroll(screen.getByTestId('gallery-grid'), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 401 * rowLength + rowLength / 3 },
+          contentSize: { width: 400, height: 1000000 },
+          layoutMeasurement: { width: 400, height: 600 },
+        },
+      });
+    }
+
+    it.each([
+      ['the noted file is still there', 1203, 401],
+      ['the noted file is gone: its neighbour (sc. 2)', 1202, 400],
+    ])(
+      'scrolls to the anchor, not to the top, on a new snapshot: %s',
+      async (_case, anchorIndex, gridRow) => {
+        getScrollIndexMock.mockResolvedValue(scrollIndex(COUNTS_5));
+        queryFilesMock.mockImplementation(bandReader(COUNTS_5));
+        const { props, rerenderWith } = renderGallery();
+        await screen.findByTestId('files.scroller.thumb');
+        await scrollToBand2();
+
+        const next = scrollIndex(COUNTS_5);
+        if (next.status === 'ok') {
+          next.scrollIndex.anchorIndex = anchorIndex;
+        }
+        getScrollIndexMock.mockResolvedValue(next);
+        rerenderWith({ snapshotId: 'snap-2' });
+
+        await waitFor(() =>
+          expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+            'snap-2',
+            expect.objectContaining({ view: 'GALLERY', sort: 'TIME_DESC' }),
+            { sortValue: 1704067200000, sortName: '12-3.png' },
+          ),
+        );
+        await waitFor(() =>
+          expect(
+            screen.getByTestId('gallery-grid').props.initialScrollIndex,
+          ).toBe(gridRow),
+        );
+        expect(queryFilesMock).toHaveBeenCalledWith(
+          'snap-2',
+          expect.objectContaining({ view: 'GALLERY' }),
+          'band-2',
+        );
+        await waitFor(() =>
+          expect(props.onSnapshotChange).toHaveBeenCalledTimes(1),
+        );
+      },
+    );
+
+    it('starts at the top after a sort change: the anchor is used once', async () => {
+      getScrollIndexMock.mockResolvedValue(scrollIndex(COUNTS_5));
+      queryFilesMock.mockImplementation(bandReader(COUNTS_5));
+      const { rerenderWith } = renderGallery();
+      await screen.findByTestId('files.scroller.thumb');
+      await scrollToBand2();
+      const next = scrollIndex(COUNTS_5);
+      if (next.status === 'ok') {
+        next.scrollIndex.anchorIndex = 1203;
+      }
+      getScrollIndexMock.mockResolvedValueOnce(next);
+      rerenderWith({ snapshotId: 'snap-2' });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('gallery-grid').props.initialScrollIndex,
+        ).toBe(401),
+      );
+
+      fireEvent.press(screen.getByLabelText(/^Sort: /));
+      fireEvent.press(screen.getByLabelText('Name (A–Z)'));
+
+      await waitFor(() =>
+        expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+          'snap-2',
+          expect.objectContaining({ sort: 'NAME_ASC' }),
+        ),
+      );
+      await screen.findByTestId('gallery-grid');
+      expect(
+        screen.getByTestId('gallery-grid').props.initialScrollIndex ?? null,
+      ).toBeNull();
+    });
+  });
+
+  it('passes the a11y sweep with placeholders and the scrollbar', async () => {
+    // The first band holds 5 photos, so the second band's unread tiles are
+    // placeholders inside the first screenful (FR-017).
+    const counts = [5, 600, 600, 600, 600];
+    getScrollIndexMock.mockResolvedValue(scrollIndex(counts));
+    queryFilesMock.mockImplementation(bandReader(counts));
+    const result = renderGallery();
+    await screen.findByTestId('files.scroller.thumb');
+
+    expect(screen.getAllByLabelText('Loading file').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Scrollbar')).toBeOnTheScreen();
+    expect(() => a11ySweep(result)).not.toThrow();
   });
 });

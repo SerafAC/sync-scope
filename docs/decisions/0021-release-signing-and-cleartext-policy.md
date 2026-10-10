@@ -44,7 +44,7 @@ attached. Two things stood in the way:
 
 ## Rationale
 
-A stable personal key is what lets every later build, including feature 009's, update in place and keep
+A stable personal key is what lets every later build, including feature 011's, update in place and keep
 the saved server, folders and results. Reading it from Gradle properties is the standard React Native
 setup and keeps the secret out of git. Failing fast is better than a silently debug-signed APK that
 cannot later be updated.

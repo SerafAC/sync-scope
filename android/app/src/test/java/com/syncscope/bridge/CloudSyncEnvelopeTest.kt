@@ -7,6 +7,7 @@ import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
 import com.syncscope.deletion.FailureView
 import com.syncscope.deletion.GroupTotals
+import com.syncscope.persistence.FileEntry
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
@@ -59,6 +60,44 @@ class CloudSyncEnvelopeTest {
     assertEquals(0, page.getArray("entries")!!.size())
     assertTrue(page.isNull("nextPageToken"))
     assertTrue(page.isNull("counts"))
+  }
+
+  @Test
+  fun fileEntryWritesEveryFileEntryDtoFieldIncludingSortName() {
+    val entry =
+      FileEntry(
+        entryId = "e-1",
+        sourceId = "src-1",
+        parentId = null,
+        kind = "FILE",
+        name = "Émile.jpg",
+        mimeType = "image/jpeg",
+        sizeBytes = 3L,
+        modifiedUtcMillis = null,
+        status = "SYNCED",
+        issueCode = null,
+        nameInOtherSource = true,
+        matchingFileCount = null,
+        sortName = "1emile.jpg",
+      )
+
+    val dto = envelope.fileEntry(entry)
+
+    assertEquals("1emile.jpg", dto.getString("sortName"))
+    assertEquals("Émile.jpg", dto.getString("name"))
+    assertEquals("e-1", dto.getString("entryId"))
+    assertEquals(3.0, dto.getDouble("sizeBytes"), 0.0)
+    assertTrue(dto.isNull("parentId"))
+    assertTrue(dto.isNull("modifiedUtcMillis"))
+    assertTrue(dto.isNull("matchingFileCount"))
+    assertTrue(dto.getBoolean("nameInOtherSource"))
+    assertEquals(
+      setOf(
+        "entryId", "sourceId", "parentId", "kind", "name", "mimeType", "sizeBytes", "modifiedUtcMillis", "status",
+        "issueCode", "nameInOtherSource", "matchingFileCount", "sortName",
+      ),
+      dto.toHashMap().keys,
+    )
   }
 
   @Test
@@ -212,6 +251,51 @@ class CloudSyncEnvelopeTest {
         .getMap("error")!!
 
     assertEquals("remoteRoot", body.getString("field"))
+  }
+
+  // --- remoteRoots field errors and the per-folder test (contract version 6, research R11, R12) ---
+
+  @Test
+  fun fieldIndexIsWrittenOnlyWhenGiven() {
+    val with =
+      envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad.", field = "remoteRoots", fieldIndex = 2).getMap("error")!!
+    assertEquals(2, with.getInt("fieldIndex"))
+
+    val without = envelope.error(CloudSyncErrorCode.INVALID_QUERY, "Bad.", field = "port").getMap("error")!!
+    assertFalse(without.hasKey("fieldIndex"))
+  }
+
+  @Test
+  fun aRemoteRootsErrorNamesTheFieldTheIndexAndKeepsTheConfiguredFolder() {
+    val body =
+      envelope
+        .remoteRootsError(1, "This folder is the same as, inside or around /scan/clean/a.")
+        .getMap("error")!!
+
+    assertEquals("INVALID_QUERY", body.getString("code"))
+    assertEquals("remoteRoots", body.getString("field"))
+    assertEquals(1, body.getInt("fieldIndex"))
+    assertEquals("This folder is the same as, inside or around /scan/clean/a.", body.getString("message"))
+    assertEquals("Correct the folder and save again.", body.getString("action"))
+  }
+
+  @Test
+  fun aFolderResultCarriesItsPathAndEitherACountOrARedactedError() {
+    val read = envelope.folderResult("/photos", 12, null)
+    assertEquals("/photos", read.getString("path"))
+    assertEquals(12, read.getInt("entryCount"))
+    assertTrue(read.isNull("error"))
+
+    val failure =
+      RemoteClientException(CloudSyncErrorCode.DIRECTORY_UNREADABLE, "alice may not list /backup on nas.example.test", "Ask the admin.")
+    val failed = envelope.folderResult("/backup", null, failure, sensitive = listOf("alice", "/backup"))
+    assertEquals("/backup", failed.getString("path"))
+    assertTrue(failed.isNull("entryCount"))
+    val error = failed.getMap("error")!!
+    assertEquals("DIRECTORY_UNREADABLE", error.getString("code"))
+    assertEquals("Ask the admin.", error.getString("action"))
+    val message = error.getString("message")!!
+    for (secret in listOf("alice", "/backup", "nas.example.test")) assertFalse(message, message.contains(secret))
   }
 
   // --- deletion envelopes (contracts/cloudsync-mvp.md, T066) ---

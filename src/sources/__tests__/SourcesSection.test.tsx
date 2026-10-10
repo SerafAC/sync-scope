@@ -131,12 +131,29 @@ describe('SourcesSection', () => {
 
     const hint = screen.getByLabelText('Folder picker hint');
     expect(hint).toHaveTextContent(
-      'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures.',
+      'Android does not allow the top level of the storage or the Download folder. Pick a folder such as DCIM or Pictures. A folder with thousands of files, such as Camera, can look empty for a while. Open it and tap Use this folder; you do not need to wait for its files to show.',
     );
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf('Pick a folder such as DCIM')).toBeGreaterThan(-1);
     expect(rendered.indexOf('Pick a folder such as DCIM')).toBeLessThan(
       rendered.indexOf('Add folder'),
+    );
+  });
+
+  // Story 5 sc. 5, FR-015 (research R15, spike branch B): the picker cannot be
+  // fixed from the app, so before it opens the hint says how to add a large
+  // folder: open it and use it without waiting for its files.
+  it('tells the user how to add a folder with thousands of files before Add folder', () => {
+    renderSection(hookState());
+
+    const rendered = JSON.stringify(screen.toJSON());
+    const largeFolder = rendered.indexOf(
+      'A folder with thousands of files, such as Camera, can look empty for a while.',
+    );
+    expect(largeFolder).toBeGreaterThan(-1);
+    expect(largeFolder).toBeLessThan(rendered.indexOf('Add folder'));
+    expect(screen.getByLabelText('Folder picker hint')).toHaveTextContent(
+      /Open it and tap Use this folder; you do not need to wait for its files to show\.$/,
     );
   });
 

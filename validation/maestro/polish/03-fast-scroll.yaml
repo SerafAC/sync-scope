@@ -1,0 +1,302 @@
+# Story 2 sc. 1-5 and 8, FR-006, FR-007, FR-007a, FR-007b, SC-003, SC-008
+# (contracts/maestro-polish.md › Acceptance scenario mapping): the scrollbar
+# of a long result jumps to any band, in each sort and in both views.
+#
+# - Gallery, date sort (Scroll, 5,000 files over 30 months, so month bands):
+#   scroll, drag the thumb to the bottom quarter and release. The first tile
+#   is the manifest's first file of that month band within 1 s (SC-003, on
+#   API 31), and the band's label (MM.YYYY) was shown for the drag.
+# - Gallery, name sort: drag to the `m` band; the first tile is its first file.
+# - List, size sort inside Narrow (200 files of 3-5 MB, so narrow size bands):
+#   drags over the track show `MB` labels with one decimal, at least 5
+#   distinct ones (SC-008). The list scopes the bands to the folder (sc. 8).
+# - Filter Synced: a short result has no thumb (sc. 1).
+#
+# Expected names and labels come from scroll-manifest.sh (BAND_*), never
+# literals. Maestro reads the label after the release: it stays until the
+# scroller fades out, so the drags do not wait for the screen to settle
+# (which would also start the 1 s wait late). Story 2 sc. 6 (loading state) and sc. 7 (TalkBack) are
+# recorded deviations proven by Jest (usePagedQuery, FastScroller).
+#
+# Track geometry (Pixel 5 AVDs, 1080 x 2340, API 31 and API 36): the gallery
+# grid and the list body run from just under the filter chips (gallery) or
+# the breadcrumb (list) to the tab bar; the thumb is 48 dp tall on the right
+# edge (x 96%). A drag moves the thumb by (end - start) and lands on the
+# band at that fraction of the files, so with the thumb near the top (a
+# short, slow scroll first) the end points below hit the target bands: the
+# month band at 0.73-0.77 of the track, the `m` band at 0.52-0.55. The
+# gallery's travel is 1,344 px on API 31 and 1,420 px on API 36 (edge to
+# edge), too far apart for one pair of points, so the gallery drags are
+# chosen by API_LEVEL (passed by android-flow.sh). Swipe points are whole
+# percentages. The list drags in Narrow only need distinct bands and use the
+# same points on both. Self-contained: starts from clearState.
+appId: com.syncscope
+name: polish/03-fast-scroll
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/configure-repository.yaml
+    env:
+      PROTOCOL: "WEBDAV"
+      PORT: "${WEBDAV_PORT}"
+      USER: "${WEBDAV_USER}"
+      PASSWORD: "${WEBDAV_PASSWORD}"
+      ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Scroll"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible:
+      text: "Filter All, ${SCROLL_COUNT}"
+      selected: true
+    timeout: 30000
+- assertVisible: "Sort: Date, newest first"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_TIME_DESC}"
+
+# 1. Date sort: scroll, and the scrollbar appears (sc. 1); drag its thumb to
+#    the bottom quarter and release (sc. 2): within 1 s the month band's
+#    first file is the first tile (SC-003).
+- swipe:
+    start: "50%, 60%"
+    end: "50%, 50%"
+    duration: 800
+- assertVisible:
+    id: "files.scroller.thumb"
+- runFlow:
+    when:
+      true: "${API_LEVEL != '36'}"
+    commands:
+      - swipe:
+          start: "96%, 29%"
+          end: "96%, 72%"
+          duration: 1500
+          waitToSettleTimeoutMs: 50
+- runFlow:
+    when:
+      true: "${API_LEVEL == '36'}"
+    commands:
+      - swipe:
+          start: "96%, 28%"
+          end: "96%, 73%"
+          duration: 1500
+          waitToSettleTimeoutMs: 50
+- extendedWaitUntil:
+    visible: "${BAND_MONTH_FIRST + ', (Synced|Unsynced|Unknown).*'}"
+    timeout: 1000
+- runFlow: ../subflows/show-scrollbar.yaml
+- assertVisible:
+    id: "files.scroller.thumb"
+    text: "${'Scrollbar, ' + BAND_MONTH_LABEL}"
+- copyTextFrom:
+    text: ".+\\.png, (Synced|Unsynced|Unknown).*"
+    index: 0
+- assertTrue: "${maestro.copiedText.indexOf(BAND_MONTH_FIRST + ', ') === 0}"
+
+# 2. Name sort (sc. 3): drag to the `m` band; its first file is the first
+#    tile.
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "NAME_ASC"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${FIRST_NAME_ASC}"
+- swipe:
+    start: "50%, 60%"
+    end: "50%, 50%"
+    duration: 800
+- assertVisible:
+    id: "files.scroller.thumb"
+- runFlow:
+    when:
+      true: "${API_LEVEL != '36'}"
+    commands:
+      - swipe:
+          start: "96%, 29%"
+          end: "96%, 60%"
+          duration: 1500
+          waitToSettleTimeoutMs: 50
+- runFlow:
+    when:
+      true: "${API_LEVEL == '36'}"
+    commands:
+      - swipe:
+          start: "96%, 28%"
+          end: "96%, 61%"
+          duration: 1500
+          waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- assertVisible:
+    id: "files.scroller.thumb"
+    text: "Scrollbar, M"
+- runFlow:
+    file: ../subflows/assert-first-file.yaml
+    env:
+      FIRST: "${BAND_LETTER_M_FIRST}"
+- assertTrue: "${/^[mM]/.test(maestro.copiedText)}"
+
+# 3. Size sort on Narrow (sc. 4, 5, 8; SC-008): add it, rescan, open it in
+#    the list. Each drag starts with the thumb at the top: the folder is
+#    opened again after each one. Swipe points are parsed before scripts
+#    run, so the six drags are spelled out.
+- runFlow:
+    file: ../subflows/add-scan-source.yaml
+    env:
+      SOURCES: "Narrow"
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_DESC"
+- evalScript: "${output.labels = []}"
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 36%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 45%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 54%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 63%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 72%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "narrow-.+\\.png, (Synced|Unsynced|Unknown).*"
+    timeout: 15000
+- swipe:
+    start: "96%, 33%"
+    end: "96%, 81%"
+    duration: 1500
+    waitToSettleTimeoutMs: 50
+- runFlow: ../subflows/show-scrollbar.yaml
+- copyTextFrom:
+    id: "files.scroller.thumb"
+- evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
+- tapOn: "Breadcrumb All folders"
+- tapOn: "Folder Narrow, .+"
+- extendedWaitUntil:
+    visible: "Breadcrumb Narrow"
+    timeout: 15000
+- assertTrue: "${output.labels.every(function (l) { return /^\\d(\\.\\d)? MB$/.test(l) })}"
+- assertTrue: "${output.labels.some(function (l) { return /^\\d\\.\\d MB$/.test(l) })}"
+- assertTrue: "${new Set(output.labels).size >= 5}"
+
+# 4. A short result has no scrollbar (sc. 1): the Synced filter in the gallery.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- tapOn: "Filter Synced(, \\d+)?"
+- extendedWaitUntil:
+    visible:
+      text: "Filter Synced(, \\d+)?"
+      selected: true
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Loading files"
+    timeout: 15000
+- swipe:
+    direction: UP
+    duration: 400
+- assertNotVisible:
+    id: "files.scroller.thumb"

@@ -27,6 +27,14 @@ import org.robolectric.annotation.Config
  * "Select all" (`selectableEntries`) over 50 000 rows has its own budget, [SELECT_ALL_BUDGET_MILLIS]:
  * measured ≈ 120 ms in gallery and ≈ 110 ms in one folder.
  * Without the pinned duplicate-probe index the gallery page took ≈ 700 ms.
+ *
+ * Feature 007 (schema 5, measured 2026-10-06): a first gallery page under the six sorts ≈ 40–125 ms (the
+ * slowest is `SIZE_DESC`, whose `COALESCE` key sorts in a temporary B-tree), a later page ≈ 5–90 ms, one
+ * folder's files ≈ 30–55 ms. Staging 50 000 rows with the two new indexes ≈ 750 ms; no insert budget
+ * existed before 007, so [INSERT_BUDGET_MILLIS] is set at about four times that.
+ *
+ * Scroll index (research R4, measured 2026-10-07) over 50 000 files with an anchor: name sorts ≈ 65–90 ms, time and
+ * size sorts ≈ 90–120 ms, against [SCROLL_INDEX_BUDGET_MILLIS].
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -82,6 +90,64 @@ class SnapshotQueryPerformanceTest {
     assertTrue("first folder queryTreeChildren page took ${subtreeMillis}ms", subtreeMillis < BUDGET_MILLIS)
   }
 
+  /**
+   * Feature 007 (research R1, R18): the first page under each of the six sorts, in gallery over 50 000 files
+   * and in list over one folder's files (`kind = FILE`), stays within [BUDGET_MILLIS], and so does a later page
+   * read through a token.
+   */
+  @Test
+  fun aPageUnderEachSortStaysWithinBudget() = runBlocking {
+    seed()
+    val timings = mutableListOf<String>()
+    for (sort in FileSort.entries) {
+      val gallery = SnapshotQuery(view = FileView.GALLERY, sort = sort, pageSize = 100)
+      val galleryMillis =
+        medianMillis {
+          val page = store.queryFilePage(SNAPSHOT, gallery, null)
+          assertEquals(100, page.entries.size)
+          assertNotNull(page.nextPageToken)
+        }
+      val token = store.queryFilePage(SNAPSHOT, gallery, null).nextPageToken
+      val nextMillis = medianMillis { assertEquals(100, store.queryFilePage(SNAPSHOT, gallery, token).entries.size) }
+      val folder = SnapshotQuery(sourceId = "src-1", parentId = "src-1-top-0-sub-0", sort = sort, kind = FileKind.FILE, pageSize = 100)
+      val folderMillis = medianMillis { assertTrue(store.queryFilePage(SNAPSHOT, folder, null).entries.isNotEmpty()) }
+
+      timings += "$sort gallery=${galleryMillis}ms next=${nextMillis}ms folder=${folderMillis}ms"
+      assertTrue("first GALLERY page under $sort took ${galleryMillis}ms", galleryMillis < BUDGET_MILLIS)
+      assertTrue("second GALLERY page under $sort took ${nextMillis}ms", nextMillis < BUDGET_MILLIS)
+      assertTrue("first folder page under $sort took ${folderMillis}ms", folderMillis < BUDGET_MILLIS)
+    }
+    println("SnapshotQueryPerformanceTest: " + timings.joinToString("; "))
+  }
+
+  /**
+   * Staging 50 000 `local_node` rows, with schema 5's two added indexes `(snapshotId, kind, sizeBytes)` and
+   * `(snapshotId, kind, sortName)`, stays within [INSERT_BUDGET_MILLIS] (research R18). If it fails, drop the
+   * `sortName` index first (plan › Risks) and record it in research R18.
+   */
+  @Test
+  fun stagingFiftyThousandRowsStaysWithinBudget() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val run = store.beginRun("run-1", "FULL", 1L, "CONNECTING", 1_000L)
+    store.stageSnapshot(stagingSnapshot(SNAPSHOT, run.runId))
+    val batches =
+      (0 until SELECT_ALL_ROWS).chunked(5_000).map { chunk ->
+        chunk.map { i ->
+          localNode(SNAPSHOT, "src-1", "f$i", "IMG_$i.jpg", mimeType = "image/jpeg", sizeBytes = (i * 7_919L) % 10_000_000L)
+        }
+      }
+    // Warm the insert path with 5 000 other rows so JIT and statement caches do not count.
+    store.stageLocalNodes(batches.first().map { it.copy(entryId = "warm-${it.entryId}") })
+
+    val start = System.nanoTime()
+    for (batch in batches) store.stageLocalNodes(batch)
+    val millis = (System.nanoTime() - start) / 1_000_000
+
+    println("SnapshotQueryPerformanceTest: insert 50k=${millis}ms")
+    assertEquals(SELECT_ALL_ROWS + 5_000L, db.localNodeDao().countFor(SNAPSHOT))
+    assertTrue("staging $SELECT_ALL_ROWS rows took ${millis}ms", millis < INSERT_BUDGET_MILLIS)
+  }
+
   /** "Select all" over 50 000 matching rows returns them in one read under [SELECT_ALL_BUDGET_MILLIS]. */
   @Test
   fun selectAllOverFiftyThousandRowsStaysWithinBudget() = runBlocking {
@@ -118,6 +184,59 @@ class SnapshotQueryPerformanceTest {
     println("SnapshotQueryPerformanceTest: selectAll gallery=${galleryMillis}ms folder=${folderMillis}ms")
     assertTrue("select all in gallery took ${galleryMillis}ms", galleryMillis < SELECT_ALL_BUDGET_MILLIS)
     assertTrue("select all in a folder took ${folderMillis}ms", folderMillis < SELECT_ALL_BUDGET_MILLIS)
+  }
+
+  /**
+   * Feature 007 (research R4): the scroll index of 50 000 files, in gallery and in one folder (`kind = FILE`), with an
+   * anchor, stays within [SCROLL_INDEX_BUDGET_MILLIS] under each of the six sorts.
+   */
+  @Test
+  fun theScrollIndexOverFiftyThousandFilesStaysWithinBudget() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    val run = store.beginRun("run-1", "FULL", 1L, "CONNECTING", 1_000L)
+    store.stageSnapshot(stagingSnapshot(SNAPSHOT, run.runId))
+    store.stageLocalNodes(listOf(directory("src-1", "dir", "Camera", null)))
+    val stems = listOf("IMG", "dsc", "Éte", "2024", "_x", "photo", "Zoo", "beach", "kitten", "macro")
+    val files = ArrayList<LocalNodeEntity>(5_000)
+    for (i in 0 until SELECT_ALL_ROWS) {
+      files +=
+        localNode(
+          SNAPSHOT,
+          "src-1",
+          "f$i",
+          "${stems[(i * 7) % stems.size]}_$i.jpg",
+          parentId = "dir",
+          mimeType = "image/jpeg",
+          // Sizes 0–20 MB and times over ten years in a scrambled order; 1 % of each unknown.
+          sizeBytes = if (i % 100 == 3) null else (i * 7_919L) % 20_000_000L,
+          modifiedUtcMillis = if (i % 100 == 5) null else 1_300_000_000_000L + (i * 104_729L % SELECT_ALL_ROWS) * 6_307_200L,
+        )
+      if (files.size == 5_000) {
+        store.stageLocalNodes(files)
+        files.clear()
+      }
+    }
+    store.stageLocalNodes(files)
+    store.publish("run-1", run.generation, 1L, "COMPLETED", 5_000L)
+
+    val timings = mutableListOf<String>()
+    for (sort in FileSort.entries) {
+      val anchor = ScrollAnchor(if (sort == FileSort.NAME_ASC || sort == FileSort.NAME_DESC) null else 5_000_000.0, "1photo_25000.jpg")
+      val gallery = SnapshotQuery(view = FileView.GALLERY, sort = sort)
+      val galleryMillis =
+        medianMillis {
+          val index = store.scrollIndex(SNAPSHOT, gallery, anchor)
+          assertEquals(SELECT_ALL_ROWS, index.totalCount)
+          assertNotNull(index.anchorIndex)
+        }
+      val folder = SnapshotQuery(sourceId = "src-1", parentId = "dir", sort = sort, kind = FileKind.FILE)
+      val folderMillis = medianMillis { assertEquals(SELECT_ALL_ROWS, store.scrollIndex(SNAPSHOT, folder, anchor).totalCount) }
+
+      timings += "$sort gallery=${galleryMillis}ms folder=${folderMillis}ms"
+      assertTrue("scroll index in gallery under $sort took ${galleryMillis}ms", galleryMillis < SCROLL_INDEX_BUDGET_MILLIS)
+      assertTrue("scroll index in a folder under $sort took ${folderMillis}ms", folderMillis < SCROLL_INDEX_BUDGET_MILLIS)
+    }
+    println("SnapshotQueryPerformanceTest: scrollIndex " + timings.joinToString("; "))
   }
 
   private suspend fun medianMillis(read: suspend () -> Unit): Long {
@@ -172,7 +291,9 @@ class SnapshotQueryPerformanceTest {
             parentId = leaves[i % leaves.size],
             mimeType = if (image || i % 20 == 0) "image/jpeg" else "text/plain",
             status = statuses[i % statuses.size],
-            modifiedUtcMillis = 1_000_000L + i * 7L + sourceIndex,
+            modifiedUtcMillis = if (i % 97 == 0) null else 1_000_000L + i * 7L + sourceIndex,
+            // Sizes spread over 0–10 MB in a scrambled order, 2 % unknown, so a size sort is a real sort.
+            sizeBytes = if (i % 50 == 1) null else (i * 7_919L) % 10_000_000L,
           )
         if (files.size == 5_000) {
           store.stageLocalNodes(files)
@@ -198,5 +319,8 @@ class SnapshotQueryPerformanceTest {
     const val FILES_PER_SOURCE = 25_000
     const val SELECT_ALL_ROWS = 50_000
     const val SELECT_ALL_BUDGET_MILLIS = 1_000L
+    const val INSERT_BUDGET_MILLIS = 3_000L
+    /** Research R4: `getScrollIndex` for 50 000 files. */
+    const val SCROLL_INDEX_BUDGET_MILLIS = 150L
   }
 }

@@ -36,6 +36,26 @@ describe('a11ySweep', () => {
     expect(() => a11ySweep(result)).toThrow(/"Gallery"/);
   });
 
+  it('fails on an unlabeled adjustable control, such as a scrollbar thumb', () => {
+    const result = render(
+      <View accessibilityRole="adjustable" accessible>
+        <Text>Thumb</Text>
+      </View>,
+    );
+
+    expect(() => a11ySweep(result)).toThrow(/"Thumb"/);
+  });
+
+  it('fails on an unlabeled menu item', () => {
+    const result = render(
+      <View accessibilityRole="menuitem">
+        <Text>Size (largest first)</Text>
+      </View>,
+    );
+
+    expect(() => a11ySweep(result)).toThrow(/"Size \(largest first\)"/);
+  });
+
   it('passes on a labeled Pressable', () => {
     const result = render(
       <Pressable accessibilityLabel="sunset.png, Unsynced" onPress={() => {}}>

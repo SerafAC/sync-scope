@@ -1,24 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
-import {
-  Button,
-  IconButton,
-  SegmentedButtons,
-  Snackbar,
-  Text,
-} from 'react-native-paper';
+import { Button, IconButton, Snackbar, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 
-import { NO_SCAN_TEXT } from '../files/FilesViewParts';
+import { FilesMessage, NO_SCAN_TEXT } from '../files/FilesViewParts';
 import { FilterChips } from '../files/FilterChips';
+import { SortMenu } from '../files/SortMenu';
+import { ViewMenu } from '../files/ViewMenu';
 import { useFiles, type FilesView } from '../files/useFiles';
 import { useSourceAliases } from '../files/useSourceAliases';
 import { PAGED_QUERY_PAGE_SIZE } from '../files/usePagedQuery';
 import type {
   CloudSyncError,
   DeletionResultDto,
+  FileSort,
   QuerySpec,
   StatusCountDto,
 } from '../native/CloudSyncContracts';
@@ -37,21 +34,6 @@ function selectAllErrorText(error: CloudSyncError): string {
   return error.action ? `${error.message} ${error.action}` : error.message;
 }
 const SNACKBAR_MILLIS = 4000;
-
-const VIEW_BUTTONS = [
-  {
-    value: 'GALLERY',
-    label: 'Gallery',
-    icon: 'view-grid-outline',
-    accessibilityLabel: 'Gallery view',
-  },
-  {
-    value: 'LIST',
-    label: 'List',
-    icon: 'format-list-bulleted',
-    accessibilityLabel: 'List view',
-  },
-];
 
 type CountsByView = Record<FilesView, StatusCountDto[] | null>;
 
@@ -203,11 +185,18 @@ function NoScanResults(): React.JSX.Element {
 }
 
 /**
- * The Files tab: a gallery / list switch, the shared filter chips, and both
- * views. Both stay mounted and only the active one is shown, so each keeps
- * its scroll position and folder across a switch. When a view's rows are
+ * The Files tab: the sort drop-down with the view drop-down right of it
+ * (FR-001), the shared filter chips below them, and both views. The sort
+ * drop-down shows and edits the visible view's own sort (FR-003). The views
+ * mount once the remembered view and sorts are read, so their first read
+ * already uses the remembered sort. Both stay mounted and only the active
+ * one is shown, so each keeps its scroll position and folder across a switch
+ * (Story 1 sc. 8). When a view's rows are
  * replaced by a new snapshot, a "Results updated" snackbar is shown (FR-005)
- * the next time the tab is [focused]. Before any completed scan it shows
+ * the next time the tab is [focused], and each view, the hidden one too,
+ * reopens at its first visible file rather than at the top (007 FR-014,
+ * research R8): the hidden view reads its anchored rows at once and opens
+ * its list there when it is shown (`visible`). Before any completed scan it shows
  * only an explanation and a way to the Scan tab (FR-008); the views stay
  * mounted, hidden, so nothing is lost when the first results arrive.
  * While files are selected, the selection bar replaces the bottom tabs
@@ -221,7 +210,8 @@ export function FilesScreen({
 }: {
   focused?: boolean;
 }): React.JSX.Element {
-  const { view, setView, filter } = useFiles();
+  const { view, setView, filter, sorts, setSort, preferencesLoaded } =
+    useFiles();
   const selection = useSelection();
   const scan = useScan();
   const snapshotId = scan.active?.snapshotId ?? null;
@@ -271,9 +261,9 @@ export function FilesScreen({
 
   const onSnapshotChange = useCallback(() => setUpdated(true), []);
   const dismiss = useCallback(() => setUpdated(false), []);
-  const onViewChange = useCallback(
-    (value: string) => setView(value as FilesView),
-    [setView],
+  const onSortChange = useCallback(
+    (sort: FileSort) => setSort(view, sort),
+    [setSort, view],
   );
 
   const shared = {
@@ -287,38 +277,50 @@ export function FilesScreen({
 
   // Only once the scan state has answered is "no results" known.
   const noResults = !scan.loading && snapshotId == null;
+  const showViews = preferencesLoaded && !noResults;
 
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.screen}>
       {noResults ? (
         <NoScanResults />
+      ) : !preferencesLoaded ? (
+        <FilesMessage loading />
       ) : (
         <>
-          <SegmentedButtons
-            buttons={VIEW_BUTTONS}
-            onValueChange={onViewChange}
-            style={styles.switch}
-            value={view}
-          />
+          <View style={styles.toolbar} testID="files-toolbar">
+            <SortMenu onChange={onSortChange} sort={sorts[view]} />
+            <ViewMenu onChange={setView} view={view} />
+          </View>
           <FilterChips counts={counts[view]} />
         </>
       )}
-      <View
-        style={view === 'GALLERY' && !noResults ? styles.view : styles.hidden}
-        testID="files-gallery"
-      >
-        <GalleryScreen {...shared} onCountsChange={onGalleryCounts} />
-      </View>
-      <View
-        style={view === 'LIST' && !noResults ? styles.view : styles.hidden}
-        testID="files-list"
-      >
-        <ListScreen
-          {...shared}
-          onCountsChange={onListCounts}
-          onFolderChange={setListFolder}
-        />
-      </View>
+      {preferencesLoaded ? (
+        <>
+          <View
+            style={
+              view === 'GALLERY' && showViews ? styles.view : styles.hidden
+            }
+            testID="files-gallery"
+          >
+            <GalleryScreen
+              {...shared}
+              onCountsChange={onGalleryCounts}
+              visible={view === 'GALLERY' && showViews}
+            />
+          </View>
+          <View
+            style={view === 'LIST' && showViews ? styles.view : styles.hidden}
+            testID="files-list"
+          >
+            <ListScreen
+              {...shared}
+              onCountsChange={onListCounts}
+              onFolderChange={setListFolder}
+              visible={view === 'LIST' && showViews}
+            />
+          </View>
+        </>
+      ) : null}
       <Snackbar
         accessibilityLabel={RESULTS_UPDATED}
         duration={SNACKBAR_MILLIS}
@@ -379,7 +381,9 @@ const styles = StyleSheet.create({
   selectAll: {
     marginRight: spacing.sm,
   },
-  switch: {
+  toolbar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     marginHorizontal: spacing.lg,
     marginTop: spacing.sm,
   },

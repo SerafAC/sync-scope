@@ -14,12 +14,23 @@ enum class FileView {
   GALLERY,
 }
 
-/** Mirrors `FileSort` in `src/native/CloudSyncContracts.ts`. */
+/** Mirrors `FileSort` in `src/native/CloudSyncContracts.ts` (contract version 6 adds the size sorts, research R1). */
 enum class FileSort {
   NAME_ASC,
   NAME_DESC,
   TIME_ASC,
   TIME_DESC,
+  SIZE_ASC,
+  SIZE_DESC,
+}
+
+/**
+ * Narrows a read to folders or files (`FileKind` in `src/native/CloudSyncContracts.ts`, contract version 6,
+ * research R3); the wire value is the enum name. List view reads a folder's subfolders, then its files.
+ */
+enum class FileKind {
+  DIRECTORY,
+  FILE,
 }
 
 /**
@@ -36,6 +47,8 @@ data class SnapshotQuery(
   val parentId: String? = null,
   val search: String? = null,
   val pageSize: Int? = null,
+  /** Only rows of this kind; null reads both (research R3). */
+  val kind: FileKind? = null,
 ) {
   init {
     val length = search?.length ?: 0
@@ -53,6 +66,7 @@ data class SnapshotQuery(
         "src=${sourceId ?: ""}",
         "p=${parentId ?: ""}",
         "q=${search ?: ""}",
+        "k=${kind?.name ?: ""}",
       )
       .joinToString("|")
 

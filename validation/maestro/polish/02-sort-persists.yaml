@@ -1,0 +1,47 @@
+# requires: polish/01-sort
+# Story 1 sc. 7, FR-003 (contracts/maestro-polish.md › Acceptance scenario
+# mapping): the view mode and each view's sort survive an app restart; the
+# filter does not (005 R10), so it is back at All. Runs on 01's scanned
+# Scroll and Gallery sources and repository, without clearState.
+appId: com.syncscope
+name: polish/02-sort-persists
+---
+- launchApp
+- runFlow: ../subflows/open-files.yaml
+
+# Choose List and "Size (smallest first)", and narrow the filter.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- runFlow:
+    file: ../subflows/select-sort.yaml
+    env:
+      SORT: "SIZE_ASC"
+- tapOn: "Filter Synced(, \\d+)?"
+- extendedWaitUntil:
+    visible:
+      text: "Filter Synced(, \\d+)?"
+      selected: true
+    timeout: 15000
+
+# Restart: List with that sort, and the filter back at All.
+- stopApp
+- launchApp
+- runFlow: ../subflows/open-files.yaml
+- assertVisible: "View: List"
+- assertVisible: "Sort: Size, smallest first"
+- extendedWaitUntil:
+    visible:
+      text: "Filter All(, \\d+)?"
+      selected: true
+    timeout: 15000
+- assertVisible:
+    text: "Filter Synced(, \\d+)?"
+    selected: false
+# The gallery kept its own sort from 01.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- assertVisible: "Sort: Date, newest first"

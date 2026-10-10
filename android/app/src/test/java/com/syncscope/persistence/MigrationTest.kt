@@ -28,6 +28,11 @@ import org.robolectric.annotation.Config
  * Schema version 3 → 4 (feature 006): `remote_match_key.directories` (nullable) and
  * `repository_config.webdavHttps` (`NOT NULL DEFAULT 0`) are added; every existing row survives, the
  * match keys read `NULL` directories and the saved repository keeps plain HTTP.
+ *
+ * Schema version 4 → 5 (feature 007): `repository_config.remoteRoot` is renamed `remoteRoots` (the saved
+ * folder becomes a one-element list), `local_node.sortName` is added and filled in SQL with the prefix rule on
+ * `lower(name)` (accents not folded), `remote_ambiguity.remotePath` is added as `NULL`, and the
+ * `(snapshotId, kind, sizeBytes)` and `(snapshotId, kind, sortName)` indexes are created.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -211,6 +216,102 @@ class MigrationTest {
   }
 
   @Test
+  fun version4RowsMigrateToVersion5WithRemoteRootsSortNameAndRemotePath() {
+    val v4 = helper.createDatabase(DB_NAME, 4)
+    v4.execSQL(
+      "INSERT INTO scan_run (runId, generation, configRevision, includeHidden, phase, startedAtMillis, " +
+        "finishedAtMillis, terminalState, errorCode, errorSummary, mode) " +
+        "VALUES ('run-1', 7, 3, 0, 'PUBLISHED', 1000, 2000, 'COMPLETED', NULL, NULL, 'FULL')",
+    )
+    v4.execSQL(
+      "INSERT INTO snapshot (snapshotId, scanRunId, completedAtMillis, coverage, configRevision, " +
+        "includeHidden, publishable, remoteListedAtMillis) VALUES ('snap-1', 'run-1', 2000, 'INCOMPLETE', 3, 0, 1, 1500)",
+    )
+    v4.execSQL(
+      "INSERT INTO source_root (sourceId, treeUri, authority, volumeId, documentPath, canonicalRoot, alias, " +
+        "canWrite, addedAtMillis) VALUES ('src-1', 'content://tree/1', 'auth', 'primary', 'DCIM', " +
+        "'primary:DCIM', 'DCIM', 1, 10)",
+    )
+    val names = mapOf("n-1" to "Apple.png", "n-2" to "banana", "n-3" to "2024.jpg", "n-4" to "_x", "n-5" to "Éclair")
+    for ((entryId, name) in names) {
+      v4.execSQL(
+        "INSERT INTO local_node (entryId, snapshotId, sourceId, parentId, kind, documentUri, documentId, name, " +
+          "mimeType, sizeBytes, modifiedUtcMillis, precisionMillis, status, issueCode, descSynced, descUnsynced, " +
+          "descUnknown) VALUES (?, 'snap-1', 'src-1', NULL, 'FILE', ?, ?, ?, NULL, 70, 1704067200000, 1000, " +
+          "'UNSYNCED', NULL, NULL, NULL, NULL)",
+        arrayOf(entryId, "content://doc/$entryId", "doc-$entryId", name),
+      )
+    }
+    v4.execSQL(
+      "INSERT INTO remote_ambiguity (id, snapshotId, scope, sourceId, entryId, matchKeyId, reason) " +
+        "VALUES (1, 'snap-1', 'DIRECTORY', NULL, NULL, NULL, 'DIRECTORY_UNREADABLE')",
+    )
+    v4.execSQL(
+      "INSERT INTO repository_config (id, protocol, host, port, username, remoteRoot, precisionMillis, " +
+        "credentialVersion, revision, webdavHttps) VALUES (0, 'SFTP', 'nas.local', 22, 'me', '/backup', 1000, 4, 2, 0)",
+    )
+    val rowsBefore = localNodeRows(v4, V4_LOCAL_NODE_COLUMNS)
+    val repositoryBefore = rows(v4, "repository_config", V4_REPOSITORY_COLUMNS_KEPT, "id")
+    val indicesBefore = indices(v4)
+    v4.close()
+
+    val v5 = helper.runMigrationsAndValidate(DB_NAME, 5, true)
+
+    // The saved folder is kept, now read from `remoteRoots` as a one-element list.
+    val roots = column(v5, "repository_config", "remoteRoots")
+    assertEquals("TEXT", roots.type)
+    assertTrue("repository_config.remoteRoots must be NOT NULL", roots.notNull)
+    assertTrue("remoteRoot must be gone", columnNames(v5, "repository_config").none { it == "remoteRoot" })
+    v5.query("SELECT remoteRoots FROM repository_config").use { c ->
+      assertEquals(1, c.count)
+      c.moveToFirst()
+      assertEquals("/backup", c.getString(0))
+    }
+    assertEquals(repositoryBefore, rows(v5, "repository_config", V4_REPOSITORY_COLUMNS_KEPT, "id"))
+
+    // Every existing row has a non-empty sortName: the prefix rule on lower(name), accents not folded.
+    val sortName = column(v5, "local_node", "sortName")
+    assertEquals("TEXT", sortName.type)
+    assertTrue("local_node.sortName must be NOT NULL", sortName.notNull)
+    assertEquals(rowsBefore, localNodeRows(v5, V4_LOCAL_NODE_COLUMNS))
+    val sortNames = mutableMapOf<String, String>()
+    v5.query("SELECT entryId, sortName FROM local_node").use { c ->
+      while (c.moveToNext()) sortNames[c.getString(0)] = c.getString(1)
+    }
+    assertEquals(
+      mapOf("n-1" to "1apple.png", "n-2" to "1banana", "n-3" to "02024.jpg", "n-4" to "0_x"),
+      sortNames - "n-5",
+    )
+    // The accent is not folded, so `É` falls in the `#` band until the next refresh recomputes it. Whether
+    // SQLite's lower() also lowercases `É` depends on the build (ICU or not), so only the accent is pinned.
+    assertEquals("0éclair", sortNames.getValue("n-5").lowercase())
+    assertTrue(sortNames.values.all { it.isNotEmpty() })
+
+    // remotePath is nullable and NULL for every existing gap.
+    val remotePath = column(v5, "remote_ambiguity", "remotePath")
+    assertEquals("TEXT", remotePath.type)
+    assertTrue("remote_ambiguity.remotePath must be nullable", !remotePath.notNull)
+    v5.query("SELECT remotePath FROM remote_ambiguity").use { c ->
+      assertEquals(1, c.count)
+      c.moveToFirst()
+      assertTrue(c.isNull(0))
+    }
+
+    // The two new indexes exist; every earlier one is unchanged.
+    val indicesAfter = indices(v5)
+    assertTrue(indicesAfter.containsAll(indicesBefore))
+    val added = (indicesAfter - indicesBefore).map { it.first to indexColumns(v5, it.first) }.toSet()
+    assertEquals(
+      setOf(
+        "index_local_node_snapshotId_kind_sizeBytes" to listOf("snapshotId", "kind", "sizeBytes"),
+        "index_local_node_snapshotId_kind_sortName" to listOf("snapshotId", "kind", "sortName"),
+      ),
+      added,
+    )
+    v5.close()
+  }
+
+  @Test
   fun migratedDatabaseOpensWithRoomAndReadsTheEntities(): Unit = runBlocking {
     helper.createDatabase(DB_NAME, 1).apply {
       execSQL(
@@ -285,6 +386,25 @@ class MigrationTest {
 
   private data class ColumnInfo(val type: String, val notNull: Boolean)
 
+  private fun columnNames(db: SupportSQLiteDatabase, table: String): List<String> {
+    val out = mutableListOf<String>()
+    db.query("PRAGMA table_info(`$table`)").use { c ->
+      val nameIdx = c.getColumnIndexOrThrow("name")
+      while (c.moveToNext()) out += c.getString(nameIdx)
+    }
+    return out
+  }
+
+  /** The columns of index [name], in index order. */
+  private fun indexColumns(db: SupportSQLiteDatabase, name: String): List<String> {
+    val out = mutableListOf<String>()
+    db.query("PRAGMA index_info(`$name`)").use { c ->
+      val nameIdx = c.getColumnIndexOrThrow("name")
+      while (c.moveToNext()) out += c.getString(nameIdx)
+    }
+    return out
+  }
+
   private fun column(db: SupportSQLiteDatabase, table: String, name: String): ColumnInfo {
     db.query("PRAGMA table_info(`$table`)").use { c ->
       val nameIdx = c.getColumnIndexOrThrow("name")
@@ -325,6 +445,14 @@ class MigrationTest {
       )
     val V3_MATCH_KEY_COLUMNS =
       listOf("matchKeyId", "snapshotId", "name", "sizeBytes", "precisionMillis", "bucket", "duplicateCount")
+    val V4_LOCAL_NODE_COLUMNS =
+      V2_LOCAL_NODE_COLUMNS + listOf("descSynced", "descUnsynced", "descUnknown")
+
+    /** The repository columns that are neither renamed nor added by 4 → 5. */
+    val V4_REPOSITORY_COLUMNS_KEPT =
+      listOf(
+        "id", "protocol", "host", "port", "username", "precisionMillis", "credentialVersion", "revision", "webdavHttps",
+      )
     val V3_REPOSITORY_COLUMNS =
       listOf(
         "id", "protocol", "host", "port", "username", "remoteRoot", "precisionMillis", "credentialVersion", "revision",

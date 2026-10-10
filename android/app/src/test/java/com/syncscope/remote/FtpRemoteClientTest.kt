@@ -10,6 +10,7 @@ import org.apache.commons.net.ftp.FTPClientConfig
 import org.apache.commons.net.ftp.FTPFile
 import org.apache.commons.net.ftp.parser.DefaultFTPFileEntryParserFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,6 +77,18 @@ class FtpRemoteClientTest {
     assertEquals(60_000L, finding.precisionMillis)
   }
 
+  @Test
+  fun precisionDiscoverySamplesTheFirstFolder() {
+    val listing = arrayOf(parseList("-rw-r--r--    1 1000     1000           23 Jan 01 10:30 recent.txt"))
+    val fake = FakeFtp(listings = mapOf("/first" to listing))
+
+    val finding = runBlocking { connected(fake, roots = listOf("/first", "/second")).discoverPrecision() }
+
+    assertEquals(PrecisionBasis.LIST_GRANULARITY, finding.basis)
+    assertTrue(fake.listCalls.toString(), "LIST /first" in fake.listCalls)
+    assertFalse(fake.listCalls.toString(), fake.listCalls.any { it.contains("/second") })
+  }
+
   // --- Empty-LIST CWD probe (decision log 2026-09-30) ---
 
   @Test
@@ -112,6 +125,46 @@ class FtpRemoteClientTest {
     val error = assertThrows(RemoteClientException::class.java) { runBlocking { connected(fake).list("/d") } }
 
     assertEquals(CloudSyncErrorCode.DIRECTORY_UNREADABLE, error.code)
+  }
+
+  @Test
+  fun aRefusedDirectoryListedAsItselfIsUnreadable() {
+    // vsftpd lists a 0700 folder whose parent it can read as the parent's line for that folder.
+    val fake =
+      FakeFtp(
+        listings = mapOf("/scan/partial/restricted" to arrayOf(dir("restricted"))),
+        refusedCwd = setOf("/scan/partial/restricted"),
+      )
+
+    val error =
+      assertThrows(RemoteClientException::class.java) { runBlocking { connected(fake).list("/scan/partial/restricted") } }
+
+    assertEquals(CloudSyncErrorCode.DIRECTORY_UNREADABLE, error.code)
+    assertEquals(listOf("PWD", "CWD /scan/partial/restricted"), fake.commands)
+  }
+
+  @Test
+  fun aReadableFolderHoldingOneFolderOfItsOwnNameKeepsIt() {
+    val fake = FakeFtp(listings = mapOf("/photos" to arrayOf(dir("photos"))))
+
+    val entries = runBlocking { connected(fake).list("/photos") }
+
+    assertEquals(listOf("photos"), entries.map { it.name })
+    assertEquals(listOf("PWD", "CWD /photos", "CWD /"), fake.commands)
+  }
+
+  @Test
+  fun oneEntryWithAnotherNameOrAFileIsNeverProbed() {
+    val fake =
+      FakeFtp(
+        listings = mapOf("/d" to arrayOf(dir("other")), "/e" to arrayOf(file("e"))),
+        refusedCwd = setOf("/d", "/e"),
+      )
+
+    runBlocking { connected(fake).list("/d") }
+    runBlocking { connected(fake).list("/e") }
+
+    assertTrue(fake.commands.isEmpty())
   }
 
   @Test
@@ -158,7 +211,7 @@ class FtpRemoteClientTest {
     }
   }
 
-  private fun connected(fake: FakeFtp): FtpRemoteClient {
+  private fun connected(fake: FakeFtp, roots: List<String> = listOf("/")): FtpRemoteClient {
     val client = FtpRemoteClient(dispatcher = Dispatchers.Unconfined, clientFactory = { fake })
     val config =
       RemoteConfig(
@@ -166,7 +219,7 @@ class FtpRemoteClientTest {
         host = "127.0.0.1",
         port = 21,
         username = "u",
-        rootPath = "/",
+        rootPaths = roots,
       )
     runBlocking { client.connect(config, "p".toCharArray()) }
     return client

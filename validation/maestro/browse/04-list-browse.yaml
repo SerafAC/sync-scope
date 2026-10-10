@@ -31,7 +31,10 @@ name: browse/04-list-browse
 - runFlow: ../subflows/open-files.yaml
 
 # 1. The list view opens at the source folders, with every file counted.
-- tapOn: "List view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
 - extendedWaitUntil:
     visible:
       text: "Filter All, 7"
@@ -81,7 +84,10 @@ name: browse/04-list-browse
     timeout: 15000
 
 # 7. The filter is shared with the gallery (FR-003).
-- tapOn: "Gallery view"
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
 - extendedWaitUntil:
     visible:
       text: "Filter Synced, 3"

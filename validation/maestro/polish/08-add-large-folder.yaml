@@ -1,0 +1,77 @@
+# Story 5 sc. 1 and 5, FR-015, SC-006 (contracts/maestro-polish.md ›
+# Acceptance scenario mapping): a device folder with 10,000 files
+# (/sdcard/DCIM/Big, seeded by scripts/validation/device-fixtures.sh) can be
+# added through Settings › Device folders › Add folder.
+# Branch B of research R15: the app cannot change how Android's picker loads
+# a large folder (a blank list for a few seconds, no loading bar), and the
+# picker offers no way to select a folder from its parent. So the hint above
+# Add folder says to open the folder and tap Use this folder without waiting,
+# and this flow does exactly that. Story 5 sc. 2–4 are recorded deviations.
+# Self-contained: starts from clearState.
+appId: com.syncscope
+name: polish/08-add-large-folder
+---
+- launchApp:
+    clearState: true
+- runFlow: ../subflows/open-sources.yaml
+- assertVisible: "Device folders"
+- assertVisible: "No folders added yet."
+
+# Sc. 5: before the picker opens, the hint tells how to add a large folder.
+- assertVisible: ".*A folder with thousands of files, such as Camera, can look empty for a while\\..*"
+- assertVisible: ".*Open it and tap Use this folder; you do not need to wait for its files to show\\..*"
+
+# The picker starts in DCIM (006 R7). Asserted on the DocumentsUI header
+# ("Files in DCIM" on API 31 and API 36), as in mvp/03-first-run.
+- tapOn:
+    id: "sources.add"
+- extendedWaitUntil:
+    notVisible:
+      id: "sources.add"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "(?i)files in DCIM"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: "Big"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Big"
+
+# Sc. 1: open Big and use it at once, as the hint says. Its files may still be
+# loading (blank list); Use this folder works before any file is listed.
+- extendedWaitUntil:
+    visible: "(?i)files in Big"
+    timeout: 15000
+- tapOn: "(?i)use this folder"
+- extendedWaitUntil:
+    visible: "(?i)allow"
+    timeout: 15000
+- tapOn: "(?i)allow"
+
+# Back in the app: Big is listed and available.
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "sources.add"
+    direction: DOWN
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "sources.row.alias"
+      text: "Big"
+    timeout: 15000
+- assertVisible:
+    id: "sources.row.status"
+    text: "Available"
+    childOf:
+      id: "sources.row"
+      index: 0
+- assertNotVisible:
+    id: "sources.row"
+    index: 1
+- assertNotVisible:
+    id: "sources.error"

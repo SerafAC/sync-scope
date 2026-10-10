@@ -6,24 +6,31 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { BackHandler, Text } from 'react-native';
+import { BackHandler, Dimensions, Text } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FilesProvider } from '../../files/FilesProvider';
+import { galleryTileSize } from '../../files/GalleryTile';
+import { density } from '../../theme/spacing';
 import { useSourceAliases } from '../../files/useSourceAliases';
 import {
   executeLocalDeletion,
+  getBrowsePreferences,
   getLocalImageHandle,
+  getScrollIndex,
   listSelectableEntries,
   prepareLocalDeletion,
   queryFiles,
   queryTreeChildren,
+  setBrowsePreferences,
 } from '../../native/CloudSync';
 import type {
   ActiveSnapshotDto,
+  BrowsePreferencesDto,
   FileEntryDto,
   QueryFilesResult,
+  ScrollIndexResult,
   StatusCountDto,
 } from '../../native/CloudSyncContracts';
 import { useScan, type ScanState } from '../../scan/useScan';
@@ -52,8 +59,11 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../../native/CloudSync', () => ({
+  getBrowsePreferences: jest.fn(),
+  setBrowsePreferences: jest.fn(),
   queryFiles: jest.fn(),
   queryTreeChildren: jest.fn(),
+  getScrollIndex: jest.fn(),
   getLocalImageHandle: jest.fn(),
   listSelectableEntries: jest.fn(),
   prepareLocalDeletion: jest.fn(),
@@ -64,6 +74,9 @@ jest.mock('../../files/useSourceAliases', () => ({
   useSourceAliases: jest.fn(),
 }));
 
+const getScrollIndexMock = getScrollIndex as jest.MockedFunction<
+  typeof getScrollIndex
+>;
 const queryFilesMock = queryFiles as jest.MockedFunction<typeof queryFiles>;
 const queryTreeChildrenMock = queryTreeChildren as jest.MockedFunction<
   typeof queryTreeChildren
@@ -79,6 +92,12 @@ const prepareLocalDeletionMock = prepareLocalDeletion as jest.MockedFunction<
 >;
 const executeLocalDeletionMock = executeLocalDeletion as jest.MockedFunction<
   typeof executeLocalDeletion
+>;
+const getBrowsePreferencesMock = getBrowsePreferences as jest.MockedFunction<
+  typeof getBrowsePreferences
+>;
+const setBrowsePreferencesMock = setBrowsePreferences as jest.MockedFunction<
+  typeof setBrowsePreferences
 >;
 const useScanMock = useScan as jest.MockedFunction<typeof useScan>;
 const useSourceAliasesMock = useSourceAliases as jest.MockedFunction<
@@ -112,6 +131,7 @@ function file(entryId: string, name: string): FileEntryDto {
     issueCode: null,
     nameInOtherSource: false,
     matchingFileCount: null,
+    sortName: `1${name.toLowerCase()}`,
   };
 }
 
@@ -189,8 +209,37 @@ function ui(focused?: boolean) {
   );
 }
 
+function storedPreferences(preferences: BrowsePreferencesDto) {
+  getBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+    preferences,
+  });
+}
+
+/** Opens the view drop-down and picks [target] (`Gallery` or `List`). */
+function pickView(target: 'Gallery' | 'List') {
+  fireEvent.press(screen.getByLabelText(/^View: /));
+  fireEvent.press(screen.getByLabelText(target));
+}
+
+/** Opens the sort drop-down and picks the option with [text]. */
+function pickSort(text: string) {
+  fireEvent.press(screen.getByLabelText(/^Sort: /));
+  fireEvent.press(screen.getByLabelText(text));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  storedPreferences({
+    view: 'GALLERY',
+    gallerySort: 'TIME_DESC',
+    listSort: 'NAME_ASC',
+  });
+  setBrowsePreferencesMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'ok',
+  });
   mockOptions = {};
   mockNavigation.setOptions.mockImplementation((next: HeaderOptions) => {
     mockOptions = { ...mockOptions, ...next };
@@ -207,14 +256,20 @@ beforeEach(() => {
     ok([file(`${snapshotId}-e1`, `${snapshotId}.png`)], GALLERY_COUNTS),
   );
   queryTreeChildrenMock.mockImplementation(async () => ok([], LIST_COUNTS));
+  // Without an index both views page linearly (007 research R7).
+  getScrollIndexMock.mockResolvedValue({
+    contractVersion: 6,
+    status: 'error',
+    error: { code: 'INTERNAL_ERROR', message: 'No index.', action: null },
+  });
 });
 
 describe('FilesScreen', () => {
   it('opens on the gallery, with the gallery counts on the chips', async () => {
     render(ui());
 
-    expect(screen.getByLabelText('Gallery view')).toBeOnTheScreen();
-    expect(screen.getByLabelText('List view')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('View: Gallery')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Sort: Date, newest first')).toBeOnTheScreen();
     expect(await screen.findByLabelText('Filter All, 6')).toBeSelected();
     expect(screen.getByTestId('files-gallery')).toBeVisible();
     expect(screen.getByTestId('files-list', HIDDEN)).not.toBeVisible();
@@ -232,14 +287,14 @@ describe('FilesScreen', () => {
       ),
     );
 
-    fireEvent.press(screen.getByLabelText('List view'));
+    pickView('List');
     expect(screen.getByTestId('files-list')).toBeVisible();
     expect(screen.getByTestId('files-gallery', HIDDEN)).not.toBeVisible();
     expect(await screen.findByLabelText('Filter All, 7')).not.toBeSelected();
     expect(screen.getByLabelText('Filter Synced, 3')).toBeSelected();
     expect(screen.getByLabelText('Folder Gallery, 3 matching')).toBeVisible();
 
-    fireEvent.press(screen.getByLabelText('Gallery view'));
+    pickView('Gallery');
     expect(await screen.findByLabelText('Filter All, 6')).not.toBeSelected();
     expect(screen.getByLabelText('Filter Synced, 3')).toBeSelected();
     expect(screen.getByTestId('files-gallery')).toBeVisible();
@@ -286,12 +341,288 @@ describe('FilesScreen', () => {
     expect(screen.queryByText('Results updated')).toBeNull();
   });
 
+  describe('keeps the place when results update (Story 4, research R8)', () => {
+    const BANDS = [600, 600, 600, 600, 600];
+
+    /** Letter bands of BANDS; band k starts at token `band-<k>`. */
+    function bandIndex(anchorIndex: number | null): ScrollIndexResult {
+      let start = 0;
+      const bands = BANDS.map((count, k) => {
+        const band = {
+          startIndex: start,
+          count,
+          startToken: k === 0 ? null : `band-${k}`,
+          letter: String.fromCharCode(97 + k),
+        };
+        start += count;
+        return band;
+      });
+      return {
+        contractVersion: 6,
+        status: 'ok',
+        scrollIndex: { unit: 'LETTER', totalCount: start, bands, anchorIndex },
+      };
+    }
+
+    it('restores the hidden view to its anchor when its snapshot changes (sc. 4)', async () => {
+      queryFilesMock.mockImplementation(async (_snapshotId, _query, token) => {
+        const k = token == null ? 0 : Number(token.split('-')[1]);
+        return {
+          contractVersion: 6,
+          status: 'ok',
+          page: {
+            entries: Array.from({ length: 100 }, (_, i) =>
+              file(`e-${k}-${i}`, `${k}-${i}.png`),
+            ),
+            nextPageToken: `band-${k}-more`,
+            counts: k === 0 ? GALLERY_COUNTS : null,
+          },
+        };
+      });
+      getScrollIndexMock.mockImplementation(
+        async (_snapshotId, query, anchor) =>
+          query.view === 'GALLERY'
+            ? bandIndex(anchor == null ? null : 1203)
+            : {
+                contractVersion: 6,
+                status: 'error',
+                error: { code: 'INTERNAL_ERROR', message: 'No.', action: null },
+              },
+      );
+      const { rerender } = render(ui());
+      const grid = await screen.findByTestId('gallery-grid');
+      const viewable = {
+        viewableItems: Array.from({ length: 12 }, (_, i) => ({
+          index: 1203 + i,
+        })),
+        changed: [],
+      };
+      fireEvent(grid, 'onViewableItemsChanged', viewable);
+      await waitFor(() =>
+        expect(
+          (
+            screen.getByTestId('gallery-grid').props.data as {
+              entryId?: string;
+            }[]
+          )[1203]?.entryId,
+        ).toBe('e-2-3'),
+      );
+      const rowLength =
+        galleryTileSize(Dimensions.get('window').width) + density.tileGap;
+      fireEvent.scroll(screen.getByTestId('gallery-grid'), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 401 * rowLength },
+          contentSize: { width: 400, height: 1000000 },
+          layoutMeasurement: { width: 400, height: 600 },
+        },
+      });
+
+      pickView('List');
+      useScanMock.mockReturnValue(scanState('snap-2'));
+      rerender(ui());
+
+      await waitFor(() =>
+        expect(getScrollIndexMock).toHaveBeenLastCalledWith(
+          'snap-2',
+          expect.objectContaining({ view: 'GALLERY' }),
+          { sortValue: 1704067200000, sortName: '12-3.png' },
+        ),
+      );
+      // The hidden gallery holds its grid back until it is shown.
+      await waitFor(() => {
+        expect(screen.getByTestId('gallery', HIDDEN)).toBeTruthy();
+        expect(screen.queryByTestId('gallery-grid', HIDDEN)).toBeNull();
+      });
+      expect(await screen.findByLabelText('Results updated')).toBeOnTheScreen();
+
+      pickView('Gallery');
+      expect(await screen.findByTestId('gallery-grid')).toBeVisible();
+      expect(screen.getByTestId('gallery-grid').props.initialScrollIndex).toBe(
+        401,
+      );
+    });
+  });
+
   it('passes the a11y sweep', async () => {
     const result = render(ui());
     await screen.findByLabelText('snap-1.png, Synced');
 
     expect(() => a11ySweep(result)).not.toThrow();
   });
+  describe('sort and view drop-downs (Story 1, FR-001, FR-003)', () => {
+    it('puts the sort drop-down left of the view drop-down, both above the filter chips', async () => {
+      render(ui());
+
+      const toolbar = await screen.findByTestId('files-toolbar');
+      const labels = toolbar.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          /^(Sort|View): /.test(node.props.accessibilityLabel ?? ''),
+      );
+      expect(labels.map(node => node.props.accessibilityLabel)).toEqual([
+        'Sort: Date, newest first',
+        'View: Gallery',
+      ]);
+      const tree = JSON.stringify(screen.toJSON());
+      expect(tree.indexOf('"files-toolbar"')).toBeGreaterThan(-1);
+      expect(tree.indexOf('"files-toolbar"')).toBeLessThan(
+        tree.indexOf('"filter-chips"'),
+      );
+    });
+
+    it('passes the a11y sweep with each drop-down open, in both views (FR-017)', async () => {
+      const result = render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
+      expect(await screen.findByLabelText('Size (largest first)')).toBeOnTheScreen();
+      expect(() => a11ySweep(result)).not.toThrow();
+      fireEvent.press(screen.getByLabelText('Date (newest first)'));
+
+      fireEvent.press(screen.getByLabelText('View: Gallery'));
+      expect(() => a11ySweep(result)).not.toThrow();
+      fireEvent.press(await screen.findByLabelText('List'));
+
+      expect(await screen.findByLabelText('View: List')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Sort: Name, A to Z')).toBeOnTheScreen();
+      expect(() => a11ySweep(result)).not.toThrow();
+    });
+
+    it('mounts the views only after the remembered choices are read', async () => {
+      let resolve: (preferences: BrowsePreferencesDto) => void = () => {};
+      getBrowsePreferencesMock.mockReturnValue(
+        new Promise(r => {
+          resolve = preferences =>
+            r({ contractVersion: 6, status: 'ok', preferences });
+        }),
+      );
+      render(ui());
+
+      expect(screen.queryByTestId('files-gallery', HIDDEN)).toBeNull();
+      expect(screen.queryByTestId('files-list', HIDDEN)).toBeNull();
+      expect(queryFilesMock).not.toHaveBeenCalled();
+
+      await act(async () =>
+        resolve({
+          view: 'GALLERY',
+          gallerySort: 'SIZE_DESC',
+          listSort: 'NAME_ASC',
+        }),
+      );
+
+      await screen.findByLabelText('snap-1.png, Synced');
+      expect(queryFilesMock).toHaveBeenCalledTimes(1);
+      expect(queryFilesMock).toHaveBeenCalledWith(
+        'snap-1',
+        expect.objectContaining({ view: 'GALLERY', sort: 'SIZE_DESC' }),
+        null,
+      );
+    });
+
+    it('opens in the remembered view, each view with its remembered sort', async () => {
+      storedPreferences({
+        view: 'LIST',
+        gallerySort: 'SIZE_DESC',
+        listSort: 'SIZE_ASC',
+      });
+      render(ui());
+
+      expect(await screen.findByLabelText('View: List')).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Sort: Size, smallest first'),
+      ).toBeOnTheScreen();
+      expect(screen.getByTestId('files-list')).toBeVisible();
+      expect(screen.getByLabelText('Filter All, 7')).toBeSelected();
+
+      pickView('Gallery');
+      expect(
+        screen.getByLabelText('Sort: Size, largest first'),
+      ).toBeOnTheScreen();
+    });
+
+    it("edits the visible view's sort only, keeps each view's sort across a switch, and stores it", async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      pickSort('Size (largest first)');
+      expect(
+        screen.getByLabelText('Sort: Size, largest first'),
+      ).toBeOnTheScreen();
+      expect(setBrowsePreferencesMock).toHaveBeenLastCalledWith({
+        gallerySort: 'SIZE_DESC',
+      });
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ view: 'GALLERY', sort: 'SIZE_DESC' }),
+          null,
+        ),
+      );
+
+      pickView('List');
+      expect(setBrowsePreferencesMock).toHaveBeenLastCalledWith({
+        view: 'LIST',
+      });
+      expect(screen.getByLabelText('Sort: Name, A to Z')).toBeOnTheScreen();
+      pickSort('Name (Z–A)');
+      expect(setBrowsePreferencesMock).toHaveBeenLastCalledWith({
+        listSort: 'NAME_DESC',
+      });
+
+      pickView('Gallery');
+      expect(
+        screen.getByLabelText('Sort: Size, largest first'),
+      ).toBeOnTheScreen();
+      pickView('List');
+      expect(screen.getByLabelText('Sort: Name, Z to A')).toBeOnTheScreen();
+    });
+
+    it('keeps the filter when the sort changes, and the sort when the filter changes (sc. 5)', async () => {
+      render(ui());
+      fireEvent.press(await screen.findByLabelText('Filter Synced, 3'));
+
+      pickSort('Date (oldest first)');
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ filter: 'SYNCED', sort: 'TIME_ASC' }),
+          null,
+        ),
+      );
+      expect(await screen.findByLabelText('Filter Synced, 3')).toBeSelected();
+
+      fireEvent.press(screen.getByLabelText('Filter All, 6'));
+      await waitFor(() =>
+        expect(queryFilesMock).toHaveBeenLastCalledWith(
+          'snap-1',
+          expect.objectContaining({ filter: 'ALL', sort: 'TIME_ASC' }),
+          null,
+        ),
+      );
+      expect(
+        screen.getByLabelText('Sort: Date, oldest first'),
+      ).toBeOnTheScreen();
+    });
+
+    it("keeps the list's folder across a view switch (sc. 8)", async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      pickView('List');
+      fireEvent.press(
+        await screen.findByLabelText('Folder Gallery, 7 matching'),
+      );
+      expect(
+        await screen.findByLabelText('Breadcrumb Gallery'),
+      ).toBeOnTheScreen();
+
+      pickView('Gallery');
+      pickView('List');
+
+      expect(screen.getByLabelText('Breadcrumb Gallery')).toBeVisible();
+    });
+  });
+
   describe('before any completed scan (FR-008)', () => {
     it('explains that results appear after a scan and leads to the Scan tab', () => {
       useScanMock.mockReturnValue(scanState(null));
@@ -302,7 +633,8 @@ describe('FilesScreen', () => {
       expect(
         screen.getByText('Results appear after a scan.'),
       ).toBeOnTheScreen();
-      expect(screen.queryByLabelText('Gallery view')).toBeNull();
+      expect(screen.queryByLabelText(/^View: /)).toBeNull();
+      expect(screen.queryByLabelText(/^Sort: /)).toBeNull();
 
       fireEvent.press(screen.getByLabelText('Go to Scan'));
 
@@ -447,7 +779,7 @@ describe('FilesScreen', () => {
       });
       await startSelecting();
 
-      fireEvent.press(screen.getByLabelText('List view'));
+      pickView('List');
       expect(
         screen.getByLabelText('Selection 1 selected, 10 B'),
       ).toBeOnTheScreen();
@@ -562,8 +894,7 @@ describe('FilesScreen', () => {
       await waitFor(() =>
         expect(queryFilesMock.mock.calls.length).toBeGreaterThan(readsBefore),
       );
-      const [snapshotId, query, pageToken] =
-        queryFilesMock.mock.lastCall ?? [];
+      const [snapshotId, query, pageToken] = queryFilesMock.mock.lastCall ?? [];
       expect(snapshotId).toBe('snap-1');
       expect(query).toEqual(expect.objectContaining({ filter: 'SYNCED' }));
       expect(pageToken).toBeNull();
@@ -572,7 +903,9 @@ describe('FilesScreen', () => {
 
       fireEvent.press(screen.getByLabelText('Done'));
       await waitFor(() =>
-        expect(screen.queryByLabelText('Deleted 1 files, freed 10 B')).toBeNull(),
+        expect(
+          screen.queryByLabelText('Deleted 1 files, freed 10 B'),
+        ).toBeNull(),
       );
     });
 

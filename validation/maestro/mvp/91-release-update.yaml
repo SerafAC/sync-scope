@@ -3,11 +3,15 @@
 # in place with `adb install -r`; in the debug workspace it runs right after
 # mvp/90-release-smoke and proves the state survives a relaunch. Either way the
 # repository from 90 is still set up and its scan results are still in Files,
-# with no new scan.
+# before any new scan.
+# Feature 007, Story 3 sc. 7, FR-013: the one remote folder 90 saved is the
+# only entry of the folder list, in Settings › Repository and in the form, and
+# a scan then runs against it with the same results.
 # Continues mvp/90-release-smoke: never clears state.
 appId: com.syncscope
 name: mvp/91-release-update
 ---
+- evalScript: "${output.folder = (SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
 - launchApp
 - extendedWaitUntil:
     visible: "Settings"
@@ -29,3 +33,44 @@ name: mvp/91-release-update
 - assertVisible: "sunset.png, Synced"
 - assertVisible: "harbor.png, Unsynced"
 - assertNotVisible: "No scan results yet"
+
+# The saved folder is the only entry of the list (Story 3 sc. 7).
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Repository SFTP ${SFTP_HOST}"
+    timeout: 15000
+- assertVisible: "Folder ${output.folder}"
+- assertVisible:
+    text: "Password stored"
+    below: "Folder ${output.folder}"
+- tapOn: "Edit repository"
+- scrollUntilVisible:
+    element: "Add another folder"
+    direction: DOWN
+- assertVisible:
+    id: "repository.remoteRoots.0"
+    text: "${output.folder}"
+- assertNotVisible:
+    id: "repository.remoteRoots.1"
+- assertNotVisible: "Remove remote folder 1"
+# Nothing was edited, so leaving asks nothing.
+- back
+- extendedWaitUntil:
+    visible: "Repository SFTP ${SFTP_HOST}"
+    timeout: 15000
+- assertNotVisible: "Discard changes"
+
+# A scan runs against it, with the same results as before the update.
+- runFlow: ../subflows/open-scan.yaml
+- runFlow:
+    file: ../subflows/start-scan.yaml
+    env:
+      BUTTON: "Rescan from scratch"
+- assertVisible: "Completed .+"
+- assertNotVisible: "Scan failed"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible: "beach.png, Synced"
+    timeout: 15000
+- assertVisible: "sunset.png, Synced"
+- assertVisible: "harbor.png, Unsynced"

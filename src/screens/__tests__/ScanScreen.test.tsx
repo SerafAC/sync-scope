@@ -1,23 +1,28 @@
 import React from 'react';
-import {fireEvent, render, screen, within} from '@testing-library/react-native';
-import {PaperProvider} from 'react-native-paper';
+import {
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
+import { PaperProvider } from 'react-native-paper';
 
 import type {
   ActiveSnapshotDto,
   ScanRunDto,
 } from '../../native/CloudSyncContracts';
-import {formatTimestamp} from '../../scan/ScanSummaryCard';
-import {useScan, type ScanState} from '../../scan/useScan';
+import { formatTimestamp } from '../../scan/ScanSummaryCard';
+import { useScan, type ScanState } from '../../scan/useScan';
 import {
   useSetupChecklist,
   type SetupChecklist,
 } from '../../setup/useSetupChecklist';
-import {ScanScreen} from '../ScanScreen';
+import { ScanScreen } from '../ScanScreen';
 
 const mockNavigate = jest.fn();
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({navigate: mockNavigate}),
+  useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 jest.mock('../../scan/useScan', () => ({
@@ -86,6 +91,7 @@ function active(): ActiveSnapshotDto {
       unsynced: 3,
       unknown: 0,
       unreadableRemoteDirectories: 0,
+      unreadRemoteFolders: [],
       remoteListingInterruptedBy: null,
       skippedSources: [],
     },
@@ -115,7 +121,7 @@ function renderScreen(
   checklist: Partial<SetupChecklist> = {},
 ) {
   useScanMock.mockReturnValue(state);
-  useChecklistMock.mockReturnValue({...READY, ...checklist});
+  useChecklistMock.mockReturnValue({ ...READY, ...checklist });
   return render(
     <PaperProvider>
       <ScanScreen />
@@ -140,7 +146,7 @@ describe('ScanScreen', () => {
   });
 
   it('offers Rescan from scratch with an active snapshot', () => {
-    const state = hookState({run: completed(), active: active()});
+    const state = hookState({ run: completed(), active: active() });
     renderScreen(state);
 
     fireEvent.press(screen.getByLabelText('Rescan from scratch'));
@@ -151,19 +157,19 @@ describe('ScanScreen', () => {
   });
 
   it('shows Cancel scan only while running', () => {
-    const running = hookState({run: run(), active: active()});
+    const running = hookState({ run: run(), active: active() });
     const view = renderScreen(running);
 
     fireEvent.press(screen.getByLabelText('Cancel scan'));
     expect(running.cancel).toHaveBeenCalledTimes(1);
     view.unmount();
 
-    renderScreen(hookState({run: completed(), active: active()}));
+    renderScreen(hookState({ run: completed(), active: active() }));
     expect(screen.queryByLabelText('Cancel scan')).toBeNull();
   });
 
   it('shows the phase and the four counters in Scan progress', () => {
-    renderScreen(hookState({run: run()}));
+    renderScreen(hookState({ run: run() }));
 
     const progress = within(screen.getByLabelText('Scan progress'));
     expect(progress.getByText('Listing the backup')).toBeOnTheScreen();
@@ -174,13 +180,13 @@ describe('ScanScreen', () => {
   });
 
   it('hides Scan progress when nothing runs', () => {
-    renderScreen(hookState({run: completed(), active: active()}));
+    renderScreen(hookState({ run: completed(), active: active() }));
     expect(screen.queryByLabelText('Scan progress')).toBeNull();
   });
 
   it('shows the mode, generation and completion time in Last scan', () => {
-    const finished = completed({generation: 7});
-    const view = renderScreen(hookState({run: finished, active: active()}));
+    const finished = completed({ generation: 7 });
+    const view = renderScreen(hookState({ run: finished, active: active() }));
 
     const last = within(screen.getByLabelText('Last scan'));
     expect(last.getByText('Full scan')).toBeOnTheScreen();
@@ -192,7 +198,7 @@ describe('ScanScreen', () => {
 
     renderScreen(
       hookState({
-        run: completed({mode: 'LOCAL_REFRESH', generation: 8}),
+        run: completed({ mode: 'LOCAL_REFRESH', generation: 8 }),
         active: active(),
       }),
     );
@@ -202,7 +208,7 @@ describe('ScanScreen', () => {
   });
 
   it('shows the summary and the remote listing age of the active snapshot', () => {
-    renderScreen(hookState({run: completed(), active: active()}));
+    renderScreen(hookState({ run: completed(), active: active() }));
 
     const summary = within(screen.getByLabelText('Scan summary'));
     expect(summary.getByText('Synced: 4')).toBeOnTheScreen();
@@ -214,7 +220,11 @@ describe('ScanScreen', () => {
   });
 
   it('suggests a rescan when stale without disabling Scan', () => {
-    const state = hookState({run: completed(), active: active(), isStale: true});
+    const state = hookState({
+      run: completed(),
+      active: active(),
+      isStale: true,
+    });
     renderScreen(state);
 
     expect(screen.getByLabelText('Rescan suggested')).toBeOnTheScreen();
@@ -233,14 +243,18 @@ describe('ScanScreen', () => {
         action: 'Check the credentials and try again.',
       },
     });
-    renderScreen(hookState({run: failed, interrupted: failed, active: active()}));
+    renderScreen(
+      hookState({ run: failed, interrupted: failed, active: active() }),
+    );
 
     const box = within(screen.getByLabelText('Scan failed'));
     expect(box.getByText('Scan failed')).toBeOnTheScreen();
     expect(
       box.getByText('The server rejected the username or password.'),
     ).toBeOnTheScreen();
-    expect(box.getByText('Check the credentials and try again.')).toBeOnTheScreen();
+    expect(
+      box.getByText('Check the credentials and try again.'),
+    ).toBeOnTheScreen();
     expect(screen.getByLabelText('Scan summary')).toBeOnTheScreen();
   });
 
@@ -251,18 +265,18 @@ describe('ScanScreen', () => {
       cancelReason: 'USER',
     });
     const view = renderScreen(
-      hookState({run: byUser, interrupted: byUser, active: active()}),
+      hookState({ run: byUser, interrupted: byUser, active: active() }),
     );
     expect(screen.getByText('Cancelled')).toBeOnTheScreen();
     expect(screen.queryByText('Cancelled (app left)')).toBeNull();
     expect(screen.getByLabelText('Scan summary')).toBeOnTheScreen();
     view.unmount();
 
-    const backgrounded = {...byUser, cancelReason: 'BACKGROUNDED' as const};
+    const backgrounded = { ...byUser, cancelReason: 'BACKGROUNDED' as const };
     renderScreen(
       hookState({
         // The automatic local refresh replaced it as the latest run.
-        run: completed({mode: 'LOCAL_REFRESH', runId: 'run-2'}),
+        run: completed({ mode: 'LOCAL_REFRESH', runId: 'run-2' }),
         interrupted: backgrounded,
         active: active(),
       }),
@@ -275,20 +289,20 @@ describe('ScanScreen', () => {
       error: {
         code: 'NO_SOURCES_SELECTED',
         message: 'No folders are selected to check.',
-        action: 'Add a folder in Settings › Folders.',
+        action: 'Add a folder in Settings › Device folders.',
       },
     });
     renderScreen(state);
 
     expect(
       screen.getByText(
-        'No folders are selected to check. Add a folder in Settings › Folders.',
+        'No folders are selected to check. Add a folder in Settings › Device folders.',
       ),
     ).toBeOnTheScreen();
   });
 
   it('labels every interactive element with its selector', () => {
-    renderScreen(hookState({run: run(), active: active(), isStale: true}));
+    renderScreen(hookState({ run: run(), active: active(), isStale: true }));
 
     for (const label of [
       'Rescan from scratch',
@@ -306,7 +320,7 @@ describe('ScanScreen', () => {
   describe('setup checklist (FR-007)', () => {
     it('lists the server and a folder, each leading to its place, and disables Scan', () => {
       const state = hookState();
-      renderScreen(state, {repository: 'missing', folders: 'none'});
+      renderScreen(state, { repository: 'missing', folders: 'none' });
 
       const card = within(screen.getByLabelText('Before you can scan'));
       fireEvent.press(card.getByLabelText('Set up the server'));
@@ -320,18 +334,18 @@ describe('ScanScreen', () => {
     });
 
     it('lists only the items that are not ready', () => {
-      const view = renderScreen(hookState(), {folders: 'none'});
+      const view = renderScreen(hookState(), { folders: 'none' });
       expect(screen.queryByLabelText('Set up the server')).toBeNull();
       expect(screen.getByLabelText('Add a folder')).toBeOnTheScreen();
       view.unmount();
 
-      renderScreen(hookState(), {repository: 'missing'});
+      renderScreen(hookState(), { repository: 'missing' });
       expect(screen.getByLabelText('Set up the server')).toBeOnTheScreen();
       expect(screen.queryByLabelText('Add a folder')).toBeNull();
     });
 
     it('asks for the password again when it is missing or unreadable', () => {
-      renderScreen(hookState(), {repository: 'needsPassword'});
+      renderScreen(hookState(), { repository: 'needsPassword' });
 
       expect(
         screen.getByText('Enter the server password again.'),
@@ -341,7 +355,7 @@ describe('ScanScreen', () => {
     });
 
     it('says when no added folder can be read', () => {
-      renderScreen(hookState(), {folders: 'noneAvailable'});
+      renderScreen(hookState(), { folders: 'noneAvailable' });
 
       expect(
         screen.getByText(
@@ -352,7 +366,7 @@ describe('ScanScreen', () => {
     });
 
     it('disables Rescan from scratch too while an item is not ready', () => {
-      renderScreen(hookState({run: completed(), active: active()}), {
+      renderScreen(hookState({ run: completed(), active: active() }), {
         repository: 'needsPassword',
       });
 
@@ -379,9 +393,12 @@ describe('ScanScreen', () => {
   });
 
   it('notes results made with previous server settings (FR-010)', () => {
-    const view = renderScreen(hookState({run: completed(), active: active()}), {
-      resultsFromOldSettings: true,
-    });
+    const view = renderScreen(
+      hookState({ run: completed(), active: active() }),
+      {
+        resultsFromOldSettings: true,
+      },
+    );
 
     const notice = within(
       screen.getByLabelText('Results from previous server settings'),
@@ -393,7 +410,7 @@ describe('ScanScreen', () => {
     ).toBeOnTheScreen();
     view.unmount();
 
-    renderScreen(hookState({run: completed(), active: active()}));
+    renderScreen(hookState({ run: completed(), active: active() }));
     expect(
       screen.queryByLabelText('Results from previous server settings'),
     ).toBeNull();
@@ -405,13 +422,13 @@ describe('ScanScreen', () => {
         phase: 'FAILED',
         terminalState: 'FAILED',
         finishedAtMillis: NOW - 1_000,
-        error: {code, message: `${code} message`, action: null},
+        error: { code, message: `${code} message`, action: null },
       });
     }
 
     it('leads from a failed run to the place that fixes it', () => {
       const failed = failedWith('AUTH_FAILED');
-      renderScreen(hookState({run: failed, interrupted: failed}));
+      renderScreen(hookState({ run: failed, interrupted: failed }));
 
       const box = within(screen.getByLabelText('Scan failed'));
       fireEvent.press(box.getByLabelText('Go there'));
@@ -421,7 +438,7 @@ describe('ScanScreen', () => {
 
     it('offers nothing for a failed run without a fix target', () => {
       const failed = failedWith('CONNECTION_TIMEOUT');
-      renderScreen(hookState({run: failed, interrupted: failed}));
+      renderScreen(hookState({ run: failed, interrupted: failed }));
 
       expect(screen.getByLabelText('Scan failed')).toBeOnTheScreen();
       expect(screen.queryByLabelText('Go there')).toBeNull();
@@ -432,7 +449,7 @@ describe('ScanScreen', () => {
         error: {
           code: 'NO_SOURCES_SELECTED',
           message: 'No folders are selected to check.',
-          action: 'Add a folder in Settings › Folders.',
+          action: 'Add a folder in Settings › Device folders.',
         },
       });
       renderScreen(state);

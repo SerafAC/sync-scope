@@ -8,9 +8,17 @@ import com.facebook.react.bridge.JavaOnlyArray
 import com.facebook.react.bridge.JavaOnlyMap
 import com.facebook.react.bridge.ReadableMap
 import com.syncscope.persistence.SyncScopeDatabase
+import com.syncscope.remote.ConnectOutcome
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.HostKeyTrustStore
+import com.syncscope.remote.PrecisionBasis
+import com.syncscope.remote.PrecisionFinding
 import com.syncscope.remote.PresentedHostKey
+import com.syncscope.remote.RemoteClient
+import com.syncscope.remote.RemoteClientFactory
+import com.syncscope.remote.RemoteConfig
+import com.syncscope.remote.RemoteEntry
+import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.SftpHostKeyException
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +35,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** approveSftpHostKey / rejectSftpHostKey through the real module surface. */
+/**
+ * approveSftpHostKey / rejectSftpHostKey through the real module surface, and the browser's host-key
+ * round trip (browseRemoteFolders, contract version 6).
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class CloudSyncHostKeyModuleTest {
@@ -132,6 +143,78 @@ class CloudSyncHostKeyModuleTest {
     val error = envelope.error(CloudSyncErrorCode.AUTH_FAILED, "no").getMap("error")!!
 
     assertFalse(error.hasKey("hostKeyChallenge"))
+  }
+
+  @Test
+  fun browseReturnsTheChallengeAndListsAfterApproval() = runBlocking {
+    val listed = mutableListOf<String>()
+    val browser = moduleWith(RemoteClientFactory { UntrustedUntilApproved(listed) })
+    val first = RecordingPromise()
+
+    browser.browseRemoteFolders(draft(), "pw", "/scan", first)
+
+    val error = (first.await() as ReadableMap).getMap("error")!!
+    assertEquals("SFTP_HOST_KEY_UNVERIFIED", error.getString("code"))
+    val challengeId = error.getMap("hostKeyChallenge")!!.getString("challengeId")!!
+    assertTrue("nothing listed before the key is trusted", listed.isEmpty())
+
+    val approve = RecordingPromise()
+    browser.approveSftpHostKey(challengeId, approve)
+    assertEquals("ok", (approve.await() as ReadableMap).getString("status"))
+
+    val retry = RecordingPromise()
+    browser.browseRemoteFolders(draft(), "pw", "/scan", retry)
+
+    val result = retry.await() as ReadableMap
+    assertEquals("ok", result.getString("status"))
+    val folders = result.getMap("remoteFolders")!!
+    assertEquals("/scan", folders.getString("path"))
+    assertEquals("/", folders.getString("parent"))
+    assertFalse(folders.getBoolean("fellBackToRoot"))
+    assertEquals("clean", folders.getArray("folders")!!.getString(0))
+    assertEquals(listOf("/scan"), listed)
+    assertTrue("browse never saves a repository", db.repositoryConfigDao().get() == null)
+  }
+
+  private fun moduleWith(clients: RemoteClientFactory): CloudSyncModule {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    @Suppress("DEPRECATION")
+    return CloudSyncModule(
+      BridgeReactContext(context),
+      dispatcher = Dispatchers.Unconfined,
+      envelope = envelope,
+      hostKeyTrust = { store },
+      repositoryConfig = { db.repositoryConfigDao() },
+      remoteClients = clients,
+    )
+  }
+
+  private fun draft(): JavaOnlyMap =
+    JavaOnlyMap().apply {
+      putString("protocol", "SFTP")
+      putString("host", HOST)
+      putDouble("port", 22.0)
+      putString("username", "alice")
+    }
+
+  /** An SFTP client whose server key is untrusted until the user approves it (TOFU, through [store]). */
+  private inner class UntrustedUntilApproved(private val listed: MutableList<String>) : RemoteClient {
+    override suspend fun connect(config: RemoteConfig, password: CharArray): ConnectOutcome {
+      if (store.isTrusted(config.host, config.port)) return ConnectOutcome.Connected
+      val key = Buffer.PlainBuffer(Base64.getDecoder().decode(KEY_BLOB)).readPublicKey()
+      return ConnectOutcome.HostKeyApprovalRequired(
+        store.challenges.raise(config.host, config.port, PresentedHostKey.of(key), null),
+      )
+    }
+
+    override suspend fun list(directory: String): List<RemoteEntry> {
+      listed += directory
+      return listOf(RemoteEntry("clean", 0, null, RemoteEntryType.DIRECTORY))
+    }
+
+    override suspend fun discoverPrecision() = PrecisionFinding(1000L, PrecisionBasis.SFTP_V3_WHOLE_SECONDS)
+
+    override fun close() = Unit
   }
 
   private fun raiseChallenge(): String {
