@@ -52,4 +52,4 @@ disambiguate identical-looking tiles.
 - Features: [007](../../specs/007-sort-scroll-remote-folders/spec.md) (the scroll index and band start
   tokens), [005](../../specs/005-gallery-list-filtering/spec.md) (gallery, list view and the refined
   badge rule, [research R5](../../specs/005-gallery-list-filtering/research.md#r5-duplicate-tiles-and-the-origin-badge-clarification-1-fr-001)),
-  specs/008-tree-view-image-preview
+  specs/009-tree-view-image-preview

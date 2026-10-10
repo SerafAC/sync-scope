@@ -17,7 +17,7 @@ The authoritative sources are `src/native/specs/NativeCloudSync.ts` (Codegen spe
 
 The Codegen signatures are unchanged (`getLocalImageHandle` already takes `spec: Object`), so no native
 spec regeneration beyond the version constant. `getSettings` / `setIncludeHidden` stay `NOT_IMPLEMENTED`
-(spec, reassigned to 010). `prepareLocalDeletion` / `executeLocalDeletion` stay `NOT_IMPLEMENTED` (006).
+(spec, reassigned to 011). `prepareLocalDeletion` / `executeLocalDeletion` stay `NOT_IMPLEMENTED` (006).
 
 ## DTOs (TypeScript, `CloudSyncContracts.ts`)
 

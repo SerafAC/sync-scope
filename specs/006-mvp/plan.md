@@ -35,7 +35,7 @@ Make the app usable by its owner on their own phone, with no computer attached. 
 
 **4. An installable release APK**, signed with a personal key from local Gradle properties, with no
 debug-key fallback and no debug seams. Its version is derived from `package.json` (research R17, moved from
-010 FR-004 to satisfy constitution VI).
+011 FR-004 to satisfy constitution VI).
 
 The contract version goes to 5. There are 12 new Maestro flows (three split into parts around a host-side
 step) and a release-smoke mode. Decisions are in
@@ -67,7 +67,7 @@ keystore stays outside the repository.
 - Node script-contract tests (`pnpm test:foundation`) for the new runner modes, hooks and fixtures.
 
 **Target Platform**: Android, minSdk 31, targetSdk 36. The 006 flows run on API 31 and API 36, the levels
-`pnpm e2e:android` runs. The release smoke runs on API 31; 010 adds the API 36 full loop.
+`pnpm e2e:android` runs. The release smoke runs on API 31; 011 adds the API 36 full loop.
 
 **Project Type**: mobile app (a React Native presentation layer over one Kotlin TurboModule)
 
@@ -105,7 +105,7 @@ All unknowns are resolved in [research.md](./research.md).
 | Principle | Status | How this plan complies |
 | --- | --- | --- |
 | I. Simplicity First | PASS (with 2 recorded items) | Reuses the existing repository, host-key and matching code throughout. The re-check lists folders through the existing `list` and shared retry (R12). Plans live in memory (R13). Deletions remove rows, so no read query changes (R14). The checklist is derived, not stored (R6). Selection is one ID map (R9). The new stack-navigator dependency and the snapshot-mutation rule are recorded under Complexity Tracking. |
-| II. YAGNI | PASS | No inline host-key approval inside the deletion flow (an error points to Settings), no plan persistence, no deletion progress polling, no empty-folder removal (clarification 4), no user-CA trust, no re-check of UNSYNCED files, and `remote_node` stays unwritten (R11). Selection exists only in gallery and list; tree view is 008's. |
+| II. YAGNI | PASS | No inline host-key approval inside the deletion flow (an error points to Settings), no plan persistence, no deletion progress polling, no empty-folder removal (clarification 4), no user-CA trust, no re-check of UNSYNCED files, and `remote_node` stays unwritten (R11). Selection exists only in gallery and list; tree view is 009's. |
 | III. DRY | PASS | Matching rules stay only in `MatchIndex` (`nfc`, `bucketOf`), reused by the re-check. The retry policy is extracted from `RemoteWalker` into one shared function. Native code alone owns message text; JS maps codes to places in one table (R5). Default ports are one mirrored constant (R2). The count-decrement invariant is the same one `DirectoryRollupTest` pins. `formatBytes` is defined once. |
 | IV. Unit tests (NON-NEGOTIABLE) | PASS | **JVM**:<br>• `MigrationTest` (3 → 4)<br>• `MatchIndexTest` (directories collected, deduplicated, cap 16, `toRows`/`fromRows` round trip)<br>• `RemoteWalkerTest` (shared retry)<br>• `DeletionRecheckTest` (fake `RemoteClient`: confirmed, gone, folder-not-found, folder-unreadable, connect failure → no plan, `SCAN_TOO_OLD`, host-key codes)<br>• `DeletionOperationsTest` (plan replace, expiry, stale, single use, `includeUnsynced`, refused never deleted)<br>• `LocalDeleterTest` (fake SAF: `DELETED`, `ALREADY_GONE`, `CHANGED`, `ACCESS_LOST`, `FAILED`)<br>• `SnapshotStoreTest` (`recordDeletions` invariant, `listSelectableEntries` scope rules)<br>• `ScanCoordinatorTest` (`runExclusive`, `DELETION_IN_PROGRESS`)<br>• `RepositoryOperations` tests (`webdavHttps`, `field`, `SCAN_IN_PROGRESS`, reworded actions)<br>• `WebDavRemoteClientTest` (https scheme, `TLS_UNTRUSTED` mapping)<br>• `SourcePickerTest` (DCIM initial URI only when adding)<br>• contract parity and module tests<br>**Jest**:<br>• contract v5 wrappers<br>• `useRepository` state machine<br>• `RepositoryScreen` (prefill, unsaved-changes prompt, changed-key double confirm, warning)<br>• `fixTargets`<br>• `useSetupChecklist`, `ScanScreen` checklist, `FilesScreen` empty state<br>• `SelectionProvider` transitions, `selectionSummary`, `formatBytes`, `SelectionBar`<br>• `DeleteFlow` dialogs and result<br>• the accessibility sweep<br>• a "no Connect screen string" test<br>**Script-contract**: staged pairs, `release-smoke`, hooks, fixtures.<br>All of it is deterministic, with no device or network. |
 | V. E2E coverage (NON-NEGOTIABLE) | PASS | Every P1 story (1, 2, 4, 5, 6) and each protocol (FTP, SFTP, WebDAV setup through the UI) maps to a named Maestro flow on API 31 and API 36 against the live containers ([contracts/maestro-mvp.md](./contracts/maestro-mvp.md#acceptance-scenario-mapping)). P2 Story 3 is covered by `03-first-run` and the extended `sources/06-regrant`. Story 4 sc. 3–6 are covered by the release-smoke mode, and Story 6 sc. 6 by a staged flow with a device-side hook. Deletion removes real files (D012). Fixtures are reproducible, and the staged hooks are scripted, not manual. Four scenarios that cannot be set up deterministically are proven by JVM and Jest tests and recorded as deviations under Complexity Tracking. |
@@ -226,26 +226,26 @@ docs/  README.md  DEVELOPMENT.md  CHANGELOG.md   # per Principles VI–IX
 
 ## Integration closure
 
-This feature hands **feature 008** (tree view and preview):
+This feature hands **feature 009** (tree view and preview):
 
 - `SelectionProvider`, `SelectionBar`, `DeleteFlow` and the `, selected` label convention, to extend
   selection to tree view and the preview;
 - `listSelectableEntries` with the list-view (`parentId`) scope, which the tree reuses per folder.
 
-It hands **feature 010** (full loop and release):
+It hands **feature 011** (full loop and release):
 
 - the Repository screen, so the full-loop flow's "connect" step goes through the UI;
-- `pnpm assemble:release`, the release key setup and `release-smoke`, which 010 extends with version
+- `pnpm assemble:release`, the release key setup and `release-smoke`, which 011 extends with version
   derivation and API 36;
-- the deletion flows, which 010 runs on API 36 too.
+- the deletion flows, which 011 runs on API 36 too.
 
-Snapshot retention (010) must now keep `remote_match_key.directories` for the active snapshot's remote
-side. It already keeps the active snapshot, so nothing changes, but this is noted in 010's spec follow-up.
+Snapshot retention (011) must now keep `remote_match_key.directories` for the active snapshot's remote
+side. It already keeps the active snapshot, so nothing changes, but this is noted in 011's spec follow-up.
 
 Spec follow-ups (cross-feature consistency, not blocking tasks):
 
-- 008 spec: consume the items above (already stated in its "Selection in tree view and preview" section).
-- 010 spec: record that the release-smoke mode exists and that WebDAV HTTPS ships here.
+- 009 spec: consume the items above (already stated in its "Selection in tree view and preview" section).
+- 011 spec: record that the release-smoke mode exists and that WebDAV HTTPS ships here.
 
 ## Risks
 
@@ -256,7 +256,7 @@ Spec follow-ups (cross-feature consistency, not blocking tasks):
 | SAF `deleteDocument` is slow on some devices; thousands of files take minutes with only an indeterminate indicator | Batches commit every 100 files, so an interruption is safe. The dialog says "Deleting N files…". Progress polling is a follow-up if human acceptance (quickstart §3) finds it painful. |
 | A file changed on the device after the scan but kept the same size and modified time is deleted | The same identity rule the scan uses (D003). The server re-check confirmed a copy with that identity exists. Accepted. |
 | `docker compose pause` hooks between staged parts make the suite slower or flaky | `resume` runs from a `trap`. The paused window covers one prepare call. Hooks are unit-tested by script-contract tests. |
-| The DocumentsUI header text for DCIM differs between API levels | The flow asserts "DCIM" with a regex over the header only. If a level differs, the assertion is per level (010 adds API 36). |
+| The DocumentsUI header text for DCIM differs between API levels | The flow asserts "DCIM" with a regex over the header only. If a level differs, the assertion is per level (011 adds API 36). |
 | The release build fails on bundling (`hermes-compiler` not found) | The hoist in `pnpm-workspace.yaml` is part of this feature, and `release-smoke` proves the build from a clean checkout. |
 
 ## Complexity Tracking

@@ -243,17 +243,17 @@ On the JS side, browsing components stay in `src/files/` and the browser in `src
 
 ## Integration closure
 
-This feature hands **feature 008** (tree view and preview):
+This feature hands **feature 009** (tree view and preview):
 
 - the view drop-down, where tree view becomes the third choice, and the persisted preferences, which gain
   a `tree` view value;
 - the sort contract (`SIZE_*`, `sortName`, unknown last, `kind`), which the tree applies to each folder's
   files with folders first;
 - `getScrollIndex` and the segmented `usePagedQuery`, which the tree reuses per expanded folder (or
-  skips; 008 decides);
+  skips; 009 decides);
 - anchor restore on new results (R8), which the tree follows.
 
-It hands **feature 010** (full loop and release):
+It hands **feature 011** (full loop and release):
 
 - a repository with several folders, set up through the UI, for the full-loop flow;
 - the `polish/` flows and the `Scroll` / `Big` device fixtures;
@@ -261,9 +261,9 @@ It hands **feature 010** (full loop and release):
 
 Spec follow-ups (cross-feature consistency, not blocking tasks):
 
-- 008 spec: consume the items above, and record that list rows have a fixed height (the segmented reader
+- 009 spec: consume the items above, and record that list rows have a fixed height (the segmented reader
   needs it).
-- 010 spec: snapshot retention must keep `remote_ambiguity.remotePath` for the active snapshot (it already
+- 011 spec: snapshot retention must keep `remote_ambiguity.remotePath` for the active snapshot (it already
   keeps the active snapshot whole).
 
 ## Risks

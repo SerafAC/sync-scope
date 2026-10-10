@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- E2E performance draft in `specs/008-e2e-performance/`, with measured bottlenecks, verified headless
+  hardware acceleration on both API levels and a prioritized optimization scope that preserves the
+  existing proof bar. Later specs move to 009 (tree and preview), 010 (the merged deletion placeholder)
+  and 011 (full-loop release), with cross-feature references updated.
 - Sorting, a smart scrollbar and several server folders (feature 007): gallery and list view each have
   a sort drop-down with name, date (last modified) and size, ascending and descending, and files with
   an unknown size or date come last; list view keeps folders above files, by name, under every sort; a

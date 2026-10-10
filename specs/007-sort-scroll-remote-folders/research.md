@@ -185,7 +185,7 @@ before the views mount and writes on change. The filter stays in memory (005 R10
 **Alternatives rejected**:
 
 - `@react-native-async-storage/async-storage`: a new native dependency for three values.
-- Reusing `getSettings`: it belongs to feature 010's hidden-files setting, and implementing half of it
+- Reusing `getSettings`: it belongs to feature 011's hidden-files setting, and implementing half of it
   here would blur that ownership.
 
 ## R11. Several remote folders: storage and validation

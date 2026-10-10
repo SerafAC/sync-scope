@@ -35,7 +35,7 @@ The primary requirements below are marked **Validated** on the strength of two l
    checklist, section "US1 consolidation evidence (2026-09-28)".
 
 Validation rests on the consolidation re-run: it proves the code now on `master`, not only the branch.
-API 36 coverage was not run here; it belongs to feature 010 (R019, R020).
+API 36 coverage was not run here; it belongs to feature 011 (R019, R020).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -139,9 +139,9 @@ teardown is part of the assertion.
 
 Supporting requirements (primary FR in another feature):
 
-- R019 (feature 010): this feature registers `CloudSyncPackage` in `MainApplication.kt`, the precondition
+- R019 (feature 011): this feature registers `CloudSyncPackage` in `MainApplication.kt`, the precondition
   for the TurboModule resolving at runtime.
-- R022 (feature 010): `docs/architecture.md` and `docs/README.md` describe the modules this feature added,
+- R022 (feature 011): `docs/architecture.md` and `docs/README.md` describe the modules this feature added,
   and were added in the merge commit itself.
 - R026 ([scope](../../docs/scope.md)): the `RemoteClient` contract exposes no way to read remote file
   bytes, and the protocol audit enforces it.
@@ -159,7 +159,7 @@ Supporting requirements (primary FR in another feature):
 - **PrecisionFinding**: `precisionMillis` plus the basis it was derived from.
 - The full scan-store schema (`scan_run`, `snapshot`, `source_root`, `local_node`, `remote_node`,
   `remote_match_key`, `remote_ambiguity`, `snapshot_counts`, `local_deletion_overlay`, `active_snapshot`)
-  exists and is tested, per D013, but is populated by features 003–009.
+  exists and is tested, per D013, but is populated by features 003–010.
 
 ## Provides
 
@@ -184,7 +184,7 @@ What this feature hands to later features (roadmap boundary map):
 - The typed error envelope vocabulary (`CloudSyncError` code, redacted message and recovery action) that
   mid-scan failures reuse to populate `issueCode`.
 - A working `SnapshotStore`, `SnapshotQuery` and `PageTokenCodec` for the scan engine to populate and for
-  features 005 and 008 to page through.
+  features 005 and 009 to page through.
 
 ## Success Criteria *(mandatory)*
 
@@ -202,8 +202,8 @@ What this feature hands to later features (roadmap boundary map):
 
 - No Connect screen UI was built in this feature; it adds native modules and tests only, and the demo is
   proven through the `CloudSync` module methods such a screen calls. The connect step of the user loop is
-  exercised through the UI end to end in feature 010 (R020).
-- API 36 was not exercised here; API 31 is this feature's proof level, and API 36 is feature 010's
+  exercised through the UI end to end in feature 011 (R020).
+- API 36 was not exercised here; API 31 is this feature's proof level, and API 36 is feature 011's
   integration closure.
 - Known issues carried forward are listed in `DEVELOPMENT.md` ("Known issues from the S01 live gate"):
   the validator emulator's `-no-window` flag is unconditional, and API 36 coverage is deferred.

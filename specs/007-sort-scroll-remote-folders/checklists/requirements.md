@@ -32,7 +32,7 @@
 ## Notes
 
 - Platform terms (Android picker, TalkBack, API level, Maestro) appear on purpose, named the same way as
-  in specs 002–006 and 010. No code structure, library or storage choice is prescribed.
+  in specs 002–006 and 011. No code structure, library or storage choice is prescribed.
 - Two questions were asked before writing (Clarifications, 2026-10-05): the several folders are server
   folders, and the empty-folder bug is in the Android picker opened by Add a folder.
 - Informed defaults, not asked: six sort choices with each view keeping its own sort for the session;

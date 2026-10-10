@@ -16,8 +16,9 @@ updated" when browsing images is resetting the view, it jumps to the top. Browsi
 opening folder with lots of files it shows nothing even when changing navigation."
 
 The former features 007 (tree view and preview), 008 (multi-select, merged into 006) and 009 (full loop
-and release) moved to [008](../008-tree-view-image-preview/spec.md),
-[009](../009-multiselect-local-deletion/spec.md) and [010](../010-full-loop-release/spec.md).
+and release) were shifted when this feature was inserted. With the E2E performance draft inserted at
+008 on 2026-10-10, their current slots are [009](../009-tree-view-image-preview/spec.md),
+[010](../010-multiselect-local-deletion/spec.md) and [011](../011-full-loop-release/spec.md).
 
 **Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md) and
 [006-mvp](../006-mvp/spec.md) (both complete).
@@ -50,9 +51,9 @@ new results arrive; adding device folders that hold many files; the app's own la
 **Out of scope** (unchanged owners):
 
 - Tree view and image preview, including tree view as a third option in the view drop-down —
-  [008-tree-view-image-preview](../008-tree-view-image-preview/spec.md).
+  [009-tree-view-image-preview](../009-tree-view-image-preview/spec.md).
 - Hidden files, snapshot retention, the API 36 full loop and the final docs pass —
-  [010-full-loop-release](../010-full-loop-release/spec.md).
+  [011-full-loop-release](../011-full-loop-release/spec.md).
 - Mapping a device folder to a particular remote folder, and more than one server (R024 stays out of
   scope: every device file is still compared against every remote folder of the one server).
 - Remembering the filter across app restarts (feature 005 R10 stands; sort and view mode are remembered).
@@ -479,17 +480,17 @@ Settings › Apps on API 31, with the launcher set to circle, squircle and squar
   per-folder mapping) stays out of scope.
 - The end-to-end flows of this feature pass on API 31 and API 36 emulators, as the 006 flows do
   (`pnpm e2e:android`, D012). The API 36 *full loop* (setup, scan and delete in one flow) stays in
-  feature 010.
+  feature 011.
 
 ## Provides
 
-To [008-tree-view-image-preview](../008-tree-view-image-preview/spec.md):
+To [009-tree-view-image-preview](../009-tree-view-image-preview/spec.md):
 
 - The view-mode drop-down, where tree view becomes the third choice.
 - The sort drop-down and sort contract, which tree view applies to the files inside each folder.
 - The scroll-position keeping on new results, which tree view follows.
 
-To [010-full-loop-release](../010-full-loop-release/spec.md):
+To [011-full-loop-release](../011-full-loop-release/spec.md):
 
 - A repository with several remote folders for the full-loop flow to set up through the UI.
 - The many-files folder fixture and the Maestro flows for sorting and the scrollbar.

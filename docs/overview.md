@@ -39,9 +39,9 @@ like a clean one. See [sync and deletion safety](./sync-and-deletion-safety.md).
    R010), filtered to all, synced, unsynced or issues-unknown (R011), with an image preview from any view
    (R014). Each view has its own sort (name, date or size, either way) and a scrollbar that jumps through
    a long result by date, letter or size band. Gallery and list view, with the filters, are delivered by
-   feature 005, their sorting and scrollbar by feature 007; tree view and preview by feature 008.
+   feature 005, their sorting and scrollbar by feature 007; tree view and preview by feature 009.
 5. **Select** files, from any of the three views (R012). A selection bar shows the count and total size.
-   Gallery and list view are delivered by feature 006 (MVP); tree view and preview by feature 008.
+   Gallery and list view are delivered by feature 006 (MVP); tree view and preview by feature 009.
 6. **Delete locally**, after the selected backed-up files are re-checked on the server and an honest
    pre-flight breakdown of what will happen (R012, R013,
    [D020](./decisions/0020-pre-delete-server-recheck.md)). Only files are deleted, never folders and never

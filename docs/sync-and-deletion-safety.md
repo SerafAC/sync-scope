@@ -70,7 +70,7 @@ counts files only.
 ## Filters: isolating the synced and the unknown sets
 
 The four filters exist so the user can isolate the set that is safe to delete and the set that must never
-be deleted (R011). One filter is shared by every view (gallery, list and, in feature 008, tree), and it
+be deleted (R011). One filter is shared by every view (gallery, list and, in feature 009, tree), and it
 maps directly to the stored file status:
 
 | Filter | Files shown |
@@ -88,7 +88,7 @@ maps directly to the stored file status:
 - **Directories ignore the filter.** A filter narrows file rows only. Every directory stays listed, with
   the number of files beneath it that match the filter. A directory with no match is dimmed with
   "0 matching" but can still be opened, so the folder structure looks the same under every filter. Feature
-  008's tree view follows the same rule
+  009's tree view follows the same rule
   ([005 research R3](../specs/005-gallery-list-filtering/research.md#r3-directory-rows-under-a-filter-clarification-3)).
   A directory's own worst-of status is unchanged and still shown.
 

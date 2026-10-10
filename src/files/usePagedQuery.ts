@@ -548,7 +548,7 @@ function paddedRows(seg: Segment, band: number): PagedRow[] {
  * like the linear read. A `leadingQuery` (list view's folders) is read to
  * its end first and placed before the bands.
  *
- * Feature 008's tree view reuses this hook with a `queryTreeChildren` reader.
+ * Feature 009's tree view reuses this hook with a `queryTreeChildren` reader.
  */
 export function usePagedQuery({
   snapshotId,

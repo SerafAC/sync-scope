@@ -1,10 +1,12 @@
 # Feature Specification: Browsable Tree View and Image Preview
 
-**Feature Branch**: `008-tree-view-image-preview`
+**Feature Branch**: `009-tree-view-image-preview`
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S05)
 
 **Status**: Draft (seeded)
+
+**Numbering**: Moved from slot 008 to 009 on 2026-10-10 to put E2E performance work next.
 
 **Input**: Roadmap slice M001/S05, "Browsable tree view and image preview" (`risk:medium`,
 `depends:[S04]`).
@@ -109,7 +111,7 @@ Supporting requirements (primary FR in another feature):
 - R011 (feature 005): the all / synced / unsynced / issues-unknown filter applies consistently in tree
   view.
 - R021 (feature 005): tree view and preview use the Material 3 shell and accessibility labels.
-- R022 (feature 010): `./docs` is updated in the same change as this feature's behaviour.
+- R022 (feature 011): `./docs` is updated in the same change as this feature's behaviour.
 
 ## Selection in tree view and preview
 
@@ -142,7 +144,7 @@ is specified:
 
 ## Provides
 
-To feature 010 (full loop and release): tree view and preview with selection parity, for the full-loop
+To feature 011 (full loop and release): tree view and preview with selection parity, for the full-loop
 flow's "browse, select" steps.
 
 (`getLocalImageHandle` is no longer provided here: feature 005 implements it, see Dependencies.)

@@ -155,9 +155,9 @@ finding can be re-checked.
   | S02 | `003-local-source-selection` |
   | S03 | `004-scan-engine-matching` |
   | S04 | `005-gallery-list-filtering` |
-  | S05 | `008-tree-view-image-preview` |
-  | S06 | `009-multiselect-local-deletion` |
-  | S07 | `010-full-loop-release` |
+  | S05 | `009-tree-view-image-preview` |
+  | S06 | `010-multiselect-local-deletion` |
+  | S07 | `011-full-loop-release` |
 
   These are created with the Spec Kit sequential numbering already configured
   (`.specify/init-options.json` → `feature_numbering: sequential`).
@@ -207,7 +207,7 @@ finding can be re-checked.
 - **Decision**:
   - `package.json` is the single authoritative version, as `DEVELOPMENT.md` will state.
   - Deriving `versionName` from it is a build change that needs its own unit test (Principle IV). It is
-    assigned to feature 008 (S07, release APK, R019) and recorded in Complexity Tracking.
+    assigned to feature 011 (S07, release APK, R019) and recorded in Complexity Tracking.
   - `CHANGELOG.md` starts at `Unreleased` against 0.0.1.
 - **Rationale**: FR-005 and FR-022 keep this migration free of application and build changes. The gap is
   already there, and the migration makes it visible without widening its own scope.

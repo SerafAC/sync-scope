@@ -33,4 +33,4 @@ is that nobody checked it.
 
 - Requirements: R011, R012, R017
 - Features: specs/004-scan-engine-matching, specs/005-gallery-list-filtering,
-  specs/006-mvp (absorbed specs/009-multiselect-local-deletion)
+  specs/006-mvp (absorbed specs/010-multiselect-local-deletion)

@@ -283,7 +283,7 @@ Keep the meaning; reformatting is fine. Follow the neutral-wording rule.
   - MEM021: the emulator needs `-no-window`, and stale `/tmp/cloud-sync-checker-api31` state has to be
     cleared.
   - The known issues from M001/S01/T08: `-no-window` is unconditional, and API 36 coverage is deferred
-    to feature 008.
+    to feature 011.
 
   US5 completes the rest of the file.
 - [X] T025 [US2] Add the decision index and the docs links:
@@ -380,19 +380,19 @@ Spec Kit points at 003.
   - Depends on 004.
   - Primary requirements R008, R009, R011 and R021. Supporting R020 and R022.
   - Include the demo and the S04→S05 and S04→S06 outputs.
-- [X] T034 [P] [US3] Seed `specs/008-tree-view-image-preview/spec.md` from M001/S05:
+- [X] T034 [P] [US3] Seed `specs/009-tree-view-image-preview/spec.md` from M001/S05:
   - Status `Draft (seeded)`.
   - Depends on 005.
   - Primary requirements R010 and R014. Supporting R011, R021 and R022.
   - Add the open detail from R010's Notes (directories filtered to empty stay visible, dimmed, with a
     count) as a `[NEEDS CLARIFICATION]` item.
   - Include the demo and the S05→S06 outputs.
-- [X] T035 [P] [US3] Seed `specs/009-multiselect-local-deletion/spec.md` from M001/S06:
+- [X] T035 [P] [US3] Seed `specs/010-multiselect-local-deletion/spec.md` from M001/S06:
   - Status `Draft (seeded)`.
   - Depends on 005 and 006.
   - Primary requirements R012 and R013. Supporting R015, R021 and R022.
   - Include the demo and the S06→S07 outputs.
-- [X] T036 [P] [US3] Seed `specs/010-full-loop-release/spec.md` from M001/S07:
+- [X] T036 [P] [US3] Seed `specs/011-full-loop-release/spec.md` from M001/S07:
   - Status `Draft (seeded)`.
   - Depends on 002–007.
   - Primary requirements R019, R020 and R022. Their existing wording already covers API 36; cite them and
@@ -444,7 +444,7 @@ Principles VI–IX.
   - The Spec Kit workflow (specify → clarify → plan → tasks → implement), with `.specify/feature.json` as
     the active-feature pointer.
   - Versioning: the `version` in `package.json` is the single source of truth, and aligning `versionName`
-    is tracked in `specs/010-full-loop-release`.
+    is tracked in `specs/011-full-loop-release`.
   - The release and CHANGELOG procedure.
   - Links to `docs/` for technical depth.
 - [X] T041 [P] [US5] Extend `CHANGELOG.md` under `## [Unreleased]`:
@@ -542,7 +542,7 @@ not run T044–T047.
   - T028–T036 link to `docs/decisions/` (T017, T018);
   - T037 needs `docs/scope.md` (T023).
 - **US5** (T039–T042): depends on US2 (T024 and `docs/*`) and on US3 (T039 describes status, T040
-  references feature 008).
+  references feature 011).
 - **US4** (T043–T047): depends on US1, US2, US3 and US5 all being complete. This is the FR-018 gate.
 - **Polish** (T048–T050): depends on US4.
 
