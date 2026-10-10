@@ -1,10 +1,10 @@
 # Feature Specification: Faster E2E Validation Without Losing Proof
 
-**Feature Branch**: `008-e2e-performance` (proposed; no branch created)
+**Feature Branch**: `008-e2e-performance`
 
 **Created**: 2026-10-10
 
-**Status**: Draft (saved from the E2E performance analysis; not clarified or planned)
+**Status**: Draft (clarified; ready for planning)
 
 **Input**: User description: "Analyse why e2e are so slow. Check if emulator is properly configured and
 uses any hardware support it can. Check code if there are any suboptimal patterns used." Follow-up:
@@ -14,8 +14,8 @@ uses any hardware support it can. Check code if there are any suboptimal pattern
 and real-device acceptance are complete, and the validation infrastructure delivered by features 002–006.
 
 > This draft preserves the investigation and its prioritized recommendations. It does not claim that
-> the optimizations are implemented or that their speedup has been measured. Complete specification
-> clarification and planning before generating implementation tasks.
+> the optimizations are implemented or that their speedup has been measured. Complete planning before
+> generating implementation tasks; clarified requirements take precedence over investigation recommendations.
 
 ## Context
 
@@ -33,6 +33,15 @@ The evidence and proposed work order are preserved in [analysis.md](./analysis.m
 comments in the developer guide no longer describe the current suite; update them with new measured
 results when this feature changes the validation workflow.
 
+## Clarifications
+
+### Session 2026-10-10
+
+- Q: What measured speed improvement should be required before this feature is considered complete? → A: No fixed speedup target; a measured 0% gain is acceptable when faster alternatives would damage the test architecture or require disproportionate sacrifices, with evidence and tradeoffs recorded.
+- Q: If hardware acceleration is unavailable or fails, should validation stop or be allowed to use software rendering? → A: Automatically report fallback, compare timings only between matching acceleration modes, and check both Intel and NVIDIA GPUs to select the best available working option.
+- Q: May the validation build show a test-only static scan-progress indicator instead of the normal animated indicator? → A: No test-only progress UI; app-side progress changes must apply to normal builds too.
+- Q: Which scenarios should be repeated for the before-and-after performance measurements? → A: Fix the hotspot set before changes: field/repository setup, launch/navigation, real folder picking, scan progress, and gallery/list scrolling, with three before-and-after repetitions per scenario on both APIs.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get trustworthy validation results sooner (Priority: P1)
@@ -43,13 +52,14 @@ the app can connect, pick folders, scan, browse, select and safely delete files 
 **Why this priority**: the long feedback cycle slows every subsequent feature, while deletion and
 storage-access correctness cannot be traded for speed.
 
-**Independent Test**: compare representative scenarios before and after optimization, then run the
-complete workspace and staged flows on both APIs against live protocol services.
+**Independent Test**: repeat the fixed hotspot scenarios three times before and after optimization on
+each API, then run the complete workspace and staged flows on both APIs against live protocol services.
 
 **Acceptance Scenarios**:
 
 1. **Given** a recorded baseline and the same fixtures, host and API level, **When** the optimized
-   validation runs, **Then** it records a shorter elapsed time without omitting acceptance scenarios.
+   validation runs, **Then** it reports the measured elapsed-time change without omitting acceptance
+   scenarios; no gain is acceptable when evidence shows faster alternatives require unacceptable tradeoffs.
 2. **Given** empty and prefilled repository fields, **When** a scenario replaces their values, **Then**
    the intended values are entered reliably regardless of initial cursor position.
 3. **Given** an app that is already open, **When** a scenario only needs navigation, **Then** it avoids
@@ -73,9 +83,11 @@ acceleration, and run representative app, picker and scrolling scenarios.
 **Acceptance Scenarios**:
 
 1. **Given** the inspected host, **When** each validation emulator starts headlessly, **Then** supported
-   CPU and graphics acceleration are active and verifiable at runtime.
+   CPU acceleration and the best available working graphics option are active and verifiable at runtime,
+   considering both Intel and NVIDIA GPUs when exposed and usable.
 2. **Given** unavailable or incompatible acceleration, **When** startup is attempted, **Then** the
-   configuration either fails with an actionable diagnostic or reports an explicitly chosen fallback.
+   configuration automatically selects the next working option, including software graphics if needed,
+   and clearly reports the fallback and its reason; if no option works, it fails with an actionable diagnostic.
 3. **Given** an existing AVD or unrelated device, **When** acceleration is checked, **Then** the check
    does not erase its data, modify host security controls, or stop processes it does not own.
 
@@ -102,11 +114,15 @@ application execution, with comparable before-and-after measurements.
 ### Edge Cases
 
 - Hardware graphics is available but the default graphics API cannot initialize.
+- A host has Intel and NVIDIA GPUs, but one graphics device is not exposed or its driver cannot initialize;
+  nominal hardware presence does not establish an available working renderer.
 - One API applies a larger minimum guest memory allocation than the requested value.
 - A field is empty, prefilled, secure, partially selected, or focused in the middle of its text.
 - A scan completes before the next test observation; progress checks must not silently become no-ops.
 - A staged scenario intentionally continues existing state, while another scenario needs fresh state.
 - Reduced animations affect accessibility, progress visibility or coordinate-based scrolling tests.
+- A test-only static progress indicator would avoid synchronization overhead but would not exercise the
+  normal app's progress UI; this alternative is excluded.
 - A concurrent validation process owns a device, lock, service or port.
 - Cold builds, warm builds, fixture generation and host power policy distort timing comparisons.
 - Large-file fixtures are necessary for coverage and cannot simply be reduced to shorten the suite.
@@ -122,12 +138,21 @@ application execution, with comparable before-and-after measurements.
   workspace flows and staged flows, without exposing credentials or user-generated content.
 - **FR-003**: Timing comparisons MUST identify the host, API, fixture sizes, build-cache state,
   acceleration mode and relevant resource or power settings, and avoid nested-duration double counting.
+  Speed comparisons MUST use matching CPU and graphics acceleration modes; actual GPU and renderer
+  identities and any fallback MUST be recorded, with differing acceleration modes reported separately.
 - **FR-004**: Shared interaction helpers MUST avoid redundant work while keeping deterministic field
   replacement, required state isolation and observable assertions.
-- **FR-005**: Validation emulators MUST use supported CPU and graphics acceleration on the inspected
-  host; unsupported configurations MUST produce actionable diagnostics or an explicit fallback.
+- **FR-005**: Validation emulators MUST use supported CPU acceleration and select the best available
+  working graphics option on the inspected host, checking both Intel and NVIDIA GPUs when available.
+  Selection MUST be supported by successful runtime verification and comparable performance evidence,
+  not GPU brand alone. Unavailable or incompatible options MUST trigger automatic fallback to the next
+  working option, including software graphics if needed, with the actual mode and reason clearly reported.
+  If no option works, validation MUST fail with an actionable diagnostic.
 - **FR-006**: Changes to animations or synchronization MUST preserve progress, completion, cancellation
   and backgrounding assertions. They MUST NOT shorten validation by silently skipping assertions.
+  Validation MUST exercise the same app-side progress UI as normal builds; test-only static progress
+  indicators or other progress-UI substitutions are prohibited. App-side progress changes MUST apply
+  to normal builds too; emulator animation settings may differ.
 - **FR-007**: Build and fixture work MUST be reused where the same artifacts and fixture state remain
   valid, without weakening clean-state, mutation or staged-flow coverage.
 - **FR-008**: Production polling or rendering changes MUST address measured bottlenecks and preserve
@@ -136,6 +161,14 @@ application execution, with comparable before-and-after measurements.
   end-to-end scenarios and the complete suite MUST still pass on both APIs.
 - **FR-010**: Developer-facing configuration, run instructions and timing guidance MUST be updated with
   the implemented behavior and measurements.
+- **FR-011**: Optimization decisions MUST preserve the test architecture and existing proof requirements.
+  Alternatives rejected for disproportionate complexity, maintenance cost or other sacrifices MUST have
+  their evidence and tradeoffs recorded; a measured 0% speed gain is acceptable on that basis.
+- **FR-012**: Before optimization changes, the representative measurement set MUST be fixed and its
+  named scenarios recorded. It MUST cover field/repository setup, launch/navigation, real SAF folder
+  picking, scan progress, and scrolling in both gallery and list views. Each selected scenario MUST
+  run three times before and after changes on both APIs under comparable conditions; the set MUST
+  NOT be changed after seeing results to omit unfavorable timings.
 
 ### Key Entities
 
@@ -150,13 +183,20 @@ application execution, with comparable before-and-after measurements.
 ### Measurable Outcomes
 
 - **SC-001**: On each API, the median elapsed time of the selected representative scenarios over three
-  comparable runs is lower than their pre-change baseline; the report states absolute and relative gains.
+  comparable runs is compared with their pre-change baseline; the report states absolute and relative
+  changes for every scenario in the fixed hotspot set defined by FR-012. No fixed minimum speedup is
+  required. A measured 0% gain is acceptable when the report demonstrates that faster alternatives
+  would damage the test architecture or require disproportionate sacrifices, while all existing quality
+  gates remain satisfied.
 - **SC-002**: The complete existing workspace and all seven staged flows pass on both APIs, and the
   before-and-after acceptance inventory has no removed or silently skipped claims.
-- **SC-003**: Both APIs boot headlessly with verified hardware acceleration on the inspected host;
-  unsupported-mode checks yield an explicit diagnostic or documented fallback.
+- **SC-003**: Both APIs boot headlessly with verified supported CPU acceleration and the best available
+  working graphics option on the inspected host. Available Intel and NVIDIA options are checked;
+  unsupported-mode checks demonstrate automatic, reported fallback or an actionable failure when no
+  option works. Speed comparisons do not mix hardware-accelerated and software-rendered runs.
 - **SC-004**: Field replacement regression cases pass for empty, prefilled and secure inputs and
-  different cursor positions; progress, cancellation and backgrounding scenarios remain green.
+  different cursor positions; progress, cancellation and backgrounding scenarios remain green while
+  exercising the same app-side progress UI as normal builds.
 - **SC-005**: A reproducible report accounts for the full run's phases and command costs without
   double counting or disclosing credentials.
 
@@ -171,3 +211,6 @@ application execution, with comparable before-and-after measurements.
   unless a later plan justifies safe isolation.
 - Host package installation, power-policy changes and destructive AVD operations require separate
   authorization. They are not implicitly authorized by saving this draft.
+- A read-only check during clarification found accelerated Intel Arc OpenGL; NVIDIA's audio controller
+  was exposed, but no NVIDIA graphics device was exposed and `nvidia-smi` found no supported GPU.
+  NVIDIA emulator compatibility remains unverified; GPU availability MUST be rechecked during validation.
