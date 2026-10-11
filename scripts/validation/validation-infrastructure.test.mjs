@@ -542,7 +542,8 @@ test('exposes bounded owned service and serial validator entry points', async ()
     assert.equal(typeof packageJson.scripts[script], 'string', script);
   }
 
-  assert.match(source, /cloud-sync-checker-validator\.lock/);
+  assert.match(source, /validation_state validator\.lock/);
+  assert.match(await text('scripts/validation/validation-lifecycle.sh'), /\/tmp\/cloud-sync-checker-%s/);
   assert.match(source, /flock/);
   assert.match(source, /timeout/);
   assert.match(source, /MemAvailable/);
@@ -1554,7 +1555,7 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
   assert.match(block, /_HOST=10\.0\.2\.2"/);
   assert.match(block, /sed -n 's\/\^username=\/\/p'/);
   assert.match(block, /sed -n 's\/\^password=\/\/p'/);
-  assert.match(source, /^maestro_bin=\S+\/maestro\/bin\/maestro$/m);
+  assert.match(source, /^maestro_bin=\$\{SYNCSCOPE_MAESTRO_BIN:-"\$HOME\/\.cache\/cloud-sync-checker-toolchain\/maestro-2\.10\.0\/maestro\/bin\/maestro"\}$/m);
   assert.match(source, /"\$maestro_bin" \\\n\s+test "\$@" "\$repo\/validation\/maestro"/);
 
   assert.doesNotMatch(source, /set -[a-z]*x/, 'tracing would log the password');
@@ -1574,7 +1575,7 @@ test('android-flow accepts the release-smoke mode and still rejects unknown mode
   const source = await text('scripts/validation/android-flow.sh');
   assert.match(
     source,
-    /case "\$mode" in connected\|e2e\|release-smoke\) ;; \*\) exit 64 ;; esac/,
+    /case "\$mode" in connected\|e2e\|release-smoke\|measure\) ;; \*\) exit 64 ;; esac/,
   );
 
   const {home, sdk} = await fakeSdk(t);
@@ -1941,7 +1942,7 @@ test('release-smoke mode follows the contract steps in order', async () => {
   // Release-smoke never starts Metro.
   assert.match(
     source,
-    /if \[ "\$mode" = e2e \]; then\n\s+"\$repo\/scripts\/validation\/metro-service\.sh" start/,
+    /if \[ "\$mode" = e2e \] \|\| \[ "\$mode" = measure \]; then\n\s+validation_phase_begin shared services\n\s+SYNCSCOPE_RESOURCE_RECEIPT="\$claims\/metro" "\$repo\/scripts\/validation\/metro-service\.sh" start/,
   );
 });
 

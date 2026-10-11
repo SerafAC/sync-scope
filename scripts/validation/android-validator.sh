@@ -16,12 +16,14 @@ while [ "$#" -gt 0 ]; do
     *) exit 64 ;;
   esac
 done
-case "$api:$avd:$state" in
-  31:dependency_api31:/tmp/cloud-sync-checker-api31) ;;
-  36:dependency_api36:/tmp/cloud-sync-checker-api36) ;;
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/validation-lifecycle.sh"
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+case "$api:$avd" in
+  31:dependency_api31|36:dependency_api36) ;;
   *) exit 64 ;;
 esac
-[ "$exclusive_lock" = /tmp/cloud-sync-checker-validator.lock ] || exit 64
+[ "$state" = "$(validation_state "api$api")" ] || exit 64
+[ "$exclusive_lock" = "$(validation_state validator.lock)" ] || exit 64
 
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/android-sdk.sh"
 android_sdk_resolve
@@ -31,30 +33,65 @@ emulator="$ANDROID_HOME/emulator/emulator"
 owner="$state/owner"
 pid_file="$state/pid"
 serial_file="$state/serial"
-adb_server_pid_file="$state/adb-server-pid"
 
 adb_command() {
   timeout --signal=TERM --kill-after=5 30 "$adb" "$@"
 }
-find_adb_server() {
-  ps -eo pid=,args= | awk \
-    '$2 == "adb" && $3 == "-L" && $4 == "tcp:5037" {print $1; exit}'
-}
 
 memory_ready() {
-  available=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
-  total=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+  available=$(awk '/^MemAvailable:/ {print $2}' "${SYNCSCOPE_MEMINFO_FILE:-/proc/meminfo}")
+  total=$(awk '/^MemTotal:/ {print $2}' "${SYNCSCOPE_MEMINFO_FILE:-/proc/meminfo}")
   [ "$available" -ge 8388608 ] && [ $((available * 100 / total)) -ge 30 ]
 }
 owned_running() {
   [ -f "$owner" ] && [ "$(cat "$owner")" = "$api:$avd" ] &&
-    [ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null
+    validation_process_owned "$state"
 }
 owned_state() {
   [ -f "$owner" ] && [ "$(cat "$owner")" = "$api:$avd" ]
 }
-# Polls until the device shell runs as uid $1 (0 after `adb root`, 2000 after
-# `adb unroot`); both restart adbd, so the transport drops in between.
+retain_diagnostics() {
+  [ -n "${SYNCSCOPE_PERFORMANCE_DIR:-}" ] || return 0
+  destination="$SYNCSCOPE_PERFORMANCE_DIR/raw/validator-$api"
+  mkdir -p "$destination"
+  for file in owner claim pid process-identity serial devices.before processes.private metadata.private.json emulator.log; do
+    [ ! -f "$state/$file" ] || cp "$state/$file" "$destination/$file"
+  done
+}
+# Explicit console port + saved inventory + AVD + the owning process's listening
+# socket prove the serial. A transport appearing during startup is not ownership.
+owned_serial() {
+  owned_running || return 1
+  [ "$serial" = emulator-5554 ] || return 1
+  [ "$(adb_command -s "$serial" emu avd name 2>/dev/null | tr -d '\r' | sed '/^OK$/d')" = "$avd" ] || return 1
+  node - "$(cat "$pid_file")" "$avd" >"$state/processes.private" <<'NODE'
+const fs = require('node:fs');
+const group = process.argv[2], avd = process.argv[3];
+const inodes = new Set();
+for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+  for (const line of fs.readFileSync(table, 'utf8').trim().split('\n').slice(1)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields[1].endsWith(':15B2') && fields[3] === '0A') inodes.add(fields[9]);
+  }
+}
+let owned = false;
+for (const pid of fs.readdirSync('/proc').filter(p => /^\d+$/.test(p))) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, '').split(' ');
+    if (stat[2] !== group) continue;
+    console.log(pid);
+    const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+    if (argv[argv.indexOf('-avd') + 1] !== avd || argv[argv.indexOf('-port') + 1] !== '5554') continue;
+    for (const fd of fs.readdirSync(`/proc/${pid}/fd`)) {
+      const inode = fs.readlinkSync(`/proc/${pid}/fd/${fd}`).match(/^socket:\[(\d+)\]$/)?.[1];
+      if (inodes.has(inode)) owned = true;
+    }
+  } catch {}
+}
+process.exit(owned ? 0 : 1);
+NODE
+}
+# Poll until root/unroot has restarted adbd with the expected shell identity.
 await_shell_uid() {
   tries=0
   until [ "$(adb_command -s "$serial" shell id -u 2>/dev/null | tr -d '\r')" = "$1" ]; do
@@ -89,7 +126,12 @@ serial_ready() {
 
 case "$action" in
   start)
-    if owned_running && serial_ready; then exit 0; fi
+    if owned_running && serial_ready; then
+      validation_claim_matches "$state" || exit 1
+      owned_serial || exit 1
+      validation_receipt borrowed
+      exit 0
+    fi
     [ ! -e "$state" ] || {
       printf 'Validator state %s already exists; stop that validator first.\n' "$state" >&2
       exit 1
@@ -98,72 +140,58 @@ case "$action" in
       printf '%s\n' "Validator memory preflight failed." >&2
       exit 1
     }
-    adb_server_before=$(find_adb_server || true)
+    validation_lock_safe "$exclusive_lock" || exit 1
+    exec 8>>"$exclusive_lock"
+    flock -n 8 || { printf '%s\n' "Another validator owns the emulator lock." >&2; exit 1; }
     if adb_command devices |
-      awk 'NR > 1 && $2 == "device" {found=1} END {exit !found}'; then
+      awk 'NR > 1 && ($2 == "device" || $1 == "emulator-5554") {found=1} END {exit !found}'; then
       printf '%s\n' "Another connected validator is active." >&2
       exit 1
     fi
-    mkdir -p "$state"
-    printf '%s\n' "$api:$avd" >"$owner"
-    : >"$state/devices.before"
-    adb_command devices |
-      awk 'NR > 1 && $1 != "" {print $1}' >"$state/devices.before"
-    if [ -z "$adb_server_before" ]; then
-      adb_server_after=$(find_adb_server || true)
-      [ -z "$adb_server_after" ] ||
-        printf '%s\n' "$adb_server_after" >"$adb_server_pid_file"
-    fi
-
+    mkdir "$state"
     cleanup_failed_start() {
+      status=$?
       trap - EXIT HUP INT TERM
-      if [ -f "$pid_file" ]; then
-        failed_pid=$(cat "$pid_file")
-        kill -TERM -- "-$failed_pid" 2>/dev/null || true
-        wait "$failed_pid" 2>/dev/null || true
-      fi
-      if [ -f "$adb_server_pid_file" ]; then
-        failed_adb_pid=$(cat "$adb_server_pid_file")
-        if [ -r "/proc/$failed_adb_pid/cmdline" ] &&
-          tr '\0' ' ' <"/proc/$failed_adb_pid/cmdline" |
-            grep -Fq 'adb -L tcp:5037'; then
-          kill -TERM "$failed_adb_pid"
-        fi
-      fi
+      validation_stop_process "$state" || true
+      retain_diagnostics || true
       rm -rf -- "$state"
-      flock -n "$exclusive_lock" sh -c 'rm -f -- "$1"' \
-        sh "$exclusive_lock" || true
+      validation_receipt released
+      exit "$status"
     }
     trap cleanup_failed_start EXIT
     trap 'exit 130' HUP INT TERM
+    printf '%s\n' "$api:$avd" >"$owner"
+    validation_mark_claim "$state"
+    : >"$state/devices.before"
+    adb_command devices |
+      awk 'NR > 1 && $1 != "" {print $1}' >"$state/devices.before"
 
     # The emulator outlives one API's whole e2e pass (boot, install, about
     # 55 minutes of Maestro flows, the staged pairs); 2700 s cut 006's run off.
-    setsid flock -n "$exclusive_lock" \
-      timeout --signal=TERM --kill-after=20 9000 \
+    setsid timeout --signal=TERM --kill-after=20 9000 \
       "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
-      -gpu swiftshader_indirect -memory 2048 -no-metrics \
-      >"$state/emulator.log" 2>&1 &
+      -gpu swiftshader_indirect -memory 2048 -no-metrics -port 5554 \
+      >"$state/emulator.log" 2>&1 9>&- &
     pid=$!
-    printf '%s\n' "$pid" >"$pid_file"
+    validation_save_pid "$pid" "$state"
+    sleep 1
 
     attempts=0
-    serial=
-    until [ -n "$serial" ]; do
-      kill -0 "$pid" 2>/dev/null || {
+    serial=emulator-5554
+    until [ "$(adb_command -s "$serial" get-state 2>/dev/null)" = device ]; do
+      owned_running || {
         printf '%s\n' "Emulator or validator lock failed to start." >&2
         exit 1
       }
-      serial=$(adb_command devices | awk \
-        'NR > 1 && $1 ~ /^emulator-/ && $2 == "device" {print $1; exit}')
       attempts=$((attempts + 1))
       [ "$attempts" -lt 180 ] || {
         printf '%s\n' "The emulator did not come online within 180 s." >&2
         exit 1
       }
-      [ -n "$serial" ] || sleep 1
+      sleep 1
     done
     printf '%s\n' "$serial" >"$serial_file"
+    owned_serial || { printf '%s\n' "Cannot prove emulator serial/process ownership." >&2; exit 1; }
 
     attempts=0
     until serial_ready; do
@@ -187,53 +215,29 @@ case "$action" in
       }
       sleep 1
     done
+    node "$repo/scripts/validation/performance-report.mjs" capture-device \
+      "$state/metadata.private.json" "$ANDROID_HOME" "$serial" "$api" "$avd"
+    validation_receipt acquired
     trap - EXIT HUP INT TERM
     ;;
   healthcheck)
-    owned_running && serial_ready
+    owned_running && serial_ready && owned_serial
     ;;
   stop)
-    owned_state || {
+    owned_state && validation_claim_matches "$state" || {
       printf '%s\n' "Refusing to stop an unowned validator." >&2
       exit 1
     }
-    if [ -f "$serial_file" ]; then
+    if [ -f "$serial_file" ] && owned_running; then
       serial=$(cat "$serial_file")
-      adb_command -s "$serial" emu kill >/dev/null 2>&1 || true
+      if owned_serial; then adb_command -s "$serial" emu kill >/dev/null 2>&1 || true; fi
     fi
     if [ -f "$pid_file" ]; then
-      pid=$(cat "$pid_file")
-      kill -TERM -- "-$pid" 2>/dev/null || true
-      attempts=0
-      while kill -0 "$pid" 2>/dev/null; do
-        attempts=$((attempts + 1))
-        [ "$attempts" -lt 30 ] || {
-          kill -KILL -- "-$pid" 2>/dev/null || true
-          break
-        }
-        sleep 1
-      done
-      wait "$pid" 2>/dev/null || true
+      validation_stop_process "$state" || true
     fi
-    if [ -f "$adb_server_pid_file" ]; then
-      adb_server_pid=$(cat "$adb_server_pid_file")
-      if [ -r "/proc/$adb_server_pid/cmdline" ] &&
-        tr '\0' ' ' <"/proc/$adb_server_pid/cmdline" |
-          grep -Fq 'adb -L tcp:5037'; then
-        kill -TERM "$adb_server_pid"
-      fi
-    fi
+    retain_diagnostics
     rm -rf -- "$state"
-    attempts=0
-    while [ -e "$exclusive_lock" ]; do
-      if flock -n "$exclusive_lock" sh -c 'rm -f -- "$1"' \
-        sh "$exclusive_lock"; then
-        break
-      fi
-      attempts=$((attempts + 1))
-      [ "$attempts" -lt 10 ] || break
-      sleep 1
-    done
+    validation_receipt released
     ;;
   *) exit 64 ;;
 esac
