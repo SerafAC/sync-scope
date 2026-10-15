@@ -53,10 +53,37 @@ owned_state() {
 retain_diagnostics() {
   [ -n "${SYNCSCOPE_PERFORMANCE_DIR:-}" ] || return 0
   destination="$SYNCSCOPE_PERFORMANCE_DIR/raw/validator-$api"
-  mkdir -p "$destination"
-  for file in owner claim pid process-identity serial devices.before processes.private metadata.private.json emulator.log emulator-lifetime-seconds invocation-mode watchdog.private; do
+  # Each owned lifecycle keeps its own private copy (calibration starts the
+  # same API's validator once per candidate).
+  retained=2
+  while [ -e "$destination" ]; do
+    destination="$SYNCSCOPE_PERFORMANCE_DIR/raw/validator-$api-$retained"
+    retained=$((retained + 1))
+  done
+  mkdir -p "$SYNCSCOPE_PERFORMANCE_DIR/raw" && mkdir "$destination"
+  for file in owner claim pid process-identity serial devices.before processes.private metadata.private.json emulator.log emulator-lifetime-seconds invocation-mode watchdog.private acceleration.private.json attempts.plan; do
     [ ! -f "$state/$file" ] || cp "$state/$file" "$destination/$file"
   done
+  for file in "$state"/emulator-attempt-*.log; do
+    [ ! -f "$file" ] || cp "$file" "$destination/${file##*/}"
+  done
+}
+accel() {
+  node "$repo/scripts/validation/performance-report.mjs" "$@"
+}
+# Releases only the current candidate's own process and serial, then keeps its
+# log beside the other attempts before the next candidate may use port 5554.
+release_attempt() {
+  if [ -f "$serial_file" ] && owned_running && owned_serial; then
+    adb_command -s "$serial" emu kill >/dev/null 2>&1 || true
+  fi
+  if [ -f "$pid_file" ]; then
+    validation_stop_process "$state" || true
+    wait "$(cat "$pid_file")" 2>/dev/null || true
+  fi
+  [ ! -f "$state/emulator.log" ] || mv -- "$state/emulator.log" "$state/emulator-attempt-$attempt_number.log"
+  rm -f -- "$pid_file" "$state/process-identity" "$serial_file" \
+    "$state/metadata.private.json" "$state/processes.private"
 }
 # Explicit console port + saved inventory + AVD + the owning process's listening
 # socket prove the serial. A transport appearing during startup is not ownership.
@@ -223,6 +250,26 @@ case "$action" in
       invocation_mode=${invocation_mode#*:}
       [ "$invocation_mode" != measure ] || lifetime=14400
     fi
+    # Finite graphics profiles only. Without a request the original legacy
+    # launch is reproduced unchanged. A pinned candidate exists solely for the
+    # authenticated measurement calibration of one discovered route.
+    graphics_profile=${SYNCSCOPE_GRAPHICS_PROFILE:-legacy}
+    case "$graphics_profile" in legacy|auto|host-opengl|software) ;; *) exit 64 ;; esac
+    graphics_candidate=${SYNCSCOPE_GRAPHICS_CANDIDATE:--}
+    case "$graphics_candidate" in
+      -|host-intel-[1-9]|host-nvidia-[1-9]|software-swiftshader|software-software|software-lavapipe|software-swangle) ;;
+      *) exit 64 ;;
+    esac
+    graphics_pin=${SYNCSCOPE_GRAPHICS_PIN:-0}
+    case "$graphics_pin:$invocation_mode" in 0:*|1:measure) ;; *) exit 64 ;; esac
+    if [ -n "${SYNCSCOPE_HOST_ROOT:-}" ]; then
+      # A private read-only host image for deterministic tests, never a path
+      # outside this tool's own scratch namespace.
+      case "$SYNCSCOPE_HOST_ROOT" in /tmp/cloud-sync-checker-*/host) ;; *) exit 64 ;; esac
+      [ -d "$SYNCSCOPE_HOST_ROOT" ] && [ ! -L "$SYNCSCOPE_HOST_ROOT" ] &&
+        [ "$(realpath -- "$SYNCSCOPE_HOST_ROOT")" = "$SYNCSCOPE_HOST_ROOT" ] &&
+        [ "$(stat -c %u "$SYNCSCOPE_HOST_ROOT")" = "$(id -u)" ] || exit 64
+    fi
     memory_ready || {
       printf '%s\n' "Validator memory preflight failed." >&2
       exit 1
@@ -236,9 +283,13 @@ case "$action" in
       exit 1
     fi
     mkdir "$state"
+    candidate=
     cleanup_failed_start() {
       status=$?
       trap - EXIT HUP INT TERM
+      if [ "$status" -eq 130 ] && [ -n "$candidate" ]; then
+        accel acceleration-attempt "$state" "$candidate" fail interrupted 2>/dev/null || true
+      fi
       validation_stop_process "$state" || true
       retain_diagnostics || true
       rm -rf -- "$state"
@@ -255,58 +306,95 @@ case "$action" in
     adb_command devices |
       awk 'NR > 1 && $1 != "" {print $1}' >"$state/devices.before"
 
+    accel acceleration-plan "$state" "$ANDROID_HOME" "$api" "$graphics_profile" \
+      "$graphics_candidate" "$graphics_pin" >"$state/attempts.plan"
+
+    # Each candidate is an exclusively owned attempt: its own process group,
+    # serial proof, readiness/watchdog handling and runtime verification. A
+    # rejected attempt releases only its own resources before the next one.
     # Measurement alone has an approved four-hour owned-emulator cap.
     # All other modes retain 9000 seconds; no arbitrary lifetime override.
-    setsid timeout --signal=TERM --kill-after=20 "$lifetime" \
-      "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
-      -gpu swiftshader_indirect -memory 2048 -no-metrics -port 5554 \
-      >"$state/emulator.log" 2>&1 6>&- 9>&- &
-    pid=$!
-    validation_save_pid "$pid" "$state"
-    sleep 1
-
-    attempts=0
-    serial=emulator-5554
-    until [ "$(adb_command -s "$serial" get-state 2>/dev/null)" = device ]; do
-      owned_running || {
-        printf '%s\n' "Emulator or validator lock failed to start." >&2
-        exit 1
-      }
-      attempts=$((attempts + 1))
-      [ "$attempts" -lt 180 ] || {
-        printf '%s\n' "The emulator did not come online within 180 s." >&2
-        exit 1
-      }
+    selected=
+    attempt_number=0
+    while IFS= read -r candidate <&7; do
+      attempt_number=$((attempt_number + 1))
+      launch=$(accel acceleration-launch "$state" "$candidate")
+      gpu_args=$(printf '%s\n' "$launch" | sed -n 1p)
+      launch_env=$(printf '%s\n' "$launch" | sed 1d | tr '\n' ' ')
+      # Both values are fixed allowlisted tokens without whitespace.
+      # shellcheck disable=SC2086
+      setsid timeout --signal=TERM --kill-after=20 "$lifetime" \
+        env $launch_env "$emulator" -avd "$avd" -no-window -no-snapshot -no-boot-anim -no-audio \
+        $gpu_args -memory 2048 -no-metrics -port 5554 \
+        >"$state/emulator.log" 2>&1 6>&- 7<&- 9>&- &
+      pid=$!
+      validation_save_pid "$pid" "$state"
+      accel acceleration-attempt "$state" "$candidate" starting
       sleep 1
-    done
-    printf '%s\n' "$serial" >"$serial_file"
-    owned_serial || { printf '%s\n' "Cannot prove emulator serial/process ownership." >&2; exit 1; }
 
-    attempts=0
-    until serial_ready; do
-      attempts=$((attempts + 1))
-      [ "$attempts" -lt 240 ] || {
-        printf '%s\n' "Emulator route readiness timed out." >&2
-        exit 1
-      }
-      sleep 1
-    done
-    stop_llkd || {
-      printf '%s\n' "Could not stop llkd on the validation emulator." >&2
+      failure=
+      attempts=0
+      serial=emulator-5554
+      until [ "$(adb_command -s "$serial" get-state 2>/dev/null)" = device ]; do
+        owned_running || { failure='emulator-exited|Emulator or validator lock failed to start.'; break; }
+        attempts=$((attempts + 1))
+        [ "$attempts" -lt 180 ] || { failure='boot-timeout|The emulator did not come online within 180 s.'; break; }
+        sleep 1
+      done
+      if [ -z "$failure" ]; then
+        printf '%s\n' "$serial" >"$serial_file"
+        owned_serial || failure='ownership-unproven|Cannot prove emulator serial/process ownership.'
+      fi
+      if [ -z "$failure" ]; then
+        attempts=0
+        until serial_ready; do
+          attempts=$((attempts + 1))
+          [ "$attempts" -lt 240 ] || { failure='route-timeout|Emulator route readiness timed out.'; break; }
+          sleep 1
+        done
+      fi
+      if [ -z "$failure" ]; then
+        stop_llkd || failure='watchdog-failed|Could not stop llkd on the validation emulator.'
+      fi
+      if [ -z "$failure" ]; then
+        attempts=0
+        until serial_ready; do
+          attempts=$((attempts + 1))
+          [ "$attempts" -lt 60 ] || { failure='route-timeout|Emulator route readiness timed out after stopping llkd.'; break; }
+          sleep 1
+        done
+      fi
+      if [ -z "$failure" ]; then
+        owned_serial || failure='ownership-unproven|Cannot prove emulator ownership after stopping llkd.'
+      fi
+      if [ -z "$failure" ]; then
+        accel acceleration-attempt "$state" "$candidate" ready
+        # Boot completion alone is not graphics verification: the guest
+        # renderer, KVM and owned render-node identity decide the attempt.
+        node "$repo/scripts/validation/performance-report.mjs" capture-device \
+          "$state/metadata.private.json" "$ANDROID_HOME" "$serial" "$api" "$avd" "$state" "$candidate" ||
+          failure='metadata-failed|Could not record the emulator runtime identity.'
+      fi
+      if [ -z "$failure" ]; then
+        accel acceleration-attempt "$state" "$candidate" verify ||
+          failure="-|Graphics candidate $candidate failed runtime verification."
+      fi
+      if [ -n "$failure" ]; then
+        printf '%s\n' "${failure#*|}" >&2
+        [ "${failure%%|*}" = - ] ||
+          accel acceleration-attempt "$state" "$candidate" fail "${failure%%|*}"
+        release_attempt
+        continue
+      fi
+      selected=$candidate
+      break
+    done 7<"$state/attempts.plan"
+    candidate=
+    [ -n "$selected" ] || {
+      accel acceleration-exhausted "$state" "$api"
       exit 1
     }
-    attempts=0
-    until serial_ready; do
-      attempts=$((attempts + 1))
-      [ "$attempts" -lt 60 ] || {
-        printf '%s\n' "Emulator route readiness timed out after stopping llkd." >&2
-        exit 1
-      }
-      sleep 1
-    done
-    owned_serial || { printf '%s\n' "Cannot prove emulator ownership after stopping llkd." >&2; exit 1; }
-    node "$repo/scripts/validation/performance-report.mjs" capture-device \
-      "$state/metadata.private.json" "$ANDROID_HOME" "$serial" "$api" "$avd"
+    accel acceleration-attempt "$state" "$selected" select
     validation_receipt acquired
     trap - EXIT HUP INT TERM
     ;;

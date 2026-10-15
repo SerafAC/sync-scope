@@ -4,6 +4,10 @@ import {cpus, platform, release} from 'node:os';
 import {basename, dirname, join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {
+  advance, collectRankingInputs, discoverHost, launchSpec, planAttempts, rankCandidates,
+  rankingFingerprint, selectionStatus, validateAcceleration, verifyAttempt,
+} from './performance-acceleration.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 function canonical(value) {
@@ -152,8 +156,12 @@ export function validateRun(run) {
   const seenApis = new Set(), sampleIds = new Set();
   for (const a of run.apiRuns) {
     object(a, ['runId', 'invocationId', 'api', 'image', 'status', 'profile', 'resources',
-      'animations', 'phases', 'samples', 'acceptance', 'build'], ['build']);
+      'animations', 'phases', 'samples', 'acceptance', 'build', 'acceleration'], ['build', 'acceleration']);
     if (a.build) { validateBuild(a.build); }
+    if (Object.hasOwn(a, 'acceleration')) {
+      try { validateAcceleration(a.acceleration, {sample: validateSample}); }
+      catch (error) { invalid(error.message === 'unknown-metadata' ? error.message : 'invalid-acceleration'); }
+    }
     opaque(a.runId);
     if (a.invocationId !== run.invocationId) { invalid('invalid-invocation-reference'); }
     choice(a.api, [31, 36]); if (seenApis.has(a.api)) { invalid('duplicate-api'); } seenApis.add(a.api);
@@ -532,6 +540,72 @@ async function artifact(directory, minimum = 1) {
   return result;
 }
 
+
+// ---- Feature 008 US2: verified acceleration attempts, calibration and ranking.
+// Validator state keeps full private attempt records; publication copies only
+// allowlisted ids, states, known reasons and backend names.
+function hostRoot() {
+  const root = process.env.SYNCSCOPE_HOST_ROOT;
+  if (!root) { return null; }
+  if (!/^\/tmp\/cloud-sync-checker-[A-Za-z0-9._-]+\/host$/.test(root)) { invalid('invalid-host-root'); }
+  return root;
+}
+async function acceleratorState(stateDir) {
+  return JSON.parse(await readFile(join(stateDir, 'acceleration.private.json'), 'utf8'));
+}
+async function saveAccelerator(stateDir, record) {
+  await writeFile(join(stateDir, 'acceleration.private.json'), JSON.stringify(record), {mode: 0o600});
+}
+function publishedCandidates(record) {
+  return record.discovery.candidates.map(c => ({candidateId: c.candidateId, kind: c.kind, vendor: c.vendor,
+    status: c.status, reason: c.reason, deviceId: c.deviceId, driver: c.driver}));
+}
+function publishedAttempts(record) {
+  return record.attempts.filter(a => a.state !== 'discovered').map(a => ({candidateId: a.candidateId,
+    request: a.request, state: a.state, reason: a.reason, backend: a.verification?.backend ?? null,
+    vulkan: a.verification?.vulkan ?? 'unknown'}));
+}
+const legacySelection = {status: 'legacy', selectedCandidateId: 'legacy-swiftshader-indirect',
+  rankingFingerprint: null, order: [], tradeoffs: [], tie: false};
+function rankingStorePath(directory) { return join(dirname(resolve(directory)), 'acceleration-ranking.json'); }
+async function rankingStore(directory) {
+  try {
+    const store = JSON.parse(await readFile(rankingStorePath(directory), 'utf8'));
+    return store?.schemaVersion === 1 && store.apis && typeof store.apis === 'object' ? store : null;
+  } catch { return null; }
+}
+// Candidate-independent identities only: the selected route's own render node
+// is cohort identity, not a ranking input.
+function rankingRuntime(run, a, candidates) {
+  return {api: a.api, image: a.image,
+    tools: {emulator: run.host.tools.emulator ?? null, adb: run.host.tools.adb ?? null, maestro: run.host.tools.maestro ?? null},
+    drivers: hash(JSON.stringify([run.host.kernel, candidates.map(c => [c.candidateId, c.status, c.driver, c.deviceId])])),
+    candidates, hostPower: run.host.power, hostResources: run.host.cpu,
+    guestResources: {requestedRamMiB: a.resources.requestedRamMiB, cpus: a.resources.cpus,
+      width: a.resources.width, height: a.resources.height, density: a.resources.density},
+    fixtures: run.fixtureSet.fingerprint, animations: a.animations};
+}
+// Image, guest resources and animation scales are observed only after boot.
+const POST_BOOT_INPUTS = ['image', 'guestResources', 'animations'];
+async function calibrationState(directory) {
+  try { return JSON.parse(await readFile(join(directory, 'calibration.private.json'), 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') { return {active: null, candidates: {}}; } throw error; }
+}
+async function saveCalibration(directory, value) {
+  await writeFile(join(directory, 'calibration.private.json'), JSON.stringify(value), {mode: 0o600});
+}
+function ensureAcceleration(a) {
+  a.acceleration ??= {requestedProfile: 'auto', kvm: {usable: false, reason: 'kvm-unavailable'}, candidates: [],
+    attempts: [], fallback: false, selection: null, calibration: []};
+  return a.acceleration;
+}
+async function latestRetained(directory, api) {
+  const names = (await readdir(join(directory, 'raw')).catch(() => []))
+    .map(name => name.match(new RegExp(`^validator-${api}(?:-(\\d+))?$`))).filter(Boolean)
+    .sort((x, y) => Number(x[1] ?? 1) - Number(y[1] ?? 1));
+  return names.length ? join(directory, 'raw', names.at(-1)[0]) : null;
+}
+
 async function main(args) {
   const [command, ...rest] = args;
   if (command === 'clock') { console.log(await clock()); return; }
@@ -616,9 +690,20 @@ async function main(args) {
     await save(directory, run); return;
   }
   if (command === 'device') {
-    const [directory, api, metadataFile] = rest;
+    const [directory, api, metadataFile, accelerationFile] = rest;
     const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
     const m = JSON.parse(await readFile(metadataFile, 'utf8'));
+    if (accelerationFile) {
+      const record = JSON.parse(await readFile(accelerationFile, 'utf8'));
+      const attempts = publishedAttempts(record);
+      const chosen = attempts.findIndex(x => x.state === 'selected');
+      const previous = a.acceleration;
+      a.acceleration = {requestedProfile: record.requestedProfile, kvm: record.discovery.kvm,
+        candidates: publishedCandidates(record), attempts, fallback: chosen > 0,
+        selection: record.requestedProfile === 'legacy' ? {...legacySelection} : previous?.selection ?? null,
+        calibration: previous?.calibration ?? []};
+      a.profile.fallback = chosen > 0;
+    }
     object(m, ['image', 'cpu', 'graphics', 'backend', 'renderer', 'driver', 'resources', 'animations', 'verified']);
     a.image = m.image; Object.assign(a.profile, {cpu: m.cpu, graphics: m.graphics,
       backend: m.backend, renderer: m.renderer, driver: m.driver, verified: m.verified});
@@ -627,8 +712,193 @@ async function main(args) {
     a.resources = m.resources; a.animations = m.animations;
     await save(directory, run); return;
   }
+  if (command === 'acceleration-plan') {
+    const [stateDir, sdk, api, profile, preferred, pin] = rest;
+    const root = hostRoot();
+    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev'),
+      glxRoots: [join(root, 'usr/lib')]} : {});
+    const plan = planAttempts(discovery, profile, {preferred: preferred === '-' ? null : preferred, pin: pin === '1'});
+    await saveAccelerator(stateDir, {schemaVersion: 1, api: Number(api), requestedProfile: profile,
+      discovery: {kvm: discovery.kvm, candidates: discovery.candidates}, attempts: plan.attempts, error: plan.error});
+    if (plan.error) {
+      const messages = {
+        'kvm-unavailable': `KVM is not usable for API ${api}; no candidate meets the x86_64 KVM CPU profile. ` +
+          'Make /dev/kvm usable for this user; the validator never changes host security, power or driver settings.',
+        'no-candidates': `No supported emulator graphics mode is advertised for API ${api}.`,
+        'unknown-candidate': `The requested graphics candidate is not discovered for API ${api}.`,
+        'invalid-profile': 'Unsupported graphics profile.'};
+      console.error(messages[plan.error]);
+      process.exitCode = plan.error === 'kvm-unavailable' || plan.error === 'no-candidates' ? 1 : 64;
+      return;
+    }
+    console.log(plan.attempts.map(a => a.candidateId).join('\n')); return;
+  }
+  if (command === 'acceleration-launch') {
+    const [stateDir, candidateId] = rest;
+    const record = await acceleratorState(stateDir);
+    const i = record.attempts.findIndex(a => a.candidateId === candidateId);
+    if (i < 0) { invalid('unknown-candidate'); }
+    record.attempts[i] = advance(record.attempts[i], 'claimed');
+    await saveAccelerator(stateDir, record);
+    const spec = launchSpec(record.attempts[i]);
+    console.log([spec.args.join(' '), ...spec.env].join('\n')); return;
+  }
+  if (command === 'acceleration-attempt') {
+    const [stateDir, candidateId, action, reason] = rest;
+    const record = await acceleratorState(stateDir);
+    const i = record.attempts.findIndex(a => a.candidateId === candidateId);
+    if (i < 0) { invalid('unknown-candidate'); }
+    let attempt = record.attempts[i];
+    if (action === 'starting' || action === 'ready') { attempt = advance(attempt, action); }
+    else if (action === 'fail') {
+      attempt = advance(attempt, attempt.state === 'ready' ? 'verification-failed' : 'boot-failed', reason);
+    } else if (action === 'verify') {
+      const v = attempt.verification;
+      attempt = v?.verified ? advance(attempt, 'verified') :
+        advance(attempt, 'verification-failed', v?.reason ?? 'renderer-unknown');
+      // The original legacy request records its outcome but keeps its original
+      // non-gating behavior; measurement mode applies the actual-mode gate.
+      if (!v?.verified && record.requestedProfile !== 'legacy') { process.exitCode = 1; }
+    } else if (action === 'select') {
+      if (attempt.state === 'verified') { attempt = advance(attempt, 'selected'); }
+      else if (record.requestedProfile !== 'legacy') { invalid('invalid-attempt-transition'); }
+    } else { invalid('invalid-cli'); }
+    record.attempts[i] = attempt;
+    await saveAccelerator(stateDir, record); return;
+  }
+  if (command === 'acceleration-exhausted') {
+    const [stateDir, api] = rest;
+    const record = await acceleratorState(stateDir);
+    const tried = record.attempts.filter(a => a.state !== 'discovered').map(a => `${a.candidateId}: ${a.reason ?? a.state}`);
+    console.error(`No graphics candidate worked for API ${api} (${tried.join('; ') || 'none attempted'}). ` +
+      'Sanitized attempt records are retained with the validator diagnostics.');
+    return;
+  }
+  if (command === 'selection') {
+    const [directory, api, repository] = rest;
+    const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
+    if (!a?.acceleration || a.acceleration.requestedProfile === 'legacy') { return; }
+    const selected = a.acceleration.attempts.find(x => x.state === 'selected')?.candidateId ?? null;
+    const fingerprint = rankingFingerprint(await collectRankingInputs(repository,
+      rankingRuntime(run, a, a.acceleration.candidates)));
+    a.acceleration.selection = selectionStatus(await rankingStore(directory), a.api, fingerprint, selected);
+    await save(directory, run); return;
+  }
+  if (command === 'ranking-preference') {
+    const [directory, api] = rest;
+    const id = (await rankingStore(directory))?.apis?.[api]?.selectedCandidateId;
+    console.log(typeof id === 'string' && /^(?:host-(?:intel|nvidia)-[1-9]|software-[a-z]+)$/.test(id) ? id : '-'); return;
+  }
+  if (command === 'calibration-plan') {
+    // Prints the candidates to calibrate, or nothing when a ranking for the
+    // current pre-boot inputs exists (post-boot inputs are rechecked later).
+    const [directory, repository, api, sdk] = rest;
+    const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
+    const root = hostRoot();
+    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev'),
+      glxRoots: [join(root, 'usr/lib')]} : {});
+    if (!discovery.kvm.usable) { return; }
+    const candidates = discovery.candidates.map(c => ({candidateId: c.candidateId, kind: c.kind, vendor: c.vendor,
+      status: c.status, reason: c.reason, deviceId: c.deviceId, driver: c.driver}));
+    const current = await collectRankingInputs(repository, rankingRuntime(run, a, candidates));
+    const entry = (await rankingStore(directory))?.apis?.[api];
+    const matches = entry?.status === 'ranked' && entry.inputs && Object.keys(current)
+      .filter(k => !POST_BOOT_INPUTS.includes(k))
+      .every(k => JSON.stringify(entry.inputs[k]) === JSON.stringify(current[k]));
+    if (matches) { return; }
+    const ids = [...discovery.candidates.filter(c => c.kind === 'hardware' && c.status === 'discovered'),
+      ...discovery.candidates.filter(c => c.kind === 'software').slice(0, 1)].map(c => c.candidateId);
+    console.log(ids.join('\n')); return;
+  }
+  if (command === 'calibration-begin') {
+    const [directory, api, candidateId] = rest;
+    const c = await calibrationState(directory);
+    c.active = {api: Number(api), candidateId};
+    await saveCalibration(directory, c); return;
+  }
+  if (command === 'calibration-end') {
+    const [directory, api, candidateId, outcome, stateDir] = rest;
+    const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
+    const c = await calibrationState(directory), acc = ensureAcceleration(a);
+    let entry = acc.calibration.find(e => e.candidateId === candidateId);
+    if (!entry) {
+      entry = {candidateId, status: 'measurement-failed', reason: null, profileFingerprint: null, verified: false, samples: []};
+      acc.calibration.push(entry);
+    }
+    if (outcome === 'boot-failed') {
+      const retained = await latestRetained(directory, api);
+      const record = retained ? JSON.parse(await readFile(join(retained, 'acceleration.private.json'), 'utf8').catch(() => 'null')) : null;
+      const attempt = record?.attempts?.find(x => x.candidateId === candidateId);
+      // A preflight/lock failure is not a candidate result: stop calibrating.
+      if (!attempt || !['boot-failed', 'verification-failed'].includes(attempt.state)) { invalid('calibration-startup'); }
+      Object.assign(entry, {status: 'boot-failed', reason: attempt.reason});
+    } else {
+      const record = await acceleratorState(stateDir);
+      const attempt = record.attempts.find(x => x.candidateId === candidateId);
+      const complete = entry.samples.length === 24 && entry.samples.every(x => x.status === 'passed');
+      Object.assign(entry, {status: complete ? 'measured' : 'measurement-failed',
+        reason: complete ? null : 'measurement-failed', profileFingerprint: a.profile.fingerprint, verified: a.profile.verified});
+      c.candidates[`${api}:${candidateId}`] = {kind: attempt.kind, complexity: attempt.complexity,
+        profile: a.profile, image: a.image, resources: a.resources, animations: a.animations,
+        acceleration: {requestedProfile: acc.requestedProfile, kvm: acc.kvm, candidates: acc.candidates, attempts: acc.attempts}};
+    }
+    c.active = null;
+    await saveCalibration(directory, c); await save(directory, run); return;
+  }
+  if (command === 'rank') {
+    const [directory, api, repository] = rest;
+    const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
+    const c = await calibrationState(directory), acc = ensureAcceleration(a);
+    const result = rankCandidates(acc.calibration.map(e => ({candidateId: e.candidateId,
+      kind: c.candidates[`${api}:${e.candidateId}`]?.kind ?? 'software',
+      complexity: c.candidates[`${api}:${e.candidateId}`]?.complexity ?? 0,
+      verified: e.status !== 'boot-failed' && e.verified, samples: e.samples})));
+    for (const o of result.order) {
+      if (acc.calibration.find(e => e.candidateId === o.candidateId)?.status === 'boot-failed') { o.status = 'boot-failed'; }
+    }
+    // A viable candidate whose measurement failed could be the best one: the
+    // calibration is then incomplete and its choice only provisional.
+    const incomplete = acc.calibration.some(e => e.status === 'measurement-failed');
+    const chosen = result.selectedCandidateId;
+    if (!chosen) {
+      a.samples = [];
+      acc.selection = {status: 'provisional', selectedCandidateId: null, rankingFingerprint: null,
+        order: result.order, tradeoffs: [], tie: false};
+      await save(directory, run);
+      console.error(`No graphics candidate completed calibration for API ${api}.`);
+      process.exitCode = 1; return;
+    }
+    const snapshot = c.candidates[`${api}:${chosen}`];
+    Object.assign(a, {profile: {...snapshot.profile, fallback: false}, image: snapshot.image,
+      resources: snapshot.resources, animations: snapshot.animations});
+    Object.assign(acc, snapshot.acceleration, {fallback: false});
+    a.samples = structuredClone(acc.calibration.find(e => e.candidateId === chosen).samples);
+    const inputs = await collectRankingInputs(repository, rankingRuntime(run, a, acc.candidates));
+    const fingerprint = rankingFingerprint(inputs);
+    const status = incomplete ? 'provisional' : result.status;
+    acc.selection = {status, selectedCandidateId: chosen, rankingFingerprint: fingerprint,
+      order: result.order, tradeoffs: result.tradeoffs, tie: result.tie};
+    await save(directory, run);
+    if (status === 'ranked') {
+      const store = (await rankingStore(directory)) ?? {schemaVersion: 1, apis: {}};
+      store.apis[api] = {status: 'ranked', rankingFingerprint: fingerprint, selectedCandidateId: chosen,
+        invocationId: run.invocationId, inputs};
+      await writeFile(rankingStorePath(directory), `${JSON.stringify(store, null, 2)}\n`, {mode: 0o600});
+    }
+    return;
+  }
+  if (command === 'require-verified') {
+    const run = await state(rest[0]), a = run.apiRuns.find(r => r.api === Number(rest[1]));
+    if (!a?.profile.verified || a.profile.cpu !== 'kvm' || !['hardware', 'software'].includes(a.profile.graphics) ||
+        !a.image || Object.values(a.resources).some(v => v === null) ||
+        Object.values(a.animations).some(v => v === null)) {
+      invalid('unknown-verified-mode');
+    }
+    return;
+  }
   if (command === 'capture-device') {
-    const [destination, sdk, serial, api, avd] = rest;
+    const [destination, sdk, serial, api, avd, stateDir, candidateId] = rest;
+    const devRoot = hostRoot() ? join(hostRoot(), 'dev') : '/dev';
     const adb = (...a) => {
       const result = spawnSync(join(sdk, 'platform-tools/adb'), ['-s', serial, ...a],
         {encoding: 'utf8', timeout: 10000});
@@ -647,8 +917,8 @@ async function main(args) {
       for (const file of await readdir(`/proc/${pid}/fd`).catch(() => [])) {
         const {readlink} = await import('node:fs/promises');
         const target = await readlink(`/proc/${pid}/fd/${file}`).catch(() => '');
-        if (target === '/dev/kvm' || /kvm-(vm|vcpu)/.test(target)) { kvm = true; }
-        if (/\/dev\/dri\/renderD\d+$/.test(target)) { nodes.add(target); }
+        if (target === join(devRoot, 'kvm') || /kvm-(vm|vcpu)/.test(target)) { kvm = true; }
+        if (target.startsWith(join(devRoot, 'dri') + '/') && /\/renderD\d+$/.test(target)) { nodes.add(target); }
       }
     }
     const physical = adb('shell', 'wm size').match(/Physical size: (\d+)x(\d+)/);
@@ -675,12 +945,31 @@ async function main(args) {
       }
       animations[key] = Number(observed);
     }
+    const guestApi = Number(adb('shell', 'getprop ro.build.version.sdk'));
+    const ramKiB = ram ? Number(ram[1]) : null;
+    let verified = kvm && graphics === 'software' && guestApi === Number(api);
+    if (stateDir && candidateId) {
+      // Verification needs the raw renderer string; only its outcome, known
+      // reason and backend name are stored, never the string itself.
+      const record = await acceleratorState(stateDir);
+      const attempt = record.attempts.find(x => x.candidateId === candidateId);
+      if (!attempt) { invalid('unknown-candidate'); }
+      const v = verifyAttempt(attempt, {api: guestApi, expectedApi: Number(api), kvm, gles,
+        renderNodes: [...nodes].map(n => basename(n)).sort(), resources: {requestedRamMiB: 2048, observedRamKiB: ramKiB}});
+      const vulkanRead = spawnSync(join(sdk, 'platform-tools/adb'), ['-s', serial, 'shell', 'getprop ro.hardware.vulkan'],
+        {encoding: 'utf8', timeout: 10000});
+      const vulkan = vulkanRead.status !== 0 ? 'unknown' : vulkanRead.stdout.trim() ? 'enabled' : 'absent';
+      attempt.verification = {verified: v.verified, reason: v.reason, backend: v.backend,
+        vulkan: attempt.kind === 'hardware' && vulkan === 'absent' ? 'absent' : vulkan, ramAgreement: v.ramAgreement};
+      verified = v.verified;
+      await saveAccelerator(stateDir, record);
+    }
     const m = {image: imageProperties.length ? hash(imageProperties) : null,
       cpu: kvm ? 'kvm' : 'unknown', graphics, backend: gles ? hash(gles) : null,
       renderer: gles ? hash(gles) : null,
-      driver: hash(`${release()}:${[...nodes].sort().join(',')}:${(await bytes('/sys/module/i915/version')).toString()}`),
-      verified: kvm && graphics === 'software' && Number(adb('shell', 'getprop ro.build.version.sdk')) === Number(api),
-      resources: {requestedRamMiB: 2048, observedRamKiB: ram ? Number(ram[1]) : null,
+      driver: hash(`${release()}:${[...nodes].map(n => basename(n)).sort().join(',')}:${(await bytes('/sys/module/i915/version')).toString()}`),
+      verified,
+      resources: {requestedRamMiB: 2048, observedRamKiB: ramKiB,
         cpus: /^\d+$/.test(cpu) ? Number(cpu) : null, width: physical ? Number(physical[1]) : null,
         height: physical ? Number(physical[2]) : null, density: density ? Number(density[1]) : null},
       animations};
@@ -701,7 +990,21 @@ async function main(args) {
         ingested.commands.some(c => c.status !== 'passed')) {
       status = status === 'interrupted' ? status : 'failed'; failureCode ??= 'validation';
     }
-    if (scenarioId !== 'none') {
+    const calibrating = (await calibrationState(directory)).active;
+    if (scenarioId !== 'none' && calibrating?.api === Number(api)) {
+      // Calibration samples belong to their candidate, never to the run's cohort
+      // samples until ranking selects that candidate.
+      const acc = ensureAcceleration(a);
+      let entry = acc.calibration.find(e => e.candidateId === calibrating.candidateId);
+      if (!entry) {
+        entry = {candidateId: calibrating.candidateId, status: 'measurement-failed', reason: null,
+          profileFingerprint: null, verified: false, samples: []};
+        acc.calibration.push(entry);
+      }
+      entry.samples.push({sampleId: `s-${run.invocationId.slice(4)}-${api}-${calibrating.candidateId}-${scenarioId}-${repetition}`,
+        scenarioId, repetition: Number(repetition), status, failureCode, elapsedMs: elapsedMilliseconds(start, end),
+        inputFingerprint: run.source.inputFingerprint, artifactId, ...ingested});
+    } else if (scenarioId !== 'none') {
       a.samples.push({sampleId: `s-${run.invocationId.slice(4)}-${api}-${scenarioId}-${repetition}`, scenarioId,
         repetition: Number(repetition), status, failureCode, elapsedMs: elapsedMilliseconds(start, end),
         inputFingerprint: run.source.inputFingerprint, artifactId, ...ingested});

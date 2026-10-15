@@ -842,3 +842,40 @@ test('audit-failed evidence emits an incomplete CLI comparison and exits nonzero
   assert.equal(comparison.complete, false);
   assert.ok(comparison.rows.every(r => r.status === 'incomplete' && r.afterMedianMs === null));
 });
+
+test('reports validate acceleration records; incomplete calibration is provisional and never stored as ranked', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'cloud-sync-checker-rank-test-'));
+  t.after(() => rm(root, {recursive: true, force: true}));
+  const run = syntheticRun();
+  const a = run.apiRuns[0];
+  const calibrated = (candidateId, count) => ({candidateId, status: count === 24 ? 'measured' : 'measurement-failed',
+    reason: count === 24 ? null : 'measurement-failed', profileFingerprint: digest, verified: true,
+    samples: a.samples.slice(0, count).map(s => ({...s, sampleId: `${s.sampleId}-${candidateId}`}))});
+  a.acceleration = {requestedProfile: 'auto', kvm: {usable: true, reason: null},
+    candidates: [{candidateId: 'host-intel-1', kind: 'hardware', vendor: 'intel', status: 'discovered',
+      reason: null, deviceId: '8086:7d55', driver: 'i915'}],
+    attempts: [{candidateId: 'software-swiftshader', request: 'swiftshader', state: 'selected', reason: null,
+      backend: 'swiftshader', vulkan: 'enabled'}],
+    fallback: false, selection: null,
+    calibration: [calibrated('software-swiftshader', 24), calibrated('host-intel-1', 23)]};
+  assert.doesNotThrow(() => validateRun(run));
+  assert.throws(() => validateRun({...run, apiRuns: [{...a, acceleration: {...a.acceleration, extra: true}}, run.apiRuns[1]]}), /unknown-metadata/);
+  assert.throws(() => validateRun({...run, apiRuns: [{...a, acceleration: {...a.acceleration,
+    attempts: [{...a.acceleration.attempts[0], reason: 'emulator: /home/user/raw'}]}}, run.apiRuns[1]]}), /invalid-acceleration/);
+  const directory = join(root, 'reports', run.invocationId);
+  await mkdir(directory, {recursive: true});
+  await writeFile(join(directory, 'record.private.json'), JSON.stringify(run));
+  const snapshot = {kind: 'software', complexity: 4, profile: a.profile, image: a.image, resources: a.resources,
+    animations: a.animations, acceleration: {requestedProfile: 'auto', kvm: a.acceleration.kvm,
+      candidates: a.acceleration.candidates, attempts: a.acceleration.attempts}};
+  await writeFile(join(directory, 'calibration.private.json'), JSON.stringify({active: null,
+    candidates: {'31:software-swiftshader': snapshot, '31:host-intel-1': {...snapshot, kind: 'hardware', complexity: 6}}}));
+  const result = spawnSync(process.execPath, [reporter, 'rank', directory, '31', root], {encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  const ranked = JSON.parse(await readFile(join(directory, 'record.private.json'), 'utf8')).apiRuns[0].acceleration.selection;
+  assert.equal(ranked.status, 'provisional');
+  assert.equal(ranked.selectedCandidateId, 'software-swiftshader');
+  assert.deepEqual(ranked.order.map(o => [o.candidateId, o.status]),
+    [['software-swiftshader', 'measured'], ['host-intel-1', 'measurement-failed']]);
+  await assert.rejects(readFile(join(root, 'reports', 'acceleration-ranking.json')), /ENOENT/);
+});

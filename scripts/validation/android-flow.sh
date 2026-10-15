@@ -7,6 +7,9 @@ mode=${1:-}
 shift || true
 apis=
 graphics=software
+# Without --graphics the original legacy launch is reproduced unchanged; the
+# report still records its requested category as software.
+graphics_profile=legacy
 report_dir=${SYNCSCOPE_VALIDATION_REPORT_DIR:-}
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -15,7 +18,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --graphics)
-      case "${2:-}" in auto|host-opengl|software) graphics=$2 ;; *) exit 64 ;; esac
+      case "${2:-}" in auto|host-opengl|software) graphics=$2; graphics_profile=$2 ;; *) exit 64 ;; esac
       shift 2
       ;;
     --report-dir)
@@ -36,10 +39,10 @@ for requested_api in $apis; do
 done
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-if [ "$graphics" != software ]; then
-  printf '%s\n' "Automatic and host profile selection require the acceleration phase; foundation preserves the original software launcher." >&2
-  exit 69
-fi
+SYNCSCOPE_GRAPHICS_PROFILE=$graphics_profile
+export SYNCSCOPE_GRAPHICS_PROFILE
+# Candidate pins/preferences are set only by this runner per validator start.
+unset SYNCSCOPE_GRAPHICS_CANDIDATE SYNCSCOPE_GRAPHICS_PIN
 schedule=
 if [ "$mode" = measure ]; then
   # Measurement cannot accept hidden dataset overrides from the environment.
@@ -411,21 +414,71 @@ fi
 scroll_manifest=$("$repo/scripts/validation/scroll-manifest.sh" print)
 
 for api in $apis; do
+  # Automatic measurement without a ranking for the current inputs calibrates
+  # every viable candidate on the frozen workload; otherwise one pass.
+  api_candidates=-
+  calibrating=0
+  if [ "$mode" = measure ] && [ "$graphics_profile" = auto ]; then
+    calibration=$(node "$repo/scripts/validation/performance-report.mjs" calibration-plan \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$repo" "$api" "$ANDROID_HOME")
+    if [ -n "$calibration" ]; then
+      api_candidates=$calibration
+      calibrating=1
+    fi
+  fi
+  preferred=-
+  if [ "$graphics_profile" = auto ] && [ "$calibrating" -eq 0 ]; then
+    preferred=$(node "$repo/scripts/validation/performance-report.mjs" ranking-preference \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api")
+  fi
+  api_built=0
+  for candidate in $api_candidates; do
+  unset SYNCSCOPE_GRAPHICS_CANDIDATE SYNCSCOPE_GRAPHICS_PIN
+  if [ "$calibrating" -eq 1 ]; then
+    SYNCSCOPE_GRAPHICS_CANDIDATE=$candidate
+    SYNCSCOPE_GRAPHICS_PIN=1
+    export SYNCSCOPE_GRAPHICS_CANDIDATE SYNCSCOPE_GRAPHICS_PIN
+    node "$repo/scripts/validation/performance-report.mjs" calibration-begin \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$candidate"
+  elif [ "$preferred" != - ]; then
+    # A ranking only orders attempts; its freshness is decided after boot.
+    SYNCSCOPE_GRAPHICS_CANDIDATE=$preferred
+    export SYNCSCOPE_GRAPHICS_CANDIDATE
+  fi
   validation_phase_begin "$api" boot
+  boot_status=0
   SYNCSCOPE_RESOURCE_RECEIPT="$claims/emulator-$api" "$repo/scripts/validation/android-validator.sh" start \
     --api "$api" --avd "dependency_api$api" \
     --state "$(validation_state "api$api")" \
-    --exclusive-lock "$validator_lock" 6<&9 9>&-
+    --exclusive-lock "$validator_lock" 6<&9 9>&- || boot_status=$?
+  if [ "$boot_status" -ne 0 ]; then
+    [ "$calibrating" -eq 1 ] || exit "$boot_status"
+    # An incompatible candidate is a calibration result, not a phase failure;
+    # a preflight or lock failure is not, and stops the invocation.
+    validation_phase_end 0
+    node "$repo/scripts/validation/performance-report.mjs" calibration-end \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$candidate" boot-failed || exit "$boot_status"
+    continue
+  fi
   case "$(validation_read_receipt "$claims/emulator-$api")" in acquired|borrowed) ;; *) exit 1 ;; esac
   serial=$(cat "$(validation_state "api$api")/serial")
   metadata="$(validation_state "api$api")/metadata.private.json"
   if [ -f "$metadata" ]; then
+    accelerator="$(validation_state "api$api")/acceleration.private.json"
+    [ -f "$accelerator" ] || accelerator=
+    # shellcheck disable=SC2086
     node "$repo/scripts/validation/performance-report.mjs" device \
-      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$metadata"
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$metadata" $accelerator
+    [ "$calibrating" -eq 1 ] ||
+      node "$repo/scripts/validation/performance-report.mjs" selection \
+        "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$repo"
   fi
   validation_phase_end 0
-  if [ "$mode" = measure ]; then
+  if [ "$mode" = measure ] && [ "$graphics_profile" = legacy ]; then
     node "$repo/scripts/validation/performance-report.mjs" require-original-software \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api"
+  elif [ "$mode" = measure ]; then
+    node "$repo/scripts/validation/performance-report.mjs" require-verified \
       "$SYNCSCOPE_PERFORMANCE_DIR" "$api"
   fi
   export ANDROID_SERIAL="$serial"
@@ -440,7 +493,7 @@ for api in $apis; do
       "$repo/android/gradlew" -p "$repo/android" --no-daemon \
       :app:connectedDebugAndroidTest >"$gradle_log" 2>&1 9>&- &
     gradle_pid=$!
-  elif [ "$mode" = e2e ] || [ "$mode" = measure ]; then
+  elif { [ "$mode" = e2e ] || [ "$mode" = measure ]; } && [ "$api_built" -eq 0 ]; then
     validation_phase_begin "$api" build
     gradle_log="$SYNCSCOPE_PERFORMANCE_DIR/raw/build-$api.log"
     setsid timeout --signal=TERM --kill-after=20 1200 \
@@ -456,6 +509,8 @@ for api in $apis; do
     validation_phase_end 0
     node "$repo/scripts/validation/performance-report.mjs" build \
       "$SYNCSCOPE_PERFORMANCE_DIR" "$repo/android/app/build/outputs/apk/debug/app-debug.apk" "$gradle_log" "$api"
+    # Calibration measures every candidate with this one APK.
+    api_built=1
   fi
 
   if [ "$mode" = release-smoke ]; then
@@ -621,6 +676,10 @@ EOF
     fi
   fi
 
+  if [ "$calibrating" -eq 1 ]; then
+    node "$repo/scripts/validation/performance-report.mjs" calibration-end \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$candidate" measured "$(validation_state "api$api")"
+  fi
   if [ "$(validation_read_receipt "$claims/emulator-$api")" = acquired ]; then
     validation_phase_begin "$api" cleanup
     SYNCSCOPE_RESOURCE_RECEIPT="$claims/emulator-$api" "$repo/scripts/validation/android-validator.sh" stop \
@@ -628,6 +687,14 @@ EOF
     --state "$(validation_state "api$api")" \
       --exclusive-lock "$validator_lock"
     validation_phase_end 0
+  fi
+  done
+  unset SYNCSCOPE_GRAPHICS_CANDIDATE SYNCSCOPE_GRAPHICS_PIN
+  if [ "$calibrating" -eq 1 ]; then
+    # Rank H03/H07/H08 medians of complete calibrations; the selected
+    # candidate's scheduled samples become this API's measured cohort.
+    node "$repo/scripts/validation/performance-report.mjs" rank \
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$api" "$repo" || exit 1
   fi
 done
 [ "$measure_status" -eq 0 ] || exit "$measure_status"

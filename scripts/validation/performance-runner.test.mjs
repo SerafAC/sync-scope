@@ -123,7 +123,7 @@ exit "\${FAKE_HOOK_STATUS:-0}"`);
   }
   const run = (args, extra = {}) => spawnSync('sh',
     [join(repo, 'scripts/validation/android-flow.sh'), ...args],
-    {cwd: repo, env: {...env, ...extra}, encoding: 'utf8', timeout: 90000});
+    {cwd: repo, env: {...env, ...extra}, encoding: 'utf8', timeout: 300000});
   return {root, repo, env, calls, run, log: () => readFile(calls, 'utf8'), bin, state, cleanups};
 }
 
@@ -350,15 +350,17 @@ test('original per-API connected builds, API order, monotonic reconciliation and
 test('measure rejects environment dataset overrides and unverified software before sampling', async t => {
   const h = await harness(t);
   assert.equal(h.run(['measure'], {BULK_FILES: '1'}).status, 64);
-  assert.equal(h.run(['measure', '--graphics', 'host-opengl']).status, 69);
-  assert.equal(h.run(['measure', '--graphics', 'auto']).status, 69);
+  assert.equal(h.run(['measure', '--graphics', 'host-opengl'], {SCROLL_COUNT: '1'}).status, 64);
   assert.equal(await h.log(), '');
   const metadata = JSON.parse(await readFile(join(h.root, 'device-metadata')));
   metadata.verified = false;
   await writeFile(join(h.root, 'device-metadata'), JSON.stringify(metadata));
-  const run = h.run(['measure', '--graphics', 'software']);
-  assert.notEqual(run.status, 0);
-  assert.doesNotMatch(await h.log(), /^maestro$/m);
+  // Legacy original-mode and explicit verified-profile gates both refuse sampling.
+  for (const args of [['measure'], ['measure', '--graphics', 'software'], ['measure', '--graphics', 'host-opengl']]) {
+    const run = h.run(args);
+    assert.notEqual(run.status, 0, args.join(' '));
+    assert.doesNotMatch(await h.log(), /^maestro$/m);
+  }
 });
 
 test('partial protocol seed acquisition preserves failure and does not remove foreign containers', async t => {
@@ -513,6 +515,29 @@ import net from 'node:net';
 const root = process.env.SYNCSCOPE_TEST_ROOT;
 const args = process.argv.slice(2);
 if (args[0] === '-version') { console.log('37.1.11'); process.exit(0); }
+// Capability probes pass through without starting a guest.
+if (args[0] === '-help-gpu') {
+  console.log('     auto (default)       -> Auto.\\n     host                 -> Host.\\n' +
+    '     software             -> Software.\\n     lavapipe             -> Lavapipe.\\n' +
+    '     swiftshader          -> SwiftShader.\\n     swangle              -> ANGLE.');
+  process.exit(0);
+}
+if (args[0] === '-accel-check') {
+  if (process.env.FAKE_KVM === '0') { console.log('accel:\\n9\\nKVM is not installed\\naccel'); process.exit(1); }
+  console.log('accel:\\n0\\nKVM (version 12) is installed and usable.\\naccel'); process.exit(0);
+}
+const gpu = args.includes('-gpu') ? args[args.indexOf('-gpu') + 1] : 'none';
+const accel = args.includes('-accel') ? 'accel-' + args[args.indexOf('-accel') + 1] : 'accel-default';
+fs.appendFileSync(process.env.SYNCSCOPE_TEST_CALLS, 'emulator gpu ' + gpu + ' ' + accel +
+  (args.includes('-feature') ? ' feature' + args[args.indexOf('-feature') + 1] : '') +
+  (process.env.DRI_PRIME ? ' DRI_PRIME' : '') +
+  (args.some(a => /wipe/.test(a)) ? ' WIPE' : '') + '\\n');
+const failing = (process.env.FAKE_GPU_FAIL || '').split(',');
+if (failing.includes('all') || failing.includes(gpu)) { process.exit(1); }
+fs.writeFileSync(root + '/emulator-gpu', gpu + '\\n');
+const held = [];
+if (accel === 'accel-on') { held.push(fs.openSync(root + '/host/dev/kvm', 'r')); }
+if (gpu === 'host') { held.push(fs.openSync(root + '/host/dev/dri/renderD128', 'r')); }
 let parent = process.ppid;
 while (parent > 1) {
   const argv = fs.readFileSync('/proc/' + parent + '/cmdline', 'utf8').split('\\0');
@@ -528,6 +553,10 @@ server.on('error', () => process.exit(71));
 server.listen(5554, '127.0.0.1', () => {
   fs.writeFileSync(ready, avd + '\\n');
   fs.appendFileSync(process.env.SYNCSCOPE_TEST_CALLS, 'emulator acquired-process ' + avd + '\\n');
+  if (process.env.FAKE_INTERRUPT_GPU === gpu) {
+    const runner = Number(fs.readFileSync(root + '/runner-pid', 'utf8'));
+    if (runner > 1) { process.kill(runner, 'SIGTERM'); }
+  }
 });
 process.on('SIGTERM', () => {
   fs.rmSync(ready, {force:true});
@@ -573,11 +602,45 @@ case "$*" in
     else printf 'stopped\\n'; fi ;;
   *"shell id -u") cat "$SYNCSCOPE_TEST_ROOT/uid" ;;
   *"shell getprop ro.build.version.sdk") case "$(cat "$SYNCSCOPE_TEST_ROOT/emulator-ready")" in *31) printf '31\\n' ;; *) printf '36\\n' ;; esac ;;
-  *"shell dumpsys SurfaceFlinger") printf 'GLES: SwiftShader synthetic\\n' ;;
+  *"shell dumpsys SurfaceFlinger")
+    if [ "$(cat "$SYNCSCOPE_TEST_ROOT/emulator-gpu" 2>/dev/null)" = host ]; then
+      printf '%s\\n' "\${FAKE_HOST_GLES:-GLES: Google (Intel), Android Emulator OpenGL ES Translator (Mesa Intel(R) Arc(tm) Graphics), OpenGL ES 3.0}"
+    else printf 'GLES: Google (Google), Android Emulator OpenGL ES Translator (Google SwiftShader), OpenGL ES 3.0 SwiftShader\\n'; fi ;;
+  *"shell getprop ro.hardware.vulkan") printf '\\n' ;;
   *"shell settings get global "*) printf '1\\n' ;;
+  *"shell cat /proc/meminfo") printf 'MemTotal:        2000000 kB\\n' ;;
+  *"shell wm size") printf 'Physical size: 1080x2340\\n' ;;
+  *"shell wm density") printf 'Physical density: 440\\n' ;;
+  *"shell getconf _NPROCESSORS_ONLN") printf '4\\n' ;;
   *"-exec stat -c %s {} +") printf '7\\n' ;;
 esac`);
+  for (const api of [31, 36]) {
+    const image = `system-images/android-${api}/google_apis/x86_64`;
+    await mkdir(join(h.env.ANDROID_HOME, image), {recursive: true});
+    await writeFile(join(h.env.ANDROID_HOME, image, 'source.properties'), `Pkg.Revision=${api}\n`);
+    await mkdir(join(h.root, `.android/avd/dependency_api${api}.avd`), {recursive: true});
+    await writeFile(join(h.root, `.android/avd/dependency_api${api}.avd/config.ini`), `image.sysdir.1 = ${image}/\n`);
+  }
   await writeFile(join(h.root, 'uid'), '2000\n');
+  // A private host image: Intel display with an accessible render node and
+  // NVIDIA's audio function only. Probes read it; nothing on the real host.
+  const pci = join(h.root, 'host/sys/bus/pci');
+  for (const [address, cls, vendor, device, driver, node] of [
+    ['0000:00:02.0', '0x030000', '0x8086', '0x7d55', 'i915', 'renderD128'],
+    ['0000:01:00.1', '0x040300', '0x10de', '0x22bd', 'snd_hda_intel', null]]) {
+    const d = join(pci, 'devices', address);
+    await mkdir(join(d, 'drm'), {recursive: true});
+    await writeFile(join(d, 'class'), `${cls}\n`);
+    await writeFile(join(d, 'vendor'), `${vendor}\n`);
+    await writeFile(join(d, 'device'), `${device}\n`);
+    await mkdir(join(pci, 'drivers', driver), {recursive: true});
+    await symlink(join(pci, 'drivers', driver), join(d, 'driver'));
+    if (node) { await mkdir(join(d, 'drm', node)); }
+  }
+  await mkdir(join(h.root, 'host/dev/dri'), {recursive: true});
+  await writeFile(join(h.root, 'host/dev/dri/renderD128'), '');
+  await writeFile(join(h.root, 'host/dev/kvm'), '');
+  h.env.SYNCSCOPE_HOST_ROOT = join(h.root, 'host');
   // Handoff interruption occurs in an external receipt read after production
   // startup returns, before the runner can update any in-memory acquisition flag.
   await writeFile(join(h.root, 'cat.mjs'), `
@@ -1034,4 +1097,241 @@ test('expired Metro refuses ambiguous, borrowed, foreign and still-active resour
       assert.doesNotMatch(await h.log(), /metro terminated/);
     });
   }
+});
+
+// Feature 008 US2: candidate-owned graphics attempts, verified fallback and
+// owned-resource safety. Probes read only the private host image above.
+async function acceleration(h, api = 31) {
+  const [id] = await readdir(join(h.root, 'reports'));
+  const run = JSON.parse(await readFile(join(h.root, 'reports', id, 'run.json'), 'utf8'));
+  return {id, run, apiRun: run.apiRuns.find(a => a.api === api)};
+}
+const between = (log, first, marker, second) => {
+  const a = log.indexOf(first), b = log.indexOf(marker, a), c = log.indexOf(second, a);
+  return a !== -1 && b > a && c > b;
+};
+
+test('auto falls back after stopping only the failed owned host candidate, then verifies software', async t => {
+  for (const [label, extra, reason] of [
+    ['host launch failure', {FAKE_GPU_FAIL: 'host'}, 'emulator-exited'],
+    ['software renderer under a host request', {FAKE_HOST_GLES: 'GLES: Google, Translator (Google SwiftShader)'}, 'software-under-host'],
+    ['wrong GPU despite the requested route', {FAKE_HOST_GLES: 'GLES: Google (NVIDIA Corporation), Translator (NVIDIA GeForce RTX)'}, 'wrong-gpu'],
+  ]) {
+    await t.test(label, async t2 => {
+      const h = await productionHarness(t2);
+      const foreign = spawn('/usr/bin/sleep', ['30']);
+      t2.after(() => { try { foreign.kill('SIGTERM'); } catch {} });
+      const result = h.run(['e2e', '--graphics', 'auto'], extra);
+      assert.equal(result.status, 0, result.stderr);
+      const log = await h.log();
+      assert.match(log, /emulator gpu host accel-on feature-Vulkan\n[\s\S]*emulator gpu swiftshader accel-on\n/);
+      assert.doesNotMatch(log, /WIPE|emulator gpu swiftshader_indirect/);
+      if (reason !== 'emulator-exited') {
+        // The rejected candidate's own process is released before the next launch.
+        assert.ok(between(log, 'emulator gpu host', 'emulator terminated dependency_api31', 'emulator gpu swiftshader'), log);
+      }
+      assert.equal(foreign.exitCode, null, 'a foreign process is never terminated');
+      const {id, apiRun} = await acceleration(h);
+      const a = apiRun.acceleration;
+      assert.equal(a.requestedProfile, 'auto');
+      assert.deepEqual(a.attempts.map(x => [x.candidateId, x.state, x.reason]),
+        [['host-intel-1', reason === 'emulator-exited' ? 'boot-failed' : 'verification-failed', reason],
+          ['software-swiftshader', 'selected', null]]);
+      assert.equal(a.fallback, true);
+      assert.equal(apiRun.profile.fallback, true);
+      assert.equal(apiRun.profile.graphics, 'software');
+      assert.equal(apiRun.profile.verified, true);
+      assert.equal(a.candidates.find(c => c.candidateId === 'host-nvidia-1').reason, 'audio-only');
+      assert.equal(a.selection.status, 'provisional');
+      const retained = await readFile(join(h.root, 'reports', id, 'raw/validator-31/acceleration.private.json'), 'utf8');
+      assert.doesNotMatch(retained, /CANARY|password|SwiftShader\)|Translator|\/tmp\//);
+      await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+    });
+  }
+});
+
+test('hardware verification passes only with KVM, Intel renderer and the owned render node', async t => {
+  const h = await productionHarness(t);
+  const result = h.run(['e2e', '--api', '31', '--api', '36', '--graphics', 'host-opengl']);
+  assert.equal(result.status, 0, result.stderr);
+  for (const api of [31, 36]) {
+    const {apiRun} = await acceleration(h, api);
+    assert.deepEqual(apiRun.acceleration.attempts.map(x => [x.candidateId, x.state, x.backend, x.vulkan]),
+      [['host-intel-1', 'selected', 'host', 'absent']]);
+    assert.equal(apiRun.profile.graphics, 'hardware');
+    assert.equal(apiRun.profile.cpu, 'kvm');
+    assert.equal(apiRun.profile.verified, true);
+    assert.equal(apiRun.profile.fallback, false);
+  }
+  assert.equal((await h.log()).split('\n').filter(l => l.startsWith('emulator gpu ')).length, 2);
+});
+
+test('all candidates fail: actionable nonzero exhaustion and no surviving acquired resources', async t => {
+  const h = await productionHarness(t);
+  const result = h.run(['e2e', '--graphics', 'auto'], {FAKE_GPU_FAIL: 'all'});
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /No graphics candidate worked for API 31/);
+  const log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]),
+    ['host', 'swiftshader', 'software', 'lavapipe', 'swangle']);
+  assert.doesNotMatch(log, /gradle |^maestro$/m);
+  await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+  const {id} = await acceleration(h);
+  assert.equal(await readFile(join(h.root, 'reports', id, 'raw/lifecycle/emulator-31'), 'utf8'), 'released\n');
+  const retained = JSON.parse(await readFile(join(h.root, 'reports', id, 'raw/validator-31/acceleration.private.json'), 'utf8'));
+  assert.deepEqual(retained.attempts.map(x => x.state), Array(5).fill('boot-failed'));
+  for (const name of ['syncscope-sftp', 'syncscope-webdav', 'syncscope-ftp']) {
+    await assert.rejects(lstat(join(h.state, name)), /ENOENT/);
+  }
+});
+
+test('unusable KVM fails before any candidate launch instead of silent software CPU emulation', async t => {
+  for (const profile of ['auto', 'host-opengl', 'software']) {
+    await t.test(profile, async t2 => {
+      const h = await productionHarness(t2);
+      const result = h.run(['e2e', '--graphics', profile], {FAKE_KVM: '0'});
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /KVM/);
+      assert.doesNotMatch(await h.log(), /emulator gpu |emulator acquired-process/);
+      await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+    });
+  }
+});
+
+test('a held emulator lock or foreign online emulator rejects before any candidate claim or mutation', async t => {
+  const h = await productionHarness(t);
+  const lock = join(h.state, 'validator.lock');
+  await writeFile(lock, '');
+  const holder = spawn('setsid', ['flock', lock, 'sleep', '20']);
+  t.after(() => { try { process.kill(-holder.pid, 'SIGTERM'); } catch {} });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const result = h.run(['e2e', '--graphics', 'auto']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Another validator owns the emulator lock/);
+  assert.doesNotMatch(await h.log(), /emulator gpu |emulator acquired-process|emulator terminated/);
+  assert.equal(holder.exitCode, null, 'the lock holder is not terminated');
+  assert.equal((await lstat(lock)).isFile(), true);
+  await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+});
+
+test('interruption during candidate startup releases only that candidate and retains its diagnostics', async t => {
+  const h = await productionHarness(t);
+  const result = h.run(['e2e', '--graphics', 'auto'], {FAKE_INTERRUPT_GPU: 'host'});
+  assert.equal(result.status, 130, result.stderr);
+  const log = await h.log();
+  assert.match(log, /emulator gpu host[\s\S]*emulator terminated dependency_api31/);
+  assert.doesNotMatch(log, /emulator gpu swiftshader/);
+  await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+  const {id, run} = await acceleration(h);
+  assert.equal(run.status, 'interrupted');
+  assert.equal(await readFile(join(h.root, 'reports', id, 'raw/lifecycle/emulator-31'), 'utf8'), 'released\n');
+  const retained = JSON.parse(await readFile(join(h.root, 'reports', id, 'raw/validator-31/acceleration.private.json'), 'utf8'));
+  assert.equal(retained.attempts[0].candidateId, 'host-intel-1');
+});
+
+test('default, connected and release CLI keep the original single legacy request without fallback', async t => {
+  for (const mode of ['e2e', 'connected']) {
+    await t.test(mode, async t2 => {
+      const h = await productionHarness(t2);
+      const result = h.run([mode]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual((await h.log()).split('\n').filter(l => l.startsWith('emulator gpu ')),
+        ['emulator gpu swiftshader_indirect accel-default']);
+      const {apiRun} = await acceleration(h);
+      assert.equal(apiRun.acceleration.requestedProfile, 'legacy');
+      assert.equal(apiRun.acceleration.selection.status, 'legacy');
+    });
+  }
+  const h = await harness(t);
+  for (const args of [['release-smoke', '--graphics', 'gpu'], ['connected', '--graphics'],
+    ['e2e', '--graphics', 'legacy']]) {
+    assert.equal(h.run(args).status, 64, args.join(' '));
+  }
+  assert.equal(await h.log(), '');
+});
+
+test('acceleration never wipes AVDs or changes host security, power or drivers', async () => {
+  for (const file of ['android-validator.sh', 'android-flow.sh', 'performance-acceleration.mjs', 'performance-report.mjs']) {
+    const source = await readFile(join(repository, 'scripts/validation', file), 'utf8');
+    assert.doesNotMatch(source, /-wipe-data|\bmodprobe\b|\bsysctl\b|\bcpupower\b|\bsetfacl\b|\bnvidia-smi\b|\bpowerprofilesctl\b|\btee\s+\/sys|>\s*\/sys\/|chmod[^\n]*\/dev\/|\bpkill\b|\bkillall\b/, file);
+  }
+});
+
+async function newestRun(h, before) {
+  const names = (await readdir(join(h.root, 'reports'))).filter(n => n.startsWith('inv-') && !before.includes(n));
+  assert.equal(names.length, 1);
+  const run = JSON.parse(await readFile(join(h.root, 'reports', names[0], 'run.json'), 'utf8'));
+  return {id: names[0], run, apiRun: run.apiRuns[0]};
+}
+
+test('measure auto calibrates every viable candidate on the frozen workload, ranks, and reuses only current rankings', async t => {
+  const h = await productionHarness(t);
+  const calibration = h.run(['measure', '--graphics', 'auto']);
+  assert.equal(calibration.status, 0, calibration.stderr);
+  let log = await h.log();
+  // Pinned calibration boots: each discovered host route plus the first software fallback.
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['host', 'swiftshader']);
+  assert.equal(log.split('\n').filter(l => l.startsWith('gradle ')).length, 1, 'one APK for every candidate');
+  assert.equal(log.split('\n').filter(l => l === 'maestro').length, 48);
+  const {apiRun} = await newestRun(h, []);
+  const acc = apiRun.acceleration;
+  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.samples.length, c.verified]),
+    [['host-intel-1', 'measured', 24, true], ['software-swiftshader', 'measured', 24, true]]);
+  for (const c of acc.calibration) {
+    assert.deepEqual([...new Set(c.samples.map(s => s.scenarioId))], ['H01', 'H02', 'H03', 'H04', 'H05', 'H06', 'H07', 'H08']);
+  }
+  // Equal synthetic timings are a tie: the simpler stable configuration wins.
+  assert.equal(acc.selection.status, 'ranked');
+  assert.equal(acc.selection.tie, true);
+  assert.equal(acc.selection.selectedCandidateId, 'software-swiftshader');
+  assert.deepEqual(acc.selection.order.map(o => o.candidateId), ['software-swiftshader', 'host-intel-1']);
+  assert.equal(apiRun.samples.length, 24);
+  assert.ok(apiRun.samples.every(s => s.sampleId.includes('-software-swiftshader-')));
+  assert.equal(apiRun.profile.graphics, 'software');
+  const store = JSON.parse(await readFile(join(h.root, 'reports/acceleration-ranking.json'), 'utf8'));
+  assert.equal(store.apis['31'].selectedCandidateId, 'software-swiftshader');
+  assert.equal(store.apis['31'].rankingFingerprint, acc.selection.rankingFingerprint);
+
+  const seen = async () => (await readdir(join(h.root, 'reports'))).filter(n => n.startsWith('inv-'));
+  const auto = async () => {
+    const before = await seen();
+    await writeFile(h.calls, '');
+    // The recording Docker keeps released containers' port markers; a new
+    // invocation must find its approved ports free again.
+    for (const name of await readdir(h.root)) {
+      if (name.startsWith('container-')) { await rm(join(h.root, name), {force: true}); }
+    }
+    const result = h.run(['e2e', '--graphics', 'auto']);
+    assert.equal(result.status, 0, result.stderr);
+    return newestRun(h, before);
+  };
+  // Unchanged inputs reuse the ranked choice first and report it current.
+  let next = await auto();
+  log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')), ['emulator gpu swiftshader accel-on']);
+  assert.equal(next.apiRun.acceleration.selection.status, 'current');
+  // Unrelated documentation and evidence never invalidate the ranking.
+  await mkdir(join(h.repo, 'docs'), {recursive: true});
+  await writeFile(join(h.repo, 'docs/validation-performance.md'), '# changed\n');
+  next = await auto();
+  assert.equal(next.apiRun.acceleration.selection.status, 'current');
+  // Changed helper pacing invalidates it: explicitly stale, never best-performing.
+  const helper = join(h.repo, 'validation/maestro/subflows/show-scrollbar.yaml');
+  await writeFile(helper, `${await readFile(helper, 'utf8')}# pacing change\n`);
+  next = await auto();
+  assert.equal(next.apiRun.acceleration.selection.status, 'stale');
+  assert.notEqual(next.apiRun.acceleration.selection.rankingFingerprint, store.apis['31'].rankingFingerprint);
+});
+
+test('a calibration candidate that fails to boot is retained as incompatible, not ranked or fatal', async t => {
+  const h = await productionHarness(t);
+  const result = h.run(['measure', '--graphics', 'auto'], {FAKE_GPU_FAIL: 'host'});
+  assert.equal(result.status, 0, result.stderr);
+  const {apiRun} = await newestRun(h, []);
+  const acc = apiRun.acceleration;
+  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.reason, c.samples.length]),
+    [['host-intel-1', 'boot-failed', 'emulator-exited', 0], ['software-swiftshader', 'measured', null, 24]]);
+  assert.equal(acc.selection.selectedCandidateId, 'software-swiftshader');
+  assert.equal(acc.selection.order.find(o => o.candidateId === 'host-intel-1').status, 'boot-failed');
+  assert.equal(apiRun.samples.length, 24);
 });
