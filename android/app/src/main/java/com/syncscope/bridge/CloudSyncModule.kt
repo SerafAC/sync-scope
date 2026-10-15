@@ -155,6 +155,7 @@ class CloudSyncModule(
       repositories = repositoryDao,
       envelope = envelope,
       images = memoize(localImages),
+      awaitSourcesSettled = { picker.awaitSettled() },
     )
 
   /** Leaving the foreground cancels an active run as BACKGROUNDED; a coordinator never built has no run. */

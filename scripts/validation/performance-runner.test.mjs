@@ -72,7 +72,10 @@ exit "\${FAKE_MAESTRO_STATUS:-0}"`);
   await executable(join(env.ANDROID_HOME, 'platform-tools/adb'), `
 [ "\${1:-}" != version ] || { printf '37.0.1\\n'; exit 0; }
 printf 'adb %s\\n' "$*" >>"$SYNCSCOPE_TEST_CALLS"
-case "$*" in *"getprop ro.build.version.sdk") printf '31\\n' ;; esac`);
+case "$*" in
+  *"getprop ro.build.version.sdk") printf '31\\n' ;;
+  *"-exec stat -c %s {} +") printf '7\\n' ;;
+esac`);
   await executable(join(env.ANDROID_HOME, 'emulator/emulator'), '[ "${1:-}" != -version ] || { printf "37.1.11\\n"; exit 0; }\nprintf "emulator\\n" >>"$SYNCSCOPE_TEST_CALLS"');
   await executable(join(repo, 'android/gradlew'), `
 printf 'gradle %s\\n' "$*" >>"$SYNCSCOPE_TEST_CALLS"
@@ -109,7 +112,10 @@ if [ -n "$state" ] && [ "\${FAKE_BOOT_STATUS:-0}" = 0 ]; then
   [ -z "\${SYNCSCOPE_RESOURCE_RECEIPT:-}" ] || printf 'acquired\\n' >"$SYNCSCOPE_RESOURCE_RECEIPT"
 fi
 exit "\${FAKE_BOOT_STATUS:-0}"`);
-  await executable(join(repo, 'scripts/validation/device-fixtures.sh'), 'printf "fixtures\\n" >>"$SYNCSCOPE_TEST_CALLS"');
+  await executable(join(repo, 'scripts/validation/device-fixtures.sh'), `
+printf "fixtures\\n" >>"$SYNCSCOPE_TEST_CALLS"
+# Real adb shell forwards stdin; a fixture child must not consume the schedule.
+if [ "\${FAKE_FIXTURE_CONSUMES_STDIN:-0}" = 1 ]; then cat >/dev/null; fi`);
   for (const hook of ['remove-recheck-file', 'restore-recheck-file', 'change-device-files', 'pause-service', 'resume-service']) {
     await executable(join(repo, `scripts/validation/hooks/${hook}.sh`), `
 printf 'hook ${hook}\\n' >>"$SYNCSCOPE_TEST_CALLS"
@@ -189,7 +195,8 @@ if [ "\${2:-}" = capture-device ]; then
   cp "$SYNCSCOPE_TEST_ROOT/device-metadata" "$3"; exit 0
 fi
 exec "${process.execPath}" "$@"`);
-  const run = h.run(['measure', '--api', '31', '--api', '36'], {FAKE_MAESTRO_STATUS: '124'});
+  const run = h.run(['measure', '--api', '31', '--api', '36'],
+    {FAKE_MAESTRO_STATUS: '124', FAKE_FIXTURE_CONSUMES_STDIN: '1'});
   assert.notEqual(run.status, 0);
   const log = await h.log();
   assert.equal(log.split('\n').filter(line => line === 'maestro').length, 48);
@@ -263,6 +270,29 @@ kill -TERM "$PPID"`);
   const run = h.run(['e2e']);
   assert.equal(run.status, 130, run.stderr);
   assert.match(await h.log(), /hook pause-service[\s\S]*hook resume-service[\s\S]*hook restore-recheck-file/);
+});
+
+test('repeated signals during cleanup cannot abandon acquired emulator or protocol services', async t => {
+  const h = await harness(t);
+  await executable(join(h.repo, 'scripts/validation/hooks/pause-service.sh'), `
+printf 'hook pause-service\\n' >>"$SYNCSCOPE_TEST_CALLS"
+kill -TERM "$PPID"`);
+  // A supervisor that re-sends signals while cleanup is releasing resources.
+  await executable(join(h.repo, 'scripts/validation/metro-service.sh'), `
+printf 'metro %s\\n' "$1" >>"$SYNCSCOPE_TEST_CALLS"
+[ "$1" != start ] || printf '%s\\n' "\${FAKE_SERVICE_OWNERSHIP:-acquired}" >"$SYNCSCOPE_RESOURCE_RECEIPT"
+if [ "$1" = stop ]; then
+  for signal in TERM HUP INT TERM; do kill -"$signal" "$PPID"; done
+  # Children launched by cleanup keep default dispositions.
+  disposition=$(awk '/^SigIgn:/ { print $2 }' /proc/self/status)
+  printf 'metro-stop-ignored %s\\n' "$disposition" >>"$SYNCSCOPE_TEST_CALLS"
+fi`);
+  const run = h.run(['e2e']);
+  assert.equal(run.status, 130, run.stderr);
+  const log = await h.log();
+  assert.match(log, /metro stop[\s\S]*validator stop[\s\S]*protocol stop ftp[\s\S]*protocol stop webdav[\s\S]*protocol stop sftp/);
+  const ignored = BigInt(`0x${log.match(/metro-stop-ignored ([0-9a-f]+)/)[1]}`);
+  for (const signal of [1, 2, 15]) { assert.equal(ignored & (1n << BigInt(signal - 1)), 0n); }
 });
 
 test('standalone service failure and handoff signals clean authoritative acquired receipts, not borrowed resources', async t => {
@@ -371,8 +401,10 @@ case "$*" in *"dump badging"*)
   await executable(join(h.env.ANDROID_HOME, 'platform-tools/adb'), `
 [ "$1" != version ] || { printf '37.0.1\\n'; exit 0; }
 printf 'adb %s\\n' "$*" >>"$SYNCSCOPE_TEST_CALLS"
-case "$*" in *"syncscope-debug://configure-repository"*)
-  printf 'Error: Activity not started, unable to resolve Intent\\n' ;; esac`);
+case "$*" in
+  *"syncscope-debug://configure-repository"*) printf 'Error: Activity not started, unable to resolve Intent\\n' ;;
+  *"-exec stat -c %s {} +") printf '7\\n' ;;
+esac`);
   const run = h.run(['release-smoke'], {JAVA_HOME: javaHome});
   assert.equal(run.status, 0, run.stderr);
   const log = await h.log();
@@ -401,6 +433,9 @@ cp -p "$root/gallery/beach.png" "$root/recheck/beach.png"
 touch -d '@1704067200' "$root/recheck"`);
   await executable(join(h.bin, 'sleep'), 'exec /usr/bin/sleep 0.02');
   await executable(join(h.bin, 'timeout'), `
+case "$*" in *"/emulator/emulator -avd "*)
+  printf 'emulator lifetime %s\\n' "$3" >>"$SYNCSCOPE_TEST_CALLS" ;;
+esac
 case "$*" in *"/maestro test"*)
   [ "\${FAKE_TIMEOUT:-0}" != 1 ] || { shift 3; exec /usr/bin/timeout --signal=TERM --kill-after=0.2 0.2 "$@"; } ;;
 esac
@@ -432,6 +467,19 @@ printf 'docker %s\\n' "$*" >>"$SYNCSCOPE_TEST_CALLS"
 case "$*" in
   "version --format"*) printf '29.8.1 29.8.1\\n'; exit 0 ;;
   "compose version --short") printf '5.5.1\\n'; exit 0 ;;
+  *"{{.RestartCount}}"*)
+    # FAKE_FTP_RESTART: the FTP container restarts once after its scope begins.
+    count="$SYNCSCOPE_TEST_ROOT/restart-count-$4"
+    if [ -f "$count" ]; then cat "$count"; else printf '0\\n'; fi
+    [ "\${FAKE_FTP_RESTART:-0}" != 1 ] || [ "$4" != cccccccccccc ] || printf '1\\n' >"$count"
+    exit 0 ;;
+  events*)
+    [ "\${SYNCSCOPE_TEST_EVENTS_FAULT:-0}" != 1 ] || { printf 'not-a-time die\\n'; exit 0; }
+    case "$*" in *"--since "*"--until "*"container=cccccccccccc"*"event=die"*"event=start"*)
+      [ "\${FAKE_FTP_RESTART:-0}" != 1 ] ||
+        printf '%s\\n' '1792000000123456789 die' '1792000000456789012 start' ;;
+    esac
+    exit 0 ;;
   "inspect --format"*)
     cat "$SYNCSCOPE_STATE_ROOT/claim"; exit 0 ;;
   "rm -f"*)
@@ -499,11 +547,35 @@ case "$*" in
   *"emu kill") printf 'emulator kill-verified\\n' >>"$SYNCSCOPE_TEST_CALLS" ;;
   *"shell getprop sys.boot_completed") printf '1\\n' ;;
   *"shell ip route") printf '10.0.2.0/24\\n' ;;
-  *" root") printf '0\\n' >"$SYNCSCOPE_TEST_ROOT/uid" ;;
-  *" unroot") printf '2000\\n' >"$SYNCSCOPE_TEST_ROOT/uid" ;;
+  *" root") [ "\${FAKE_WATCHDOG_FAULT:-}" != root ] || exit 27
+    printf '0\\n' >"$SYNCSCOPE_TEST_ROOT/uid"
+    # adbd restarts as root, but the client loses the channel and exits nonzero.
+    [ "\${FAKE_WATCHDOG_FAULT:-}" != root-exit ] || exit 1 ;;
+  *" unroot") [ "\${FAKE_WATCHDOG_FAULT:-}" != unroot ] || exit 27
+    printf '2000\\n' >"$SYNCSCOPE_TEST_ROOT/uid"
+    [ "\${FAKE_WATCHDOG_FAULT:-}" != unroot-exit ] || exit 1 ;;
+  *"shell setprop ctl.stop llkd-"*)
+    case "$*" in *"llkd-0"*) [ "\${FAKE_WATCHDOG_FAULT:-}" != stop0 ] || exit 27 ;; esac
+    case "$*" in *"llkd-1"*) [ "\${FAKE_WATCHDOG_FAULT:-}" != stop1 ] || exit 27 ;; esac
+    printf 'requested\\n' >"$SYNCSCOPE_TEST_ROOT/watchdog-requested" ;;
+  *"shell getprop init.svc.llkd-"*)
+    case "$*" in *llkd-0) service=0 ;; *) service=1 ;; esac
+    case "\${FAKE_WATCHDOG_FAULT:-}:$service" in
+      absent0:0) exit 0 ;; read0:0) exit 27 ;;
+      read:1) exit 27 ;; empty:1) exit 0 ;; malformed:1) printf 'unexpected\\n'; exit 0 ;;
+      running:1) printf 'running\\n'; exit 0 ;;
+    esac
+    marker="$SYNCSCOPE_TEST_ROOT/watchdog-polls-$service"
+    n=0; [ ! -f "$marker" ] || n=$(cat "$marker")
+    n=$((n + 1)); printf '%s\\n' "$n" >"$marker"
+    if [ "\${FAKE_WATCHDOG_DELAY:-}" = "$service" ] && [ "$n" -lt 3 ]; then
+      printf 'running\\n'
+    else printf 'stopped\\n'; fi ;;
   *"shell id -u") cat "$SYNCSCOPE_TEST_ROOT/uid" ;;
   *"shell getprop ro.build.version.sdk") case "$(cat "$SYNCSCOPE_TEST_ROOT/emulator-ready")" in *31) printf '31\\n' ;; *) printf '36\\n' ;; esac ;;
   *"shell dumpsys SurfaceFlinger") printf 'GLES: SwiftShader synthetic\\n' ;;
+  *"shell settings get global "*) printf '1\\n' ;;
+  *"-exec stat -c %s {} +") printf '7\\n' ;;
 esac`);
   await writeFile(join(h.root, 'uid'), '2000\n');
   // Handoff interruption occurs in an external receipt read after production
@@ -559,6 +631,75 @@ else {
   return h;
 }
 
+test('watchdog shutdown waits for both asynchronous init services before unrooting on both APIs', async t => {
+  for (const api of [31, 36]) {
+    for (const service of ['0', '1']) {
+      await t.test(`API ${api}, delayed llkd-${service}`, async t2 => {
+        const h = await productionHarness(t2);
+        const result = h.run(['e2e', '--api', String(api)], {FAKE_WATCHDOG_DELAY: service});
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(await readFile(join(h.root, `watchdog-polls-${service}`), 'utf8'), '3\n');
+        const log = await h.log();
+        assert.match(log, /shell getprop init.svc.llkd-0/);
+        assert.match(log, /shell getprop init.svc.llkd-1/);
+        assert.ok(log.lastIndexOf('shell getprop init.svc.llkd-1') < log.indexOf(' unroot\n'));
+        assert.match(log, / unroot[\s\S]*shell id -u[\s\S]*shell getprop sys.boot_completed[\s\S]*shell ip route/);
+      });
+    }
+  }
+});
+
+test('watchdog failures and unknown observations never become readiness; rooted failures still unroot and release', async t => {
+  for (const fault of ['root', 'unroot', 'stop0', 'stop1', 'read0', 'read', 'empty', 'malformed', 'running']) {
+    await t.test(fault, async t2 => {
+      const h = await productionHarness(t2);
+      const result = h.run(['e2e'], {FAKE_WATCHDOG_FAULT: fault});
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Could not stop llkd/);
+      const log = await h.log();
+      assert.doesNotMatch(log, /gradle |^maestro$/m);
+      if (fault !== 'root') assert.match(log, / unroot\n/);
+      assert.match(log, /emulator terminated dependency_api31/);
+      await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
+      const [id] = await readdir(join(h.root, 'reports'));
+      assert.equal(await readFile(join(h.root, 'reports', id, 'raw/lifecycle/emulator-31'), 'utf8'), 'released\n');
+      const diagnostic = await readFile(join(h.root, 'reports', id, 'raw/validator-31/watchdog.private'), 'utf8');
+      assert.match(diagnostic, /failed/);
+      assert.doesNotMatch(diagnostic, /CANARY|password|synthetic|emulator-5554/);
+    });
+  }
+});
+
+test('a nonzero adb root/unroot exit is recorded but the shell uid proves the switch on both APIs', async t => {
+  for (const api of [31, 36]) {
+    for (const fault of ['root-exit', 'unroot-exit']) {
+      await t.test(`API ${api}, ${fault}`, async t2 => {
+        const h = await productionHarness(t2);
+        const result = h.run(['e2e', '--api', String(api)], {FAKE_WATCHDOG_FAULT: fault});
+        assert.equal(result.status, 0, result.stderr);
+        const log = await h.log();
+        assert.match(log, / root\n[\s\S]*shell id -u[\s\S]*ctl\.stop llkd-0[\s\S]* unroot\n[\s\S]*shell id -u[\s\S]*shell getprop sys.boot_completed/);
+        const [id] = await readdir(join(h.root, 'reports'));
+        const diagnostic = await readFile(join(h.root, 'reports', id, `raw/validator-${api}/watchdog.private`), 'utf8');
+        const step = fault.replace('-exit', '');
+        assert.match(diagnostic, new RegExp(`^${step}:nonzero$`, 'm'));
+        assert.match(diagnostic, new RegExp(`^${step}-uid:verified$`, 'm'));
+        assert.match(diagnostic, /shutdown:passed\n$/);
+        assert.doesNotMatch(diagnostic, /failed/);
+      });
+    }
+  }
+});
+
+test('images with absent llkd-0 still require affirmative llkd-1 shutdown', async t => {
+  const h = await productionHarness(t);
+  const run = h.run(['e2e'], {FAKE_WATCHDOG_FAULT: 'absent0'});
+  assert.equal(run.status, 0, run.stderr);
+  const [id] = await readdir(join(h.root, 'reports'));
+  const diagnostic = await readFile(join(h.root, 'reports', id, 'raw/validator-31/watchdog.private'), 'utf8');
+  assert.match(diagnostic, /service-0:absent[\s\S]*service-1:stopped[\s\S]*shutdown:passed/);
+});
+
 test('production validator and Metro acquire, prove identity and release on both APIs', async t => {
   const h = await productionHarness(t);
   const run = h.run(['e2e', '--api', '31', '--api', '36']);
@@ -573,6 +714,95 @@ test('production validator and Metro acquire, prove identity and release on both
   for (const name of ['api31', 'api36', 'metro', 'syncscope-sftp', 'syncscope-webdav', 'syncscope-ftp']) {
     await assert.rejects(lstat(join(h.state, name)), /ENOENT/);
   }
+});
+
+test('measurement-owned emulator gets a finite four-hour cap, with retained policy evidence', async t => {
+  const h = await productionHarness(t);
+  // This fake has no real KVM metadata, so the original-mode gate may reject it
+  // after boot. The production acquisition/timeout/cleanup path still executes.
+  const result = h.run(['measure']);
+  assert.notEqual(result.status, null, result.stderr);
+  assert.match(await h.log(), /emulator lifetime 14400\n/);
+  assert.doesNotMatch(await h.log(), /emulator lifetime 9000\n/);
+  const [id] = await readdir(join(h.root, 'reports'));
+  assert.equal(await readFile(join(h.root, 'reports', id, 'raw/validator-31/emulator-lifetime-seconds'), 'utf8'),
+    '14400\n');
+  assert.match(await h.log(), /emulator terminated dependency_api31/);
+});
+
+test('nonmeasurement invocations ignore lifetime environment overrides and retain 9000 seconds', async t => {
+  for (const mode of ['e2e', 'connected']) {
+    await t.test(mode, async t2 => {
+      const h = await productionHarness(t2);
+      const result = h.run([mode], {SYNCSCOPE_EMULATOR_LIFETIME: '999999',
+        SYNCSCOPE_INVOCATION_MODE: 'measure'});
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(await h.log(), /emulator lifetime 9000\n/);
+      assert.doesNotMatch(await h.log(), /emulator lifetime 14400\n/);
+    });
+  }
+});
+
+test('standalone and borrowed validators cannot extend lifetime using an unauthenticated mode record', async t => {
+  const h = await productionHarness(t);
+  const receipt = join(h.root, 'validator-receipt');
+  const args = ['--api', '31', '--avd', 'dependency_api31', '--state', join(h.state, 'api31'),
+    '--exclusive-lock', join(h.state, 'validator.lock')];
+  const validator = (action, extra = {}) => spawnSync('sh',
+    [join(h.repo, 'scripts/validation/android-validator.sh'), action, ...args],
+    {env: {...h.env, SYNCSCOPE_RESOURCE_RECEIPT: receipt, ...extra}, encoding: 'utf8', timeout: 10000});
+  const spoof = join(h.root, 'invocation-mode');
+  await writeFile(spoof, 'synthetic-owner:measure\n', {mode: 0o600});
+  assert.equal(validator('start', {SYNCSCOPE_INVOCATION_TOKEN: 'synthetic-owner',
+    SYNCSCOPE_INVOCATION_MODE_FILE: spoof}).status, 1);
+  assert.doesNotMatch(await h.log(), /emulator acquired-process/);
+  assert.equal(validator('start').status, 0);
+  assert.match(await h.log(), /emulator lifetime 9000\n/);
+  const originalPolicy = await readFile(join(h.state, 'api31/emulator-lifetime-seconds'), 'utf8');
+  assert.equal(validator('start', {SYNCSCOPE_INVOCATION_MODE_FILE: spoof}).status, 0);
+  assert.equal(await readFile(receipt, 'utf8'), 'borrowed\n');
+  assert.equal(await readFile(join(h.state, 'api31/emulator-lifetime-seconds'), 'utf8'), originalPolicy);
+  assert.equal(validator('stop').status, 0);
+});
+
+test('measurement authority rejects missing inherited lock, token mismatch, symlinks and extra mode lines', async t => {
+  const h = await productionHarness(t);
+  const authority = await mkdtemp('/tmp/cloud-sync-checker-claims-');
+  await chmod(authority, 0o700);
+  t.after(() => rm(authority, {recursive: true, force: true}));
+  const modeFile = join(authority, 'invocation-mode');
+  const receipt = join(authority, 'emulator-31');
+  const lock = join(h.state, 'invocation.lock');
+  await writeFile(lock, '', {mode: 0o600});
+  await writeFile(modeFile, 'owner:measure\n', {mode: 0o600});
+  const args = ['start', '--api', '31', '--avd', 'dependency_api31', '--state', join(h.state, 'api31'),
+    '--exclusive-lock', join(h.state, 'validator.lock')];
+  const run = (locked, extra = {}) => spawnSync('sh', locked
+    ? ['-c', 'exec 6>>"$1"; flock -n 6 || exit 1; shift; exec sh "$@"', 'authority', lock,
+      join(h.repo, 'scripts/validation/android-validator.sh'), ...args]
+    : [join(h.repo, 'scripts/validation/android-validator.sh'), ...args],
+  {env: {...h.env, SYNCSCOPE_INVOCATION_TOKEN: 'owner', SYNCSCOPE_RESOURCE_RECEIPT: receipt,
+    SYNCSCOPE_INVOCATION_MODE_FILE: modeFile, ...extra}, encoding: 'utf8', timeout: 10000});
+  assert.equal(run(false).status, 1);
+  assert.equal(run(true, {SYNCSCOPE_INVOCATION_TOKEN: 'foreign'}).status, 1);
+  await writeFile(modeFile, 'owner:measure\n\n', {mode: 0o600});
+  assert.equal(run(true).status, 1);
+  await writeFile(modeFile, 'owner:unknown\n', {mode: 0o600});
+  assert.equal(run(true).status, 1);
+  await rm(modeFile);
+  await writeFile(join(authority, 'target'), 'owner:measure\n', {mode: 0o600});
+  await symlink(join(authority, 'target'), modeFile);
+  assert.equal(run(true).status, 1);
+  assert.doesNotMatch(await h.log(), /emulator acquired-process/);
+  await rm(modeFile);
+  await writeFile(modeFile, 'owner:release-smoke\n', {mode: 0o600});
+  const release = run(true);
+  assert.equal(release.status, 0, release.stderr);
+  assert.match(await h.log(), /emulator lifetime 9000\n/);
+  const stop = spawnSync('sh', [join(h.repo, 'scripts/validation/android-validator.sh'),
+    'stop', ...args.slice(1)], {env: {...h.env, SYNCSCOPE_INVOCATION_TOKEN: 'owner',
+    SYNCSCOPE_RESOURCE_RECEIPT: receipt}, encoding: 'utf8', timeout: 10000});
+  assert.equal(stop.status, 0, stop.stderr);
 });
 
 test('production acquisition handoff signals consult acquired receipts directly', async t => {
@@ -622,6 +852,39 @@ setInterval(() => {}, 1000);
   const report = JSON.parse(await readFile(join(h.root, 'reports', id, 'run.json')));
   assert.equal(report.status, 'failed');
   assert.equal(report.apiRuns[0].acceptance[0].failureCode, 'timeout');
+});
+
+test('protocol container restarts are recorded per service and surfaced in the run report', async t => {
+  const h = await productionHarness(t);
+  const run = h.run(['e2e'], {FAKE_FTP_RESTART: '1'});
+  assert.equal(run.status, 0, run.stderr);
+  const [id] = await readdir(join(h.root, 'reports'));
+  const directory = join(h.root, 'reports', id);
+  assert.equal(await readFile(join(directory, 'raw/lifecycle/ftp.restarts'), 'utf8'),
+    'before 0\nafter 1\n1792000000123456789 die\n1792000000456789012 start\n');
+  assert.equal(await readFile(join(directory, 'raw/lifecycle/sftp.restarts'), 'utf8'), 'before 0\nafter 0\n');
+  const report = JSON.parse(await readFile(join(directory, 'run.json')));
+  assert.equal(report.status, 'passed');
+  assert.deepEqual(report.serviceRestarts, [
+    {protocol: 'ftp', restarts: 1, events: [
+      {action: 'die', unixMs: 1792000000123}, {action: 'start', unixMs: 1792000000456}]},
+    {protocol: 'sftp', restarts: 0, events: []},
+    {protocol: 'webdav', restarts: 0, events: []},
+  ]);
+  const markdown = await readFile(join(directory, 'report.md'), 'utf8');
+  assert.match(markdown, /\| Service \| Container restarts \| Restart events \|/);
+  assert.match(markdown, /\| ftp \| 1 \| die 2026-10-14T[0-9:.]+Z, start 2026-10-14T[0-9:.]+Z \|/);
+  assert.match(markdown, /\| sftp \| 0 \| none \|/);
+});
+
+test('a malformed restart event record fails the scoped protocol audit', async t => {
+  const h = await productionHarness(t);
+  const run = h.run(['e2e'], {FAKE_FTP_RESTART: '1', SYNCSCOPE_TEST_EVENTS_FAULT: '1'});
+  assert.notEqual(run.status, 0, run.stderr);
+  const [id] = await readdir(join(h.root, 'reports'));
+  const report = JSON.parse(await readFile(join(h.root, 'reports', id, 'run.json')));
+  assert.equal(report.status, 'failed');
+  assert.equal(report.failureCode, 'audit');
 });
 
 test('production services and Metro borrow prestarted resources, audit, and leave them alive', async t => {
@@ -694,4 +957,81 @@ test('receipt reads reject malformed, multiline and symlink acquisition evidence
   await writeFile(join(h.root, 'foreign-receipt'), 'acquired\n');
   await symlink(join(h.root, 'foreign-receipt'), receipt);
   assert.notEqual(read().status, 0);
+});
+
+async function expiredMetroHarness(t) {
+  const h = await productionHarness(t);
+  const exited = spawn('/usr/bin/true');
+  await new Promise((resolve, reject) => {
+    exited.once('error', reject);
+    exited.once('exit', resolve);
+  });
+  const state = join(h.state, 'metro');
+  const receipt = join(h.root, 'metro-receipt');
+  const evidence = join(h.root, 'metro-evidence');
+  await mkdir(state, {mode: 0o700});
+  await mkdir(join(evidence, 'raw'), {recursive: true, mode: 0o700});
+  for (const [name, value] of Object.entries({
+    owner: 'metro', claim: 'expired-owner', pid: String(exited.pid),
+    'process-identity': '12345', 'metro.log': 'synthetic retained deadline diagnostic',
+  })) {
+    await writeFile(join(state, name), `${value}\n`, {mode: 0o600});
+  }
+  await writeFile(receipt, 'acquired\n', {mode: 0o600});
+  h.stopExpired = (extra = {}) => spawnSync('sh', [
+    join(h.repo, 'scripts/validation/metro-service.sh'), 'stop',
+    '--host', '127.0.0.1', '--port', '8081', '--state', state,
+  ], {cwd: h.repo, env: {...h.env, SYNCSCOPE_INVOCATION_TOKEN: 'expired-owner',
+    SYNCSCOPE_RESOURCE_RECEIPT: receipt, SYNCSCOPE_PERFORMANCE_DIR: evidence, ...extra},
+  encoding: 'utf8', timeout: 10000});
+  return {...h, metroState: state, receipt, evidence, expiredPid: exited.pid};
+}
+
+test('expired owned Metro releases only absent acquired identity and retains its diagnostic', async t => {
+  const h = await expiredMetroHarness(t);
+  const stopped = h.stopExpired();
+  assert.equal(stopped.status, 0, stopped.stderr);
+  await assert.rejects(lstat(h.metroState), /ENOENT/);
+  assert.equal(await readFile(h.receipt, 'utf8'), 'released\n');
+  assert.equal(await readFile(join(h.evidence, 'raw/metro.log'), 'utf8'),
+    'synthetic retained deadline diagnostic\n');
+  assert.doesNotMatch(await h.log(), /metro terminated/);
+});
+
+test('expired Metro refuses ambiguous, borrowed, foreign and still-active resources', async t => {
+  for (const problem of ['borrowed', 'missing-receipt', 'foreign-claim', 'missing-token',
+    'reused-pid', 'occupied-port', 'surviving-group', 'socket-check-failed',
+    'group-check-failed', 'symlink-pid', 'invalid-pid', 'missing-identity',
+    'diagnostic-copy-failed']) {
+    await t.test(problem, async t2 => {
+      const h = await expiredMetroHarness(t2);
+      let extra = {};
+      if (problem === 'borrowed') await writeFile(h.receipt, 'borrowed\n');
+      if (problem === 'missing-receipt') await rm(h.receipt);
+      if (problem === 'foreign-claim') extra.SYNCSCOPE_INVOCATION_TOKEN = 'foreign-owner';
+      if (problem === 'missing-token') extra.SYNCSCOPE_INVOCATION_TOKEN = '';
+      if (problem === 'reused-pid') await writeFile(join(h.metroState, 'pid'), `${process.pid}\n`);
+      if (problem === 'occupied-port') await writeFile(join(h.root, 'metro-ready'), 'foreign\n');
+      if (problem === 'surviving-group') await executable(join(h.bin, 'ps'), `printf '${h.expiredPid}\\n'`);
+      if (problem === 'socket-check-failed') await executable(join(h.bin, 'ss'), 'exit 2');
+      if (problem === 'group-check-failed') await executable(join(h.bin, 'ps'), 'exit 2');
+      if (problem === 'symlink-pid') {
+        await rm(join(h.metroState, 'pid'));
+        await writeFile(join(h.root, 'foreign-pid'), `${h.expiredPid}\n`);
+        await symlink(join(h.root, 'foreign-pid'), join(h.metroState, 'pid'));
+      }
+      if (problem === 'invalid-pid') await writeFile(join(h.metroState, 'pid'), '0\n');
+      if (problem === 'missing-identity') await rm(join(h.metroState, 'process-identity'));
+      if (problem === 'diagnostic-copy-failed') await executable(join(h.bin, 'cp'), 'exit 17');
+      const stopped = h.stopExpired(extra);
+      assert.notEqual(stopped.status, 0);
+      assert.ok((await lstat(h.metroState)).isDirectory());
+      assert.equal(await readFile(join(h.metroState, 'metro.log'), 'utf8'),
+        'synthetic retained deadline diagnostic\n');
+      if (problem !== 'missing-receipt') {
+        assert.equal(await readFile(h.receipt, 'utf8'), problem === 'borrowed' ? 'borrowed\n' : 'acquired\n');
+      }
+      assert.doesNotMatch(await h.log(), /metro terminated/);
+    });
+  }
 });

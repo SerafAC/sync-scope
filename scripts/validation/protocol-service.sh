@@ -62,10 +62,45 @@ healthcheck() {
     done
   fi
 }
+# restart_count: the summed Docker RestartCount of this scope's containers.
+restart_count() {
+  total=0
+  for container in $(cat "$SYNCSCOPE_RESOURCE_RECEIPT.containers"); do
+    case "$container" in *[!a-f0-9]*|'') return 1 ;; esac
+    count=$(timeout 30 docker inspect --format '{{.RestartCount}}' "$container") || return 1
+    case "$count" in ''|*[!0-9]*) return 1 ;; esac
+    total=$((total + count))
+  done
+  printf '%s\n' "$total"
+}
+# record_restarts: every container restart inside this scope (FTP uses
+# restart: on-failure). The count delta is authoritative; die/start event times
+# come from the daemon's bounded event history. Only validated lines are kept.
+record_restarts() {
+  before=$(cat "$SYNCSCOPE_RESOURCE_RECEIPT.restart-count") || return 1
+  case "$before" in ''|*[!0-9]*) return 1 ;; esac
+  after=$(restart_count) || return 1
+  [ "$after" -ge "$before" ] || return 1
+  until=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  events=
+  for container in $(cat "$SYNCSCOPE_RESOURCE_RECEIPT.containers"); do
+    found=$(timeout 30 docker events --since "$(cat "$SYNCSCOPE_RESOURCE_RECEIPT.since")" \
+      --until "$until" --filter "container=$container" --filter event=die --filter event=start \
+      --format '{{.TimeNano}} {{.Action}}') || return 1
+    [ -z "$found" ] || events="$events$found
+"
+  done
+  if [ -n "$events" ] && printf '%s' "$events" | grep -Evq '^[0-9]{1,20} (die|start)$'; then
+    return 1
+  fi
+  { printf 'before %s\nafter %s\n' "$before" "$after"; printf '%s' "$events"; } \
+    >"$SYNCSCOPE_RESOURCE_RECEIPT.restarts"
+}
 scope_begin() {
   [ -n "${SYNCSCOPE_RESOURCE_RECEIPT:-}" ] || return 0
   date -u '+%Y-%m-%dT%H:%M:%SZ' >"$SYNCSCOPE_RESOURCE_RECEIPT.since"
   compose_command ps -a -q "$protocol" >"$SYNCSCOPE_RESOURCE_RECEIPT.containers"
+  restart_count >"$SYNCSCOPE_RESOURCE_RECEIPT.restart-count"
   node "$repo/scripts/validation/fixture-manifest.mjs" "$state/fixtures" \
     >"$SYNCSCOPE_RESOURCE_RECEIPT.manifest"
   offset=0
@@ -78,6 +113,7 @@ audit() {
     [ -f "$SYNCSCOPE_RESOURCE_RECEIPT.since" ] || return 1
     containers=$(compose_command ps -a -q "$protocol")
     [ "$containers" = "$(cat "$SYNCSCOPE_RESOURCE_RECEIPT.containers")" ] || return 1
+    record_restarts || return 1
     audit_log="$SYNCSCOPE_RESOURCE_RECEIPT.audit.private"
     compose_command logs --no-color --since "$(cat "$SYNCSCOPE_RESOURCE_RECEIPT.since")" "$protocol" >"$audit_log" 2>&1 || return 1
     if [ "$protocol" = ftp ] && [ -f "$state/audit/vsftpd.log" ]; then

@@ -136,3 +136,116 @@ test('definition fingerprint binds prerequisites, fixtures, boundaries and origi
   // Frozen digests describe the original code, not an assertion that optimized
   // helper bytes must remain unchanged forever.
 });
+
+test('H08 scrollbar reveal does not outwait the 1.5 s thumb fade', async () => {
+  // Decision 2026-10-12: under API 31 software rendering the default settle
+  // wait after this swipe took 3.32 s, longer than the app's 1.5 s scrollbar
+  // fade. Only the swipe's settle wait changes; the assertion stays as is.
+  const subflow = await readFile(
+    new URL('validation/maestro/subflows/show-scrollbar.yaml', root),
+    'utf8',
+  );
+  const steps = subflow.slice(subflow.indexOf('\n---\n') + 5);
+  assert.equal(
+    steps,
+    [
+      '- swipe:',
+      '    start: "50%, 60%"',
+      '    end: "50%, 58%"',
+      '    duration: 800',
+      '    waitToSettleTimeoutMs: 50',
+      '- assertVisible:',
+      '    id: "files.scroller.thumb"',
+      '',
+    ].join('\n'),
+  );
+});
+
+test('H08 re-shows the scrollbar when it fades between show and thumb read', async () => {
+  // Decision 2026-10-13: in rounding-recovery raw-36-24 the thumb was asserted
+  // visible and 2 ms later the next read no longer found it (1.5 s fade).
+  // Each show-scrollbar plus its following thumb read retries as one pair, so
+  // a fade re-shows the thumb; labels, assertions and timeouts stay as is.
+  const flow = await readFile(
+    new URL('validation/maestro/polish/03-fast-scroll.yaml', root),
+    'utf8',
+  );
+  const pair = new RegExp(
+    [
+      '^- retry:',
+      '    maxRetries: 2',
+      '    commands:',
+      '      - runFlow: \\.\\./subflows/show-scrollbar\\.yaml',
+      '      - (assertVisible|copyTextFrom):',
+      '          id: "files\\.scroller\\.thumb"',
+      '(?:          text: (.+)\\n)?(?=- |\\n|$)',
+    ].join('\\n'),
+    'gm',
+  );
+  const pairs = [...flow.matchAll(pair)];
+  const reveals = flow.match(/show-scrollbar\.yaml/g) ?? [];
+  assert.equal(reveals.length, 8);
+  assert.equal(pairs.length, reveals.length);
+  assert.deepEqual(
+    pairs.map(match => [match[1], match[2] ?? null]),
+    [
+      ['assertVisible', `"\${'Scrollbar, ' + BAND_MONTH_LABEL}"`],
+      ['assertVisible', '"Scrollbar, M"'],
+      ...Array.from({ length: 6 }, () => ['copyTextFrom', null]),
+    ],
+  );
+  // Besides these eight pairs, only the two bare scroll-then-thumb reads
+  // (decision 2026-10-13, retry-recovery raw-31-22) are retried.
+  assert.equal((flow.match(/^- retry:/gm) ?? []).length, 10);
+  assert.equal((flow.match(/maxRetries/g) ?? []).length, 10);
+});
+
+function topLevelSteps(text) {
+  const body = text.slice(text.indexOf('\n---\n') + 5);
+  const steps = [];
+  for (const line of body.split('\n')) {
+    if (line.startsWith('- ')) {
+      steps.push([line]);
+    } else if (steps.length > 0 && line.startsWith(' ')) {
+      steps[steps.length - 1].push(line);
+    }
+  }
+  return steps.map(lines => lines.join('\n'));
+}
+
+test('H08 reads the scrollbar thumb only inside a retry that redoes its scroll', async () => {
+  // Decision 2026-10-13 (retry-recovery raw-31-22): a bare swipe plus thumb
+  // read lost the thumb to the 1.5 s fade. Every positive thumb read in the
+  // H08 flow, including the read inside show-scrollbar.yaml, sits in a retry
+  // with maxRetries 2 whose commands first redo the scroll that shows the
+  // thumb, and those swipes do not wait for the screen to settle. The
+  // absence check of the short result (assertNotVisible) is not a read.
+  const flow = await readFile(
+    new URL('validation/maestro/polish/03-fast-scroll.yaml', root),
+    'utf8',
+  );
+  const readsThumb = step =>
+    /show-scrollbar\.yaml/.test(step) ||
+    (/files\.scroller\.thumb/.test(step) && !/^- assertNotVisible:/.test(step));
+  const reads = topLevelSteps(flow).filter(readsThumb);
+  assert.equal(reads.length, 10);
+  for (const step of reads) {
+    assert.match(step, /^- retry:\n    maxRetries: 2\n    commands:\n/, step);
+    const commands = step
+      .split('\n')
+      .slice(3)
+      .filter(line => line.startsWith('      - '));
+    assert.equal(commands.length, 2, step);
+    assert.match(commands[0], /^      - (swipe:|runFlow: \.\.\/subflows\/show-scrollbar\.yaml)$/, step);
+    assert.match(commands[1], /^      - (assertVisible|copyTextFrom):$/, step);
+    assert.match(step, /\n          id: "files\.scroller\.thumb"/, step);
+    const swipes = step.split('      - swipe:').length - 1;
+    const settles = (step.match(/\n          waitToSettleTimeoutMs: 50(\n|$)/g) ?? []).length;
+    assert.equal(settles, swipes, step);
+  }
+  // Every other thumb mention is the one absence check.
+  const others = topLevelSteps(flow).filter(
+    step => /files\.scroller\.thumb/.test(step) && !readsThumb(step),
+  );
+  assert.deepEqual(others, ['- assertNotVisible:\n    id: "files.scroller.thumb"']);
+});

@@ -50,6 +50,32 @@ test('pins loopback-only read-only protocol services', async () => {
   assert.doesNotMatch(compose, /validation-only|password\s*:/i);
 });
 
+test('FTP restarts on failure; the other protocol services keep restart "no"', async () => {
+  const compose = await text('validation/services/compose.yaml');
+  const services = compose.split(/\nsecrets:\n/)[0];
+  const block = name => {
+    const match = services.match(new RegExp(`\\n  ${name}:\\n((?:    .*\\n?|      .*\\n?)+)`));
+    assert.ok(match, `${name} service must exist`);
+    return match[1];
+  };
+  // The pinned vsftpd image segfaults intermittently; Docker restarts only a failed FTP.
+  assert.match(block('ftp'), /^    restart: on-failure$/m);
+  assert.doesNotMatch(block('ftp'), /restart: "no"/);
+  for (const name of ['sftp', 'webdav']) {
+    assert.match(block(name), /^    restart: "no"$/m, name);
+  }
+});
+
+test('a restarted FTP container keeps its account and appends to the scoped audit log', async () => {
+  const entrypoint = await text('validation/services/runtime-entrypoint.sh');
+  const ftp = entrypoint.match(/\n  ftp\)\n([\s\S]*?)\n    ;;/)[1];
+  // Docker reuses the container on restart: a second useradd would fail under set -e and
+  // loop the restart, and reinstalling the log would erase the audit before the crash.
+  assert.match(ftp, /id -u "\$username" >\/dev\/null 2>&1 \|\|\s+useradd --system --home-dir \/srv\/fixtures --shell \/bin\/sh "\$username"/);
+  assert.match(ftp, /\[ -f \/var\/log\/syncscope\/vsftpd\.log \] \|\|\s+install -o root -g root -m 0644 \/dev\/null\s+\\?\s*\/var\/log\/syncscope\/vsftpd\.log/);
+  assert.match(ftp, /exec \/usr\/sbin\/vsftpd \/etc\/syncscope-vsftpd\.conf/);
+});
+
 test('generates deterministic representative fixture metadata', async t => {
   const state = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
@@ -560,9 +586,12 @@ test('validator stops llkd after boot and gives the shell back to the normal use
 
   // llkd kills adbd once Maestro's driver shell has been a zombie for 600 s,
   // so any maestro run over ten minutes lost the device mid-flow.
-  assert.match(source, /setprop ctl\.stop llkd-0; setprop ctl\.stop llkd-1/);
+  assert.match(source, /for watchdog_service in 0 1; do[\s\S]*if ! adb_command -s "\$serial" shell setprop ctl\.stop "llkd-\$watchdog_service"/);
   assert.match(source, /root >\/dev\/null[\s\S]*await_shell_uid 0[\s\S]*unroot >\/dev\/null[\s\S]*await_shell_uid 2000/);
-  assert.match(source, /getprop init\.svc\.llkd-1/);
+  assert.match(source, /getprop "init\.svc\.llkd-\$watchdog_service"/);
+  assert.match(source, /await_llkd_stopped \|\| watchdog_status=1/);
+  assert.match(source, /stopped\)[\s\S]*running\|restarting\)[\s\S]*shutdown failed/);
+  assert.match(start, /stop_llkd \|\|[\s\S]*until serial_ready[\s\S]*owned_serial \|\|/);
   assert.ok(start.includes('stop_llkd ||'), 'start must stop llkd once the emulator is ready');
   assert.ok(
     start.indexOf('stop_llkd ||') > start.indexOf('until serial_ready'),

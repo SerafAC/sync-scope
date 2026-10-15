@@ -42,7 +42,11 @@ class FakeSafAccess : SafAccess {
     return grants.values.toList()
   }
 
+  /** Runs on every [takeGrant] before the grant is recorded, e.g. to hold a pick mid-persist. */
+  var onTakeGrant: (String) -> Unit = {}
+
   override fun takeGrant(uri: String): PersistedGrant {
+    onTakeGrant(uri)
     taken += uri
     return PersistedGrant(uri, canRead = true, canWrite = grantsWrite).also { grants[uri] = it }
   }

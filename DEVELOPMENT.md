@@ -190,12 +190,41 @@ If no `mounted` public volume is listed, see
 `pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36. For each
 API level `scripts/validation/android-flow.sh` starts the protocol containers and Metro, boots the AVD,
 builds and installs the debug APK, runs `scripts/validation/device-fixtures.sh`, and then runs
-`maestro test validation/maestro`, followed by the [staged pairs](#staged-pairs-and-hooks). Metro is started once and serves both API levels, under a 2-hour cap
-(`scripts/validation/metro-service.sh`). A full two-API run takes about 55 minutes, so a 1-hour cap would
-end Metro during the API 36 pass. The flows are the proof that a user-visible capability works
+`maestro test validation/maestro`, followed by the [staged pairs](#staged-pairs-and-hooks).
+Metro is started once and serves both API levels under the unchanged 14,400-second (four-hour) cap
+(`scripts/validation/metro-service.sh`); e2e, connected, release and standalone owned emulators retain
+the separate 9,000-second (2.5-hour) cap (`scripts/validation/android-validator.sh`). Newly acquired
+`measure` emulators alone have an approved finite 14,400-second cap, authenticated by the full
+invocation claim; borrowed emulators are unchanged and no arbitrary lifetime override exists.
+Historical timing estimates do not prove
+that a current campaign fits either limit. The flows are the proof that a user-visible capability works
 ([D012](./docs/decisions/0012-maestro-e2e-proof-bar.md)). The rules below apply to every flow; feature
 003 set them up (its design record is
 `specs/003-local-source-selection/contracts/maestro-conventions.md`).
+
+Feature 008's observational `measure` mode and private original-input retention are documented in
+[Validation performance evidence](./docs/validation-performance.md). Metadata capture uses the existing
+JDK compiler and SDK build-tools 37.0.0 D8 for a read-only, temporary shell probe when an animation
+setting is unset; it never changes the app or guest settings. The original software baseline remains
+incomplete after retained scheduled failures: diagnosis ties the API 31 H08 device loss to the old
+measurement emulator's 2.5-hour cap, independently of Metro's four-hour expiration on the combined
+campaign. Approved recovery uses separate API-specific invocations and the measurement-only cap,
+with explicit lifetime-policy provenance, not a speedup claim. Expired Metro cleanup retains logs and releases only state
+with a matching acquired receipt/claim, absent saved PID/group and unoccupied port, without signaling
+any process. Do not interpret hotspot attempts as complete acceptance or silently replace failures.
+Watchdog setup retains the original root/stop/unroot policy: both `ctl.stop` requests must succeed,
+asynchronous service shutdown must be observed, and the normal shell UID, boot/network readiness and
+owned serial/process identity must pass afterward. Unknown or failed observations fail startup;
+private `raw/validator-<api>/watchdog.private` records fixed stage/status categories, not raw commands.
+The separate repaired-startup campaign encountered an H05 artifact-boundary failure and was
+interrupted without promoting or replacing its failed sample. The authorized narrow parser repair
+counts sequential one-millisecond initialization records with identical timestamps only once,
+while retaining both execution counts and strict conflict/assertion validation. Diagnostic ingestion
+does not rewrite earlier results or contribute baseline samples. The separate fresh API 31 campaign
+passed 21 scheduled samples but failed H08 repetition 1's required scrollbar-thumb assertion and
+stopped safely; API 36 and full phase baselines were not started. Its cause needs diagnosis, not a
+parser/assertion waiver or automatic replacement. Evidence and cleanup proof are documented in the
+performance page; T014 remains incomplete.
 
 On API 36, opening the system folder picker can close the debug app's Metro connection. `index.js`
 suppresses only the disconnected Fast Refresh banner and its related LogBox warnings in debug builds:

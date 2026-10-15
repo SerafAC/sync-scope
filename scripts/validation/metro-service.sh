@@ -27,6 +27,33 @@ owned_running() {
   [ -f "$owner" ] && [ "$(cat "$owner")" = metro ] &&
     validation_process_owned "$state"
 }
+expired_owned() {
+  # Expiration is not a running-process identity match. Require the original
+  # invocation's acquired receipt and claim, then prove there is nobody to
+  # signal: neither the saved PID (including reuse) nor its session nor port.
+  [ -n "${SYNCSCOPE_INVOCATION_TOKEN:-}" ] &&
+    [ "$(validation_read_receipt "${SYNCSCOPE_RESOURCE_RECEIPT:-}")" = acquired ] &&
+    [ -d "$state" ] && [ ! -L "$state" ] &&
+    [ "$(stat -c %u "$state")" = "$(id -u)" ] || return 1
+  for saved in owner claim pid process-identity; do
+    [ -f "$state/$saved" ] && [ ! -L "$state/$saved" ] &&
+      [ "$(stat -c %u "$state/$saved")" = "$(id -u)" ] || return 1
+  done
+  [ "$(cat "$owner")" = metro ] && validation_claim_matches "$state" || return 1
+  expired_pid=$(cat "$pid_file")
+  expired_identity=$(cat "$state/process-identity")
+  case "$expired_pid:$expired_identity" in *[!0-9:]*|:*|*:) return 1 ;; esac
+  [ "$expired_pid" -gt 1 ] && [ ! -e "/proc/$expired_pid" ] || return 1
+  # Check tool failures explicitly; a failed ss/ps must not establish absence.
+  expired_sockets=$(ss -H -ltn "sport = :8081") || return 1
+  [ -z "$expired_sockets" ] || return 1
+  expired_groups=$(ps -eo pgid=) || return 1
+  if printf '%s\n' "$expired_groups" | grep -qw "$expired_pid"; then return 1; fi
+  if [ -e "$state/metro.log" ] || [ -L "$state/metro.log" ]; then
+    [ -f "$state/metro.log" ] && [ ! -L "$state/metro.log" ] &&
+      [ "$(stat -c %u "$state/metro.log")" = "$(id -u)" ] || return 1
+  fi
+}
 
 case "$action" in
   start)
@@ -76,11 +103,14 @@ case "$action" in
     owned_running && port_is_listening
     ;;
   stop)
-    owned_running && validation_claim_matches "$state" || {
+    if owned_running && validation_claim_matches "$state"; then
+      validation_stop_process "$state"
+    elif expired_owned; then
+      : # Retain diagnostics and release scratch state, without any signal.
+    else
       printf '%s\n' "Refusing to stop an unowned Metro process." >&2
       exit 1
-    }
-    validation_stop_process "$state"
+    fi
     if [ -n "${SYNCSCOPE_PERFORMANCE_DIR:-}" ] && [ -f "$state/metro.log" ]; then
       cp "$state/metro.log" "$SYNCSCOPE_PERFORMANCE_DIR/raw/metro.log"
     fi

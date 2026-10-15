@@ -56,6 +56,9 @@ flock -n 9 || { printf '%s\n' "Another validation invocation is active." >&2; ex
 SYNCSCOPE_INVOCATION_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 export SYNCSCOPE_INVOCATION_TOKEN
 claims=$(mktemp -d /tmp/cloud-sync-checker-claims-XXXXXX)
+SYNCSCOPE_INVOCATION_MODE_FILE="$claims/invocation-mode"
+printf '%s:%s\n' "$SYNCSCOPE_INVOCATION_TOKEN" "$mode" >"$SYNCSCOPE_INVOCATION_MODE_FILE"
+export SYNCSCOPE_INVOCATION_MODE_FILE
 validator_lock=$(validation_state validator.lock)
 metro_state=$(validation_state metro)
 compose="$repo/validation/services/compose.yaml"
@@ -78,7 +81,10 @@ measure_status=0
 
 cleanup() {
   status=$?
-  trap - EXIT HUP INT TERM
+  # A repeated signal must not abandon acquired resources mid-release. A no-op
+  # trap (not SIG_IGN) keeps default dispositions for the children cleanup runs.
+  trap - EXIT
+  trap ':' HUP INT TERM
   failure_code=validation
   restoration=unknown
   case "${phase_name:-}" in
@@ -409,7 +415,7 @@ for api in $apis; do
   SYNCSCOPE_RESOURCE_RECEIPT="$claims/emulator-$api" "$repo/scripts/validation/android-validator.sh" start \
     --api "$api" --avd "dependency_api$api" \
     --state "$(validation_state "api$api")" \
-    --exclusive-lock "$validator_lock" 9>&-
+    --exclusive-lock "$validator_lock" 6<&9 9>&-
   case "$(validation_read_receipt "$claims/emulator-$api")" in acquired|borrowed) ;; *) exit 1 ;; esac
   serial=$(cat "$(validation_state "api$api")/serial")
   metadata="$(validation_state "api$api")/metadata.private.json"
@@ -566,7 +572,9 @@ EOF
       SYNCSCOPE_STATE_ROOT=$staged_state "$hooks/restore-recheck-file.sh"
       validation_phase_end 0
     elif [ "$mode" = measure ]; then
-      while IFS='|' read -r sample_scenario sample_repetition measured_flow; do
+      # adb shell forwards stdin. Keep the frozen schedule off descriptor 0 so
+      # fixture/hook children cannot drain later repetitions and skip proof.
+      while IFS='|' read -r sample_scenario sample_repetition measured_flow <&7; do
         reset_status=0
         reset_device_fixtures || reset_status=$?
         validation_phase_begin "$api" remote-fixtures
@@ -583,7 +591,7 @@ EOF
         run_flow "$measured_flow" "$@" || result=$?
         validation_phase_end "$result"
         [ "$result" -eq 0 ] || { [ "$measure_status" -ne 0 ] || measure_status=$result; }
-      done <<EOF
+      done 7<<EOF
 $schedule
 EOF
       sample_scenario=none

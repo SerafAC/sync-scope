@@ -30,7 +30,9 @@ services:
       - fixture_credentials
     security_opt:
       - no-new-privileges:true
-    restart: "no"
+    # The pinned vsftpd image intermittently segfaults (PID 1). Docker restarts
+    # only a failed FTP container; protocol-service.sh records every restart.
+    restart: on-failure
 
   webdav:
     image: cloud-sync-checker/webdav-validation@sha256:cb1f1889e8ad8bdcce860c6c368c5ff7a627805bbc02e2c25fdb192d28838ee5

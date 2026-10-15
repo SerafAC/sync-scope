@@ -416,6 +416,50 @@ class CloudSyncModuleTest {
     }
   }
 
+  /**
+   * Coming back from the folder picker resumes the app, and the resume starts the automatic local
+   * refresh (FR-003) while the returned folder may still be being saved. The scan must wait for it,
+   * or it reads the source list without the new folder and publishes a snapshot that omits it.
+   */
+  @Test
+  fun aScanStartedWhileAReturnedPickIsSavedIncludesThePickedSource() {
+    val h = ScanHarness(appContext)
+    val scans = scanModule(h)
+    val saving = java.util.concurrent.CountDownLatch(1)
+    val release = java.util.concurrent.CountDownLatch(1)
+    try {
+      runBlocking { h.configure() }
+      h.remote.dir(REMOTE_ROOT, remoteFile("exact.txt", 22))
+      saf.onTakeGrant = {
+        saving.countDown()
+        release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+      }
+      val activity = Robolectric.buildActivity(RecordingActivity::class.java).get()
+      reactContext.onHostResume(activity)
+      val picked = RecordingPromise()
+      scans.launchSourcePicker(null, picked)
+      val (_, requestCode) = activity.awaitStart()
+      reactContext.onActivityResult(activity, requestCode, Activity.RESULT_OK, Intent().setData(Uri.parse(camera)))
+      assertTrue(saving.await(10, java.util.concurrent.TimeUnit.SECONDS))
+
+      val started = RecordingPromise()
+      scans.startScan("FULL", started)
+      Thread.sleep(300)
+      assertNull("the scan must wait for the returned pick", started.resolved)
+
+      release.countDown()
+      assertEquals("ADDED", (picked.await() as ReadableMap).getString("outcome"))
+      val result = started.await() as ReadableMap
+      assertNull(started.rejectedCode)
+      assertEquals("ok", result.getString("status"))
+      awaitRun(scans, result.getString("runId")!!) { it.getString("terminalState") != null }
+    } finally {
+      release.countDown()
+      scans.invalidate()
+      h.close()
+    }
+  }
+
   @Test
   fun throwableBecomesRedactedInternalErrorNotRejection() {
     val promise = RecordingPromise()

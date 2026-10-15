@@ -1,5 +1,5 @@
 import {createHash, randomBytes} from 'node:crypto';
-import {chmod, lstat, mkdir, readdir, readFile, writeFile} from 'node:fs/promises';
+import {chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {cpus, platform, release} from 'node:os';
 import {basename, dirname, join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -88,9 +88,46 @@ export function elapsedMilliseconds(start, end) {
   return result;
 }
 
+const protocols = ['ftp', 'sftp', 'webdav'];
+function integer(value) { number(value); if (!Number.isInteger(value)) { invalid('invalid-duration-or-number'); } }
+// Container restarts inside each protocol scope: counts and die/start times only.
+function validateServiceRestarts(records) {
+  array(records);
+  const seen = new Set();
+  for (const r of records) {
+    object(r, ['protocol', 'restarts', 'events']);
+    choice(r.protocol, protocols); if (seen.has(r.protocol)) { invalid('invalid-duplicate-service'); } seen.add(r.protocol);
+    integer(r.restarts); array(r.events);
+    for (const e of r.events) { object(e, ['action', 'unixMs']); choice(e.action, ['die', 'start']); integer(e.unixMs); }
+  }
+}
+// Parses protocol-service.sh's `<protocol>.restarts` lifecycle records, if any.
+export function parseServiceRestarts(protocol, text) {
+  const lines = text.split('\n');
+  if (lines.pop() !== '') { invalid('invalid-restart-record'); }
+  const [before, after, ...rest] = lines;
+  const count = (line, label) => {
+    const m = new RegExp(`^${label} (\\d{1,9})$`).exec(line ?? '');
+    if (!m) { invalid('invalid-restart-record'); }
+    return Number(m[1]);
+  };
+  const restarts = count(after, 'after') - count(before, 'before');
+  if (restarts < 0) { invalid('invalid-restart-record'); }
+  const events = rest.map(line => {
+    const m = /^(\d{1,20}) (die|start)$/.exec(line);
+    if (!m) { invalid('invalid-restart-record'); }
+    return {action: m[2], unixMs: Number(BigInt(m[1]) / 1000000n)};
+  });
+  const record = {protocol, restarts, events};
+  validateServiceRestarts([record]);
+  return record;
+}
+
 export function validateRun(run) {
   object(run, ['schemaVersion', 'invocationId', 'mode', 'status', 'failureCode', 'source', 'host',
-    'workloadFingerprint', 'build', 'fixtureSet', 'sharedPhases', 'elapsedMs', 'apiRuns']);
+    'workloadFingerprint', 'build', 'fixtureSet', 'sharedPhases', 'elapsedMs', 'apiRuns',
+    'serviceRestarts'], ['serviceRestarts']);
+  if (Object.hasOwn(run, 'serviceRestarts')) { validateServiceRestarts(run.serviceRestarts); }
   if (run.schemaVersion !== 1) { invalid('unsupported-schema-version'); }
   opaque(run.invocationId); choice(run.mode, ['connected', 'e2e', 'release-smoke', 'measure']);
   choice(run.status, ['running', 'passed', 'failed', 'interrupted']); choice(run.failureCode, failures);
@@ -254,7 +291,7 @@ const types = {
 export function ingestCommands(records) {
   if (!Array.isArray(records) || !records.length) { invalid('unsupported-artifact'); }
   const executed = [], assertions = {executed: 0, failed: 0, missing: 0};
-  const sequences = new Set();
+  const sequences = new Set(), started = [];
   for (const record of records) {
     const command = record?.command, m = record?.metadata;
     if (!command || !m) { invalid('unsupported-artifact'); }
@@ -264,7 +301,7 @@ export function ingestCommands(records) {
     if (!category || !['COMPLETED', 'FAILED', 'WARNED', 'SKIPPED', 'RUNNING', 'PENDING'].includes(m.status) ||
         !Number.isInteger(m.sequenceNumber) || m.sequenceNumber < 0 ||
         !Number.isInteger(m.depth) || m.depth < 0 || sequences.has(m.sequenceNumber)) { invalid('unsupported-artifact'); }
-    sequences.add(m.sequenceNumber);
+    sequences.add(m.sequenceNumber); started.push({sequence: m.sequenceNumber, depth: m.depth});
     if (['SKIPPED', 'PENDING'].includes(m.status)) {
       if (category === 'assertion' && command[type]?.optional !== true) { assertions.missing++; }
       continue;
@@ -275,29 +312,55 @@ export function ingestCommands(records) {
     const optionalWarning = m.status === 'WARNED' && command[type]?.optional === true;
     const status = m.status === 'COMPLETED' || optionalWarning ? 'passed' :
       ['FAILED', 'WARNED'].includes(m.status) ? 'failed' : 'interrupted';
-    if (category === 'assertion' && command[type]?.optional !== true) {
-      assertions[status === 'passed' ? 'executed' : 'failed']++;
+    executed.push({type, category, start, end: start + duration, depth: m.depth,
+      elapsedMs: duration, status, sequence: m.sequenceNumber, completed: m.status === 'COMPLETED',
+      identity: JSON.stringify(command), mandatory: command[type]?.optional !== true, failedRaw: m.status === 'FAILED'});
+  }
+  // Pinned 2.10.0 records every retry attempt. A non-optional FAILED leaf is
+  // recovered only inside a COMPLETED retryCommand (by sequence range and time
+  // span) when a later attempt of the identical command completed in it. Its
+  // time is still charged; anything else keeps failing.
+  const retries = executed.filter(item => item.type === 'retryCommand' && item.completed).map(retry => ({...retry,
+    limit: Math.min(Infinity, ...started.filter(s => s.sequence > retry.sequence && s.depth <= retry.depth)
+      .map(s => s.sequence))}));
+  const within = (retry, item) => item.sequence > retry.sequence && item.sequence < retry.limit &&
+    item.start >= retry.start && item.end <= retry.end;
+  for (const item of executed) {
+    if (item.category !== 'wrapper' && item.failedRaw && item.mandatory && retries.some(retry => within(retry, item) &&
+        executed.some(later => later.sequence > item.sequence && later.completed &&
+          later.identity === item.identity && within(retry, later)))) {
+      item.status = 'passed'; item.recovered = true;
     }
-    executed.push({category, start, end: start + duration, depth: m.depth,
-      elapsedMs: duration, status, sequence: m.sequenceNumber, completed: m.status === 'COMPLETED'});
+    if (item.category === 'assertion' && item.mandatory && !item.recovered) {
+      assertions[item.status === 'passed' ? 'executed' : 'failed']++;
+    }
   }
   const commands = [];
   const leaves = executed.filter(item => item.category !== 'wrapper').sort((a, b) => a.sequence - b.sequence);
   for (const [index, item] of leaves.entries()) {
     // Wrappers/embedded definitions are not another executed list.
-    for (const [previousIndex, previous] of leaves.slice(0, index).entries()) {
+    // Pinned Maestro timestamps/durations are independently quantized to
+    // milliseconds. One general rounding rule: any two completed leaves may
+    // overlap by at most 1 ms, whatever their depth, adjacency or the records
+    // between them. Time already charged to earlier leaves is charged once
+    // (the union of the shared intervals is removed). Any overlap above 1 ms,
+    // fractional timing, or an overlap involving a failed, warned or running
+    // leaf is a real conflict and fails the artifact.
+    const shared = [];
+    for (const previous of leaves.slice(0, index)) {
       if (previous.start >= item.end || item.start >= previous.end) { continue; }
-      // Pinned Maestro timestamps/durations are independently quantized to
-      // milliseconds. Only adjacent completed leaves may share one boundary
-      // millisecond, with strictly advancing starts AND ends. Charge it once.
-      const overlap = previous.end - item.start;
-      if (previousIndex !== index - 1 || !previous.completed || !item.completed ||
-          ![previous.start, previous.end, item.start, item.end].every(Number.isInteger) ||
-          item.start <= previous.start || item.end <= previous.end || overlap !== 1) {
+      const from = Math.max(previous.start, item.start), to = Math.min(previous.end, item.end);
+      if (!previous.completed || !item.completed ||
+          ![previous.start, previous.end, item.start, item.end].every(Number.isInteger) || to - from > 1) {
         invalid('unsupported-artifact-overlap');
       }
-      item.elapsedMs -= overlap;
+      shared.push([from, to]);
     }
+    let covered = 0, reach = -Infinity;
+    for (const [from, to] of shared.sort((a, b) => a[0] - b[0])) {
+      if (to > reach) { covered += to - Math.max(from, reach); reach = to; }
+    }
+    item.elapsedMs -= covered;
     let total = commands.find(c => c.category === item.category && c.status === item.status);
     if (!total) { total = {category: item.category, count: 0, elapsedMs: 0, status: item.status}; commands.push(total); }
     total.count++; total.elapsedMs += item.elapsedMs;
@@ -322,6 +385,9 @@ function markdown(run) {
     '| API | Subject | Repetition | Status | Elapsed ms |\n| --- | --- | --- | --- | --- |\n' +
     run.apiRuns.flatMap(a => a.samples.map(s =>
       `| ${a.api} | ${s.scenarioId} | ${s.repetition} | ${s.status} | ${s.elapsedMs} |`)).join('\n') +
+    (run.serviceRestarts ? '\n\n| Service | Container restarts | Restart events |\n| --- | --- | --- |\n' +
+      run.serviceRestarts.map(r => `| ${r.protocol} | ${r.restarts} | ` +
+        `${r.events.map(e => `${e.action} ${new Date(e.unixMs).toISOString()}`).join(', ') || 'none'} |`).join('\n') : '') +
     '\n\nPhase durations are disjoint; samples are nonadditive phase diagnostics. ' +
     'Command costs exclude inclusive wrappers; they are not app profiles. ' +
     'Unknown metadata prevents a matched comparison. Renderer ranking is not implemented in this foundation.\n';
@@ -360,6 +426,38 @@ async function logicalBytes(directory) {
     else if (entry.isFile()) { total += (await lstat(path)).size; }
   }
   return total;
+}
+
+async function effectiveAnimationScales(directory, sdk, serial) {
+  const scratch = await mkdtemp(join(directory, 'animation-probe-'));
+  const guest = `/data/local/tmp/syncscope-animation-${randomBytes(12).toString('hex')}.jar`;
+  const adb = join(sdk, 'platform-tools/adb');
+  const execute = (command, args) => {
+    const p = spawnSync(command, args, {encoding: 'utf8', timeout: 30000});
+    if (p.status !== 0) { invalid('unknown-animation-metadata'); }
+    return p.stdout.trim();
+  };
+  try {
+    const source = fileURLToPath(new URL('./SyncScopeAnimationScales.java', import.meta.url));
+    execute(process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin/javac') : 'javac',
+      ['--release', '8', '-d', scratch, source]);
+    const jar = join(scratch, 'probe.jar');
+    execute(join(sdk, 'build-tools/37.0.0/d8'),
+      ['--min-api', '31', '--output', jar, join(scratch, 'SyncScopeAnimationScales.class')]);
+    execute(adb, ['-s', serial, 'push', jar, guest]);
+    const values = execute(adb, ['-s', serial, 'shell',
+      `trap 'rm -f ${guest}' EXIT HUP INT TERM; CLASSPATH=${guest} app_process / SyncScopeAnimationScales`]).split(/\s+/);
+    if (values.length !== 3 || values.some(v =>
+      !/^\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(v) || !Number.isFinite(Number(v)))) {
+      invalid('unknown-animation-metadata');
+    }
+    return Object.fromEntries(['window', 'transition', 'animator'].map((key, i) => [key, Number(values[i])]));
+  } finally {
+    // Only this uniquely named observational artifact is ever removed.
+    const cleanup = spawnSync(adb, ['-s', serial, 'shell', 'rm', '-f', guest], {encoding: 'utf8', timeout: 10000});
+    await rm(scratch, {recursive: true, force: true});
+    if (cleanup.status !== 0) { invalid('unknown-animation-metadata'); }
+  }
 }
 async function clock() {
   if (process.env.SYNCSCOPE_CLOCK_BIN) {
@@ -468,7 +566,9 @@ async function main(args) {
   }
   if (command === 'require-original-software') {
     const run = await state(rest[0]), a = run.apiRuns.find(r => r.api === Number(rest[1]));
-    if (!a?.profile.verified || a.profile.cpu !== 'kvm' || a.profile.graphics !== 'software') {
+    if (!a?.profile.verified || a.profile.cpu !== 'kvm' || a.profile.graphics !== 'software' ||
+        !a.image || Object.values(a.resources).some(v => v === null) ||
+        Object.values(a.animations).some(v => v === null)) {
       invalid('unknown-original-software-mode');
     }
     return;
@@ -505,12 +605,14 @@ async function main(args) {
     const p = spawnSync(join(sdk, 'platform-tools/adb'), ['-s', serial, 'shell',
       `volume=$(sm list-volumes public | awk '$2 == "mounted" {print $3; exit}'); ` +
       `[ -n "$volume" ] || exit 1; find /sdcard/SyncScopeE2E /sdcard/DCIM/Big ` +
-      `"/storage/$volume/SyncScopeE2E" -type f -exec stat -c %s {} \\;`],
+      `"/storage/$volume/SyncScopeE2E" -type f -exec stat -c %s {} +`],
     {encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024});
     const values = p.stdout?.trim().split(/\s+/) ?? [];
-    if (p.status === 0 && values.length && values.every(v => /^\d+$/.test(v))) {
-      run.fixtureSet.logicalBytes = await logicalBytes(root) + values.reduce((sum, v) => sum + Number(v), 0);
+    if (p.status !== 0 || !values.length || !values.every(v => /^\d+$/.test(v) && Number.isSafeInteger(Number(v)))) {
+      invalid('unknown-fixture-metadata');
     }
+    run.fixtureSet.logicalBytes = await logicalBytes(root) + values.reduce((sum, v) => sum + Number(v), 0);
+    if (!Number.isSafeInteger(run.fixtureSet.logicalBytes)) { invalid('unknown-fixture-metadata'); }
     await save(directory, run); return;
   }
   if (command === 'device') {
@@ -527,8 +629,11 @@ async function main(args) {
   }
   if (command === 'capture-device') {
     const [destination, sdk, serial, api, avd] = rest;
-    const adb = (...a) => spawnSync(join(sdk, 'platform-tools/adb'), ['-s', serial, ...a],
-      {encoding: 'utf8', timeout: 10000}).stdout?.trim() ?? '';
+    const adb = (...a) => {
+      const result = spawnSync(join(sdk, 'platform-tools/adb'), ['-s', serial, ...a],
+        {encoding: 'utf8', timeout: 10000});
+      return result.status === 0 ? result.stdout?.trim() ?? '' : '';
+    };
     const mem = adb('shell', 'cat /proc/meminfo');
     const renderer = adb('shell', 'dumpsys SurfaceFlinger');
     const gles = renderer.split('\n').find(line => /\bGLES:/.test(line)) ?? '';
@@ -551,13 +656,24 @@ async function main(args) {
     const ram = mem.match(/^MemTotal:\s+(\d+)/m);
     const cpu = adb('shell', 'getconf _NPROCESSORS_ONLN');
     const config = await bytes(join(process.env.ANDROID_AVD_HOME || join(process.env.HOME, '.android/avd'), `${avd}.avd/config.ini`));
-    const imagePath = config.toString().match(/^image\.sysdir\.1=(.+)$/m)?.[1];
-    const imageProperties = imagePath ? await bytes(join(sdk, imagePath, 'source.properties')) : Buffer.alloc(0);
+    const imagePath = config.toString().match(/^image\.sysdir\.1\s*=\s*(.+)$/m)?.[1]?.trim();
+    const imageProperties = imagePath ? await bytes(join(resolve(sdk, imagePath), 'source.properties')) : Buffer.alloc(0);
     const animations = {};
+    let effectiveScales;
     for (const [key, setting] of [['window', 'window_animation_scale'],
       ['transition', 'transition_animation_scale'], ['animator', 'animator_duration_scale']]) {
       const value = adb('shell', 'settings', 'get', 'global', setting);
-      animations[key] = /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : null;
+      let observed = value;
+      if (value === 'null') {
+        // API 31 does not expose these effective values in dumpsys window.
+        // Query the runtime getter, not a guessed default or a settings write.
+        effectiveScales ??= await effectiveAnimationScales(dirname(destination), sdk, serial);
+        observed = String(effectiveScales[key]);
+      }
+      if (!/^\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(observed) || !Number.isFinite(Number(observed))) {
+        invalid('unknown-animation-metadata');
+      }
+      animations[key] = Number(observed);
     }
     const m = {image: imageProperties.length ? hash(imageProperties) : null,
       cpu: kvm ? 'kvm' : 'unknown', graphics, backend: gles ? hash(gles) : null,
@@ -606,6 +722,14 @@ async function main(args) {
     run.failureCode = exit === '0' ? null : exit === '130' ? 'interrupted' :
       exit === '124' ? 'timeout' : failureCode;
     run.fixtureSet.restoration = restoration;
+    const restarts = [];
+    for (const protocol of protocols) {
+      let text;
+      try { text = await readFile(join(directory, 'raw', 'lifecycle', `${protocol}.restarts`), 'utf8'); }
+      catch (error) { if (error.code === 'ENOENT') { continue; } throw error; }
+      restarts.push(parseServiceRestarts(protocol, text));
+    }
+    if (restarts.length) { run.serviceRestarts = restarts; }
     for (const a of run.apiRuns) {
       a.status = run.status;
       if (run.mode === 'measure' && a.samples.length !== 24 && run.status === 'passed') { invalid('invalid-incomplete-success'); }
