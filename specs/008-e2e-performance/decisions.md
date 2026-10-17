@@ -119,3 +119,7 @@
 ## 2026-10-17 — Phase 3: User Story 2, Use Available Emulator Acceleration Safely (Priority: P1) [T024-T028]
 **Q:** Normal validation runs with NVIDIA off by default (`nvx off`), which leaves both API rankings stale. How should T026 enable ranked automatic selection?
 **A:** Require NVIDIA on for ranked runs — Keep the current rankings. The detached T026 run turns NVIDIA on, checks it at each step and turns it off at the end (on failure too), as the calibration did. Runs with NVIDIA off fall back to the next ranked option and are truthfully labeled stale. No recalibration and no contract change; the docs say ranked selection needs `nvx on`.
+
+## 2026-10-17 — Phase 3: User Story 2, Use Available Emulator Acceleration Safely (Priority: P1) [T026-T028]
+**Q:** T026 acceptance campaign ranked-acceptance-3382f9f6de494bb4f8e83778: API 31 passed on host-intel-1. API 36 selected host-nvidia-1 (current) but Maestro failed 1 of 20 flows: browse/02-gallery-filters, where the GalleryTwin source row was not visible right after the folder picker returned (it passed in all 7 earlier recorded runs). Changing the flow would make both rankings stale. How should we proceed?
+**A:** Rerun API 36 unchanged — Keep the failed run as evidence. Rerun only e2e-36 with --graphics auto and NVIDIA on, with no code or flow change. The API 31 pass stands and the rankings stay current.
