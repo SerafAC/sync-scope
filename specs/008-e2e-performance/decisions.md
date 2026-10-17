@@ -123,3 +123,7 @@
 ## 2026-10-17 — Phase 3: User Story 2, Use Available Emulator Acceleration Safely (Priority: P1) [T026-T028]
 **Q:** T026 acceptance campaign ranked-acceptance-3382f9f6de494bb4f8e83778: API 31 passed on host-intel-1. API 36 selected host-nvidia-1 (current) but Maestro failed 1 of 20 flows: browse/02-gallery-filters, where the GalleryTwin source row was not visible right after the folder picker returned (it passed in all 7 earlier recorded runs). Changing the flow would make both rankings stale. How should we proceed?
 **A:** Rerun API 36 unchanged — Keep the failed run as evidence. Rerun only e2e-36 with --graphics auto and NVIDIA on, with no code or flow change. The API 31 pass stands and the rankings stay current.
+
+## 2026-10-17 — Phase 3: User Story 2, Use Available Emulator Acceleration Safely (Priority: P1) [T026-T028]
+**Q:** The API 36 rerun on host-nvidia-1 (e2e36-rerun-d12a1b72ab3bc4ee788fdf40, inv-227985996584af930398cbf3) failed again at 31/32: polish/01-sort could not find sources.add inside the add-scan-source loop. Both API 36 failures sit in add-scan-source on the Settings source list, while earlier API 36 e2e runs passed on software graphics. How should we proceed before a third attempt?
+**A:** Diagnose first — Do a read-only investigation of both failures (UI hierarchy, screenshots, timings, comparison with passing software runs) that names the cause and a fix. Make no code change yet; come back with the finding and its cost, since a flow or app fix makes the rankings stale.
