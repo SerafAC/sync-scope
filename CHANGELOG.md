@@ -9,6 +9,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- Verified emulator acceleration for the validation runner (feature 008, US2):
+  `scripts/validation/android-flow.sh --graphics auto|host-opengl|software` discovers exposed Intel and
+  NVIDIA host GPUs and the emulator's software modes, requires KVM, verifies the actual renderer after
+  every boot, falls back in a fixed order (`swiftshader`, `software`, then others) while releasing only
+  the rejected emulator, and fails with an actionable message when nothing works. `measure --graphics
+  auto` calibrates one candidate per invocation on the frozen workload and ranks each API; later `auto`
+  runs reuse the ranking only while its `rankingFingerprint` matches. Measured on the development host,
+  API 31 ranks Intel and passed full acceptance; API 36 ranks NVIDIA, which needs `nvx on` and whose
+  acceptance is blocked by a known flow race fixed in a later phase. A developer harness,
+  `scripts/validation/acceleration-fault-check.mjs`, proves fallback and exhaustion by injecting launch
+  failures. `pnpm e2e:android` without `--graphics` keeps the original emulator launch.
 - Measurement-owned validation emulators receive a finite four-hour lifetime through an authenticated
   full-invocation mode claim. Other modes retain 2.5 hours, borrowed emulators remain unchanged, and
   Metro stays capped at four hours; no arbitrary lifetime override or action-speedup claim is added.

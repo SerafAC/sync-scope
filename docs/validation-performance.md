@@ -3,15 +3,17 @@
 ## Current boundary
 
 Feature 008 foundation adds observational reporting, private artifact routing and resource-ownership
-safety. It does **not** optimize app behavior, interactions, builds, fixtures or guest settings, select
-a best renderer, or establish a timing baseline merely by passing unit tests.
+safety. It does **not** optimize app behavior, interactions, builds, fixtures or guest settings, or
+establish a timing baseline merely by passing unit tests.
 The runner accepts `connected`, `e2e`, `release-smoke` and `measure`, repeated `--api` arguments,
-`--report-dir`, and `--graphics software`. Direct invocation still defaults to API 31;
-`pnpm e2e:android` still requests API 31 followed by 36.
-`auto` and `host-opengl` are recognized but fail before setup until the acceleration phase implements
-them. In this foundation, `software` preserves the original **legacy launch request**, not the
-future supported-backend selection described in the
-[feature walkthrough](../specs/008-e2e-performance/quickstart.md).
+`--report-dir`, and `--graphics auto|host-opengl|software`. Direct invocation still defaults to API 31;
+`pnpm e2e:android` still requests API 31 followed by 36 and, without `--graphics`, keeps the original
+**legacy launch request** (`-gpu swiftshader_indirect`), reported as software, until T046 makes
+`--graphics auto` the default after the T037 Settings flow-race fix. `swiftshader_indirect` is
+only that baseline reproduction, never a fallback.
+
+US2 (verified acceleration) is implemented; see [Graphics acceleration](#graphics-acceleration-us2)
+for the selection, fallback and ownership behavior and its measured compatibility evidence.
 Existing acceptance instructions remain in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
 The authorized recovery collects separately per API to respect Metro's unchanged four-hour cap.
@@ -1144,6 +1146,188 @@ NODE
 Keep the producing build records with the snapshot; this example is only exclusive artifact capture,
 not a replacement for provenance or the future reporter. If metadata capture fails after the copy,
 retain that partial capture as incomplete and use a new snapshot/capture identity; do not overwrite it.
+
+### T024 host-graphics calibration: one candidate per invocation
+
+The first `measure --graphics auto` design calibrated every candidate in one invocation under one
+Metro, which its 14,400-second cap cannot fit (one software cohort alone took about 3 h). Following
+the 2026-10-16 decision, a calibrating invocation now measures **exactly one** planned candidate with
+its own Metro, and its 24 samples are that renderer's own cohort. `calibration-plan` picks the first
+planned candidate of the stored per-API round that has no result yet; `rank` adds the invocation's
+result to the round in the report directory's `acceleration-ranking.json` (`calibrations[api]`).
+The API is ranked (`apis[api]`, with `calibrationInvocations`) only once every planned candidate has a
+result and none failed its measurement; until then each invocation's selection is `provisional`. Changed
+pre-boot inputs, a changed ranking fingerprint or a finished round that did not rank start a new round,
+and the old one is kept in `calibrationHistory`, never merged. A candidate that fails to boot is
+recorded as `boot-failed` and its invocation exits nonzero, because it measured no baseline. Workloads,
+samples, assertions and the Metro and emulator caps are unchanged. Fail-first tests are in
+`scripts/validation/performance-runner.test.mjs` and `scripts/validation/performance-report.test.mjs`.
+The foundation gate passed **216/216**.
+
+The detached campaign `host-calibration-4fc2d85e6646bf6816eb1593` (`before-host/`) is prepared but not
+started. It runs six invocations, API 31 then 36, each calibrating one of `host-intel-1`,
+`host-nvidia-1` and `software-swiftshader` (the software control), all into one shared report
+directory. Its collector runs `nvx on` before discovery, checks the NVIDIA power state before every
+child, records it in `nvidia-power.json`, and runs `nvx off` at the end, also on failure or signal.
+A candidate's own boot or measurement failure is retained and the campaign continues. A signal,
+changed source or prior evidence, NVIDIA power loss or non-discovery, an unexpected candidate, a
+producing APK other than the pin `b7e9ed37…`, or changed image, guest resources or animation
+scales stops it. The snapshot pins a 362-file closure: the T014 closure plus the acceleration module
+and its test. Its input fingerprint `dacf09e0…` differs from T014's `b45602e4…` only in US2
+acceleration setup files (`android-flow.sh`, `android-validator.sh`, the report/acceleration modules
+and their tests). The diff from `d61ce5f` is kept as `fingerprint-diff.private.patch`. App,
+flows, fixtures, workload, build, guest resources, animation settings, timeouts and assertions are
+unchanged. All 6,055 earlier evidence files are pinned.
+
+**Result (T024 complete).** The main session ran the campaign detached; its collector exited 0 and
+`completion.json` is `passed`. All six invocations passed 24/24 samples with KVM and the requested
+renderer verified, the APK pin matched, and `nvidia-power.json` shows NVIDIA `on` at every child
+checkpoint and `off` after the final `nvx off`. H03/H07/H08 median subtotals (s):
+
+| API | host-intel-1 | host-nvidia-1 | software-swiftshader (control) | Ranked selection |
+| --- | --- | --- | --- | --- |
+| 31 | **424.1** | 440.9 | 473.0 | host-intel-1 (no tie, no tradeoff) |
+| 36 | 440.4 | **429.7** | 474.7 | host-nvidia-1 (2.5 % ahead; H04 faster on Intel) |
+
+Both APIs are `ranked` in `runs/acceleration-ranking.json` (ranking fingerprints `463d12c9…` and
+`ca45f96e…`). Every candidate's 24 samples are its original-code (APK `b7e9ed37…`) H01–H08 baseline
+for later matched-mode comparison; the software control is kept beside them, and T014's legacy
+`swiftshader_indirect` cohorts stay the original-mode reference. No candidate failed; one FTP
+container restart in `measure-31-software-swiftshader` is recorded (all its samples passed). Guest
+Vulkan was observed `enabled` on API 31 and `absent` on API 36.
+
+NVIDIA availability is power-dependent: on this Optimus host the RTX 4070 (10de:2820, renderD129)
+is exposed only after `nvx on`. In the default `off` state discovery truthfully reports
+`host-nvidia-1` as unavailable (`audio-only`). That is unavailability, not incompatibility; the
+calibration proves the powered route works. Because the exposed candidate set is a ranking input, a
+run with NVIDIA off does not match these rankings. The validator never changes host power itself.
+The per-renderer summary is in `before-host/host-calibration.md`.
+
+### T025 automated fallback check
+
+`node scripts/validation/acceleration-fault-check.mjs --api 31 --api 36 --case <hardware-fallback|all-options-fail> --report-dir <dir>`
+is a developer acceptance harness, not a runner option. It takes the same `invocation.lock` claim as
+`android-flow.sh`, then drives the real validator lifecycle under `--graphics auto` semantics with a
+private SDK overlay whose generated emulator wrapper rejects only this run's token-scoped launches of
+the owned AVD. Probes pass through, the installed SDK, AVDs and parent environment are untouched, and
+the overlay is removed afterwards. It writes an allowlisted `fault-check.json` (`rankingUse: false`,
+`timingSamples: 0`) and exits 0 only when the case's expected result and cleanup checks hold, so the
+expected validator exit 1 of `all-options-fail` is a harness pass. On 2026-10-17, with NVIDIA in its
+default unpowered state, `hardware-fallback` fell back from the injected `host-intel-1` to verified
+KVM `software-swiftshader` with a healthy device on both APIs, and `all-options-fail` exhausted all
+five candidates in order with the actionable message and clean release on both APIs. A first
+`hardware-fallback` run was rejected by a harness evaluation bug (graphics kind read from the wrong
+record); it is retained, the bug was fixed fail-first, and the rerun passed. Details:
+`validation/evidence/performance/acceleration-fallback.md`.
+
+### T026 ranked-selection acceptance campaign
+
+Ranked automatic selection already works through the existing runner path: `android-flow.sh e2e
+--graphics auto` reads `acceleration-ranking.json` in its report directory, tries the ranked candidate
+first, reverifies KVM, renderer, driver, image, guest resources and animation scales after boot, and
+labels the selection `current` only when the recomputed `rankingFingerprint` matches. A different actual
+candidate is `provisional`, changed inputs are `stale`. T026 therefore changes no helper or app file:
+editing `android-flow.sh` or `android-validator.sh` would change the ranking's `helperClosure` input and
+make both rankings stale, which the 2026-10-17 decision rules out (keep the rankings, no recalibration).
+Ranked selection needs `nvx on`, because the exposed candidate set is a ranking input; with NVIDIA
+off, auto falls back to the next option and is truthfully labeled stale.
+
+The detached campaign `ranked-acceptance-3382f9f6de494bb4f8e83778` (`acceptance-host/`) ran
+two children. It runs two normal `e2e --api <31|36> --graphics auto` invocations into one report
+directory whose ranking store is a byte-identical copy of the T024 store (`ac220731…`). Its collector
+runs `nvx on` before discovery, checks the NVIDIA power state before and after each child, and runs
+`nvx off` at the end, also on failure or signal. A run counts as a ranked hardware acceptance only when
+the full workspace plus staged e2e passes (8 acceptance invocations, assertions executed, none failed
+or missing) and the ranked choice (`host-intel-1` on API 31, `host-nvidia-1` on API 36) was reused
+with selection `current`, no rejected attempt, KVM, hardware graphics, and the same renderer, driver,
+image, configured guest resources, animation scales and fixtures as that candidate's calibration run.
+A passing run with a fallback or other identity difference is recorded as a separate cohort, never as
+a hardware result, and no run is a timing sample. A signal, changed source, prior evidence or ranking
+store, NVIDIA power loss, an APK other than the pin `b7e9ed37…`, or a lifetime/identity fault stops
+it. Its input fingerprint `7a71c4b4…` differs from T024's `dacf09e0…` only by the two added T025
+fault-check files (reporting-only; all ranking repository inputs are unchanged). The snapshot pins
+364 source files and the campaign pins all 7,480 earlier evidence files. Foundation gate: **226/226**.
+
+**Result (incomplete).** The main session ran it detached; the collector exited 1 with
+`blocker.json` reason `not-ranked-hardware-accepted`. `e2e-31` (`inv-a89a8dc1…`) is
+`ranked-hardware-accepted` on `host-intel-1` and stands. `e2e-36` (`inv-90fff888…`) selected
+`host-nvidia-1` with selection `current` and every identity check true, but Maestro failed 1 of 20
+flows: `browse/02-gallery-filters`, where the GalleryTwin source row was not visible right after the
+folder picker returned (it passed in all 7 earlier recorded runs). Its outcome is `acceptance-failed`.
+NVIDIA stayed `on` at every checkpoint and was turned `off` at the end; the ranking store is unchanged.
+Both runs are retained unchanged.
+
+Per the 2026-10-17 decision (rerun API 36 unchanged), the detached campaign
+`e2e36-rerun-d12a1b72ab3bc4ee788fdf40` (`acceptance-host/`) was then run detached. It runs only
+`e2e --api 36 --graphics auto` with the same collector logic (byte-identical below a new header), the
+same snapshot and input fingerprint `7a71c4b4…` (all 364 source files rechecked unchanged, so no code,
+flow or ranking input differs), a fresh byte-identical copy of the T024 ranking store (`ac220731…`),
+and NVIDIA on for the whole run. It pins all 7,946 earlier evidence files, including the failed
+campaign. Foundation gate: **226/226**. It was launched detached from the repository root with
+`setsid nohup node validation/evidence/performance/acceptance-host/e2e36-rerun-d12a1b72ab3bc4ee788fdf40/collect.private.mjs > validation/evidence/performance/acceptance-host/e2e36-rerun-d12a1b72ab3bc4ee788fdf40/supervisor.private.log 2>&1; echo $? > validation/evidence/performance/acceptance-host/e2e36-rerun-d12a1b72ab3bc4ee788fdf40/supervisor.exit`.
+
+**Result (T026 complete on API 31; API 36 deferred).** The rerun `inv-22798599…` also selected
+`host-nvidia-1` with selection `current` and every identity check true, and failed at 31 of 32 flows:
+`polish/01-sort` could not find `sources.add` inside the add-scan-source loop. A read-only diagnosis
+(2026-10-18 decision) found a race in `validation/maestro/subflows/open-sources.yaml` and
+`pick-folder.yaml`: Settings first renders the Repository and Device folders sections as loading
+spinners, so `scrollUntilVisible sources.add` succeeds on that pre-load frame, then the loaded rows push
+the button or the new row off-screen and the following tap or wait does not scroll. Faster NVIDIA
+rendering on API 36 exposes it. Because any flow fix makes both rankings stale, T026 is accepted on the
+API 31 ranked pass (`inv-a89a8dc1…`, `host-intel-1`, 8 invocations, 1,184 assertions, 0 failed or
+missing), and API 36 on `host-nvidia-1` stays **blocked by this flow race**. The fix is folded into
+T037; T046's recalibration and T047's full both-API e2e prove it. All three runs are retained. Details:
+`validation/evidence/performance/acceleration-acceptance.md`; the US2 contract check and local decision
+are in `validation/evidence/performance/us2-acceptance.md`.
+
+## Graphics acceleration (US2)
+
+**Profiles.** `--graphics` is one of a finite set. `auto` discovers exposed host GPUs (Intel and NVIDIA
+are independent candidates, each with its render node and per-process selector), then the emulator's
+advertised software modes; it tries the ranked candidate first when the report directory holds a
+ranking for the API, otherwise exposed host routes before software. `host-opengl` tries exposed host
+routes, then software, without ranking. `software` tries only the software modes, in the fixed order
+`swiftshader`, `software`, then `lavapipe` and `swangle` only if needed. Host routes launch with
+`-gpu host -feature -Vulkan -accel on`. KVM is required: if it is unusable, no candidate meets the CPU
+profile and the validator fails with an actionable message instead of emulating the CPU in software.
+
+**Verification and fallback.** Boot completion does not verify graphics. After boot the validator
+records the actual CPU mode, renderer, backend, driver, guest Vulkan state, image, guest resources
+(requested and observed RAM separately) and animation scales, and rejects a candidate whose identity is
+ambiguous or wrong (for example a software renderer under a host request). A rejected candidate's own
+emulator is released before the next attempt, and every attempt is recorded with a sanitized reason. If
+every candidate fails, the validator exits nonzero. A fallback is a different cohort, labelled
+`provisional`, never a hardware speed result.
+
+**Ranking.** `measure --graphics auto` without a current ranking calibrates one planned candidate per
+invocation on the frozen H01–H08 workload (three repetitions); the API is ranked by the H03/H07/H08
+median subtotal once every planned candidate has a result, with tradeoffs and a 2 % tie band that
+prefers the simpler option. `acceleration-ranking.json` in the report directory stores it with a
+separate `rankingFingerprint` over workload, flow/helper closure, APK, fixtures, API/image, tools,
+drivers, exposed candidates, host power and resources, build/cache policy and guest/animation settings.
+Later `auto` runs reuse it only while that fingerprint matches (`current`); changed inputs make it
+`stale`, and the selection is then not called best-performing.
+
+**Measured compatibility on this host (2026-10-16/17).** Calibration (T024) ranked `host-intel-1` on
+API 31 (424.1 s against 440.9 s for NVIDIA and 473.0 s for the swiftshader control) and `host-nvidia-1`
+on API 36 (429.7 s against 440.4 s for Intel and 474.7 s for swiftshader). These are cross-mode
+configuration timings, not optimization speedups. The ranked API 31 profile passed full workspace plus
+staged acceptance (T026). On API 36 the ranked NVIDIA profile booted and verified twice but its
+acceptance is blocked by the flow race above. The automated fault check (T025) proved fallback from an
+injected host failure to verified `software-swiftshader`, and clean nonzero exhaustion of all five
+candidates, on both APIs.
+
+**NVIDIA unavailability versus compatibility.** On this Optimus host the RTX 4070 is exposed only after
+`nvx on`; in the default `off` state discovery reports `host-nvidia-1` unavailable (`audio-only`). That
+is unavailability, not incompatibility: the powered route calibrated and verified on both APIs. The
+exposed candidate set is a ranking input, so ranked selection needs `nvx on`; with NVIDIA off, `auto`
+falls back to the next option and labels the selection stale. The validator never changes host power.
+
+**Limits.** The SDK is resolved only through `scripts/validation/android-sdk.sh` (`ANDROID_HOME`); the
+validator never installs or changes drivers, the installed SDK, AVD definitions, host power or security
+settings, and never wipes an AVD or stops a foreign or borrowed emulator. NVIDIA power is switched only
+by an explicitly authorized campaign collector, which records it in `nvidia-power.json` and turns it
+off at the end. A Vulkan-enabled host route was not probed, because no measured experiment justified it.
 
 ## Safe records and comparability
 

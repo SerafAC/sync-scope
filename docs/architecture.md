@@ -339,6 +339,15 @@ The validation stack proves behaviour against real servers and real emulators.
   emulator, install the APK and run the instrumented tests (`pnpm validation:android:api31`,
   `pnpm validation:android:api36`) or Maestro flows (`pnpm e2e:android`). `android-sdk.sh` resolves
   `ANDROID_HOME`.
+  With `--graphics auto|host-opengl|software` the validator discovers exposed host GPUs and the
+  emulator's software modes, requires KVM, verifies the actual renderer after every boot, releases a
+  rejected candidate before trying the next and fails nonzero when none works. `auto` reuses a
+  per-API ranking from `acceleration-ranking.json` only while its `rankingFingerprint` matches.
+  `performance-acceleration.mjs` holds discovery, attempt planning and verification;
+  `performance-report.mjs` holds calibration and ranking; `acceleration-fault-check.mjs` injects launch
+  failures through a private SDK overlay to prove fallback. Without `--graphics` the original
+  `swiftshader_indirect` launch is kept. See
+  [validation performance](./validation-performance.md#graphics-acceleration-us2).
 - **Maestro flows.** `validation/maestro/` holds the end-to-end flows; `pnpm e2e:android` runs them on
   API 31 and then API 36, after `device-fixtures.sh` seeds the `SyncScopeE2E/` folders on internal storage
   and the SD card (including the `Scan` and `Bulk` sources of the scan flows and the `Delete`, `Recheck`,

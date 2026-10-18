@@ -1264,43 +1264,84 @@ async function newestRun(h, before) {
   return {id: names[0], run, apiRun: run.apiRuns[0]};
 }
 
-test('measure auto calibrates every viable candidate on the frozen workload, ranks, and reuses only current rankings', async t => {
-  const h = await productionHarness(t);
-  const calibration = h.run(['measure', '--graphics', 'auto']);
-  assert.equal(calibration.status, 0, calibration.stderr);
-  let log = await h.log();
-  // Pinned calibration boots: each discovered host route plus the first software fallback.
-  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['host', 'swiftshader']);
-  assert.equal(log.split('\n').filter(l => l.startsWith('gradle ')).length, 1, 'one APK for every candidate');
-  assert.equal(log.split('\n').filter(l => l === 'maestro').length, 48);
-  const {apiRun} = await newestRun(h, []);
-  const acc = apiRun.acceleration;
-  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.samples.length, c.verified]),
-    [['host-intel-1', 'measured', 24, true], ['software-swiftshader', 'measured', 24, true]]);
-  for (const c of acc.calibration) {
-    assert.deepEqual([...new Set(c.samples.map(s => s.scenarioId))], ['H01', 'H02', 'H03', 'H04', 'H05', 'H06', 'H07', 'H08']);
+async function freshInvocation(h) {
+  await writeFile(h.calls, '');
+  // The recording Docker keeps released containers' port markers; a new
+  // invocation must find its approved ports free again.
+  for (const name of await readdir(h.root)) {
+    if (name.startsWith('container-')) { await rm(join(h.root, name), {force: true}); }
   }
+}
+const seenRuns = async h => (await readdir(join(h.root, 'reports'))).filter(n => n.startsWith('inv-'));
+async function rankingStoreOf(h) {
+  return JSON.parse(await readFile(join(h.root, 'reports/acceleration-ranking.json'), 'utf8'));
+}
+
+test('measure auto calibrates exactly one candidate per invocation and ranks only once every planned candidate has a result', async t => {
+  const h = await productionHarness(t);
+  // First invocation: only the first planned candidate, with its own Metro.
+  const first = h.run(['measure', '--graphics', 'auto']);
+  assert.equal(first.status, 0, first.stderr);
+  let log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['host']);
+  assert.equal(log.split('\n').filter(l => l === 'metro acquired-process').length, 1);
+  assert.equal(log.split('\n').filter(l => l === 'maestro').length, 24);
+  const one = await newestRun(h, []);
+  let acc = one.apiRun.acceleration;
+  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.samples.length, c.verified]),
+    [['host-intel-1', 'measured', 24, true]]);
+  // Its own samples are this renderer's cohort; nothing is ranked yet.
+  assert.equal(one.apiRun.samples.length, 24);
+  assert.ok(one.apiRun.samples.every(s => s.sampleId.includes('-host-intel-1-')));
+  assert.equal(one.apiRun.profile.graphics, 'hardware');
+  assert.equal(acc.selection.status, 'provisional');
+  assert.equal(acc.selection.selectedCandidateId, 'host-intel-1');
+  assert.equal(acc.selection.rankedCandidateId, null);
+  let store = await rankingStoreOf(h);
+  assert.equal(store.apis['31'], undefined, 'an incomplete calibration is never stored as ranked');
+  assert.deepEqual(store.calibrations['31'].planned, ['host-intel-1', 'software-swiftshader']);
+  assert.deepEqual(store.calibrations['31'].results.map(r => [r.candidateId, r.status, r.invocationId]),
+    [['host-intel-1', 'measured', one.id]]);
+
+  // Second invocation: the next planned candidate only, then the ranking.
+  await freshInvocation(h);
+  const second = h.run(['measure', '--graphics', 'auto']);
+  assert.equal(second.status, 0, second.stderr);
+  log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['swiftshader']);
+  assert.equal(log.split('\n').filter(l => l === 'maestro').length, 24);
+  const two = await newestRun(h, [one.id]);
+  acc = two.apiRun.acceleration;
+  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.samples.length]),
+    [['software-swiftshader', 'measured', 24]]);
+  assert.ok(two.apiRun.samples.every(s => s.sampleId.includes('-software-swiftshader-')));
+  assert.equal(two.apiRun.profile.graphics, 'software');
   // Equal synthetic timings are a tie: the simpler stable configuration wins.
   assert.equal(acc.selection.status, 'ranked');
   assert.equal(acc.selection.tie, true);
   assert.equal(acc.selection.selectedCandidateId, 'software-swiftshader');
+  assert.equal(acc.selection.rankedCandidateId, 'software-swiftshader');
   assert.deepEqual(acc.selection.order.map(o => o.candidateId), ['software-swiftshader', 'host-intel-1']);
-  assert.equal(apiRun.samples.length, 24);
-  assert.ok(apiRun.samples.every(s => s.sampleId.includes('-software-swiftshader-')));
-  assert.equal(apiRun.profile.graphics, 'software');
-  const store = JSON.parse(await readFile(join(h.root, 'reports/acceleration-ranking.json'), 'utf8'));
+  store = await rankingStoreOf(h);
   assert.equal(store.apis['31'].selectedCandidateId, 'software-swiftshader');
   assert.equal(store.apis['31'].rankingFingerprint, acc.selection.rankingFingerprint);
+  assert.deepEqual(store.apis['31'].calibrationInvocations, [one.id, two.id]);
+  // The first invocation's retained record is never rewritten by the ranking.
+  assert.deepEqual(JSON.parse(await readFile(join(h.root, 'reports', one.id, 'run.json'), 'utf8')), one.run);
 
-  const seen = async () => (await readdir(join(h.root, 'reports'))).filter(n => n.startsWith('inv-'));
+  // Current ranking: a further measure auto does not calibrate again.
+  await freshInvocation(h);
+  const reuse = h.run(['measure', '--graphics', 'auto']);
+  assert.equal(reuse.status, 0, reuse.stderr);
+  log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')), ['emulator gpu swiftshader accel-on']);
+  const three = await newestRun(h, [one.id, two.id]);
+  assert.equal(three.apiRun.acceleration.selection.status, 'current');
+  assert.deepEqual(three.apiRun.acceleration.calibration, []);
+
   const auto = async () => {
-    const before = await seen();
-    await writeFile(h.calls, '');
-    // The recording Docker keeps released containers' port markers; a new
-    // invocation must find its approved ports free again.
-    for (const name of await readdir(h.root)) {
-      if (name.startsWith('container-')) { await rm(join(h.root, name), {force: true}); }
-    }
+    const before = await seenRuns(h);
+    await freshInvocation(h);
     const result = h.run(['e2e', '--graphics', 'auto']);
     assert.equal(result.status, 0, result.stderr);
     return newestRun(h, before);
@@ -1321,17 +1362,48 @@ test('measure auto calibrates every viable candidate on the frozen workload, ran
   next = await auto();
   assert.equal(next.apiRun.acceleration.selection.status, 'stale');
   assert.notEqual(next.apiRun.acceleration.selection.rankingFingerprint, store.apis['31'].rankingFingerprint);
+  // A new calibration round then starts from the first planned candidate; the
+  // retained earlier round is kept, not merged.
+  await freshInvocation(h);
+  const recalibrate = h.run(['measure', '--graphics', 'auto']);
+  assert.equal(recalibrate.status, 0, recalibrate.stderr);
+  log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['host']);
+  store = await rankingStoreOf(h);
+  assert.equal(store.calibrations['31'].results.length, 1);
+  assert.equal(store.calibrationHistory['31'].length, 1);
+  assert.deepEqual(store.calibrationHistory['31'][0].results.map(r => r.candidateId), ['host-intel-1', 'software-swiftshader']);
 });
 
 test('a calibration candidate that fails to boot is retained as incompatible, not ranked or fatal', async t => {
   const h = await productionHarness(t);
   const result = h.run(['measure', '--graphics', 'auto'], {FAKE_GPU_FAIL: 'host'});
-  assert.equal(result.status, 0, result.stderr);
-  const {apiRun} = await newestRun(h, []);
-  const acc = apiRun.acceleration;
+  // The incompatible candidate is recorded; this invocation measured no baseline.
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /host-intel-1 did not boot for API 31/);
+  const one = await newestRun(h, []);
+  assert.equal(one.run.status, 'failed');
+  let acc = one.apiRun.acceleration;
   assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.reason, c.samples.length]),
-    [['host-intel-1', 'boot-failed', 'emulator-exited', 0], ['software-swiftshader', 'measured', null, 24]]);
+    [['host-intel-1', 'boot-failed', 'emulator-exited', 0]]);
+  assert.equal(one.apiRun.samples.length, 0);
+  assert.equal(acc.selection.status, 'provisional');
+  assert.equal(acc.selection.rankedCandidateId, null);
+  let log = await h.log();
+  assert.equal(log.split('\n').filter(l => l === 'maestro').length, 0, 'a failed candidate is not retried in its own run');
+  await freshInvocation(h);
+  const second = h.run(['measure', '--graphics', 'auto'], {FAKE_GPU_FAIL: 'host'});
+  assert.equal(second.status, 0, second.stderr);
+  log = await h.log();
+  assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]), ['swiftshader']);
+  const two = await newestRun(h, [one.id]);
+  acc = two.apiRun.acceleration;
+  assert.deepEqual(acc.calibration.map(c => [c.candidateId, c.status, c.reason, c.samples.length]),
+    [['software-swiftshader', 'measured', null, 24]]);
+  assert.equal(acc.selection.status, 'ranked');
   assert.equal(acc.selection.selectedCandidateId, 'software-swiftshader');
   assert.equal(acc.selection.order.find(o => o.candidateId === 'host-intel-1').status, 'boot-failed');
-  assert.equal(apiRun.samples.length, 24);
+  assert.equal(two.apiRun.samples.length, 24);
+  const store = await rankingStoreOf(h);
+  assert.equal(store.apis['31'].selectedCandidateId, 'software-swiftshader');
 });

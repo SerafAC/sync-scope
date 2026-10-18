@@ -185,6 +185,40 @@ scripts/validation/android-validator.sh stop --api 36 --avd dependency_api36 \
 If no `mounted` public volume is listed, see
 [An AVD with no SD card image](#an-avd-with-no-sd-card-image-feature-003).
 
+### Graphics acceleration (feature 008)
+
+`pnpm e2e:android` keeps the original emulator launch (`-gpu swiftshader_indirect`) until T046 makes
+`--graphics auto` the default, after the T037 Settings flow-race fix. Until then, to use verified
+acceleration, pass `--graphics` to `scripts/validation/android-flow.sh`:
+
+```sh
+scripts/validation/android-flow.sh e2e --api 31 --graphics auto --report-dir <dir>
+```
+
+- `auto` discovers the exposed host GPUs (Intel and NVIDIA are separate candidates) and the emulator's
+  software modes. It tries the ranked candidate first when `<dir>/acceleration-ranking.json` holds a
+  ranking for that API, otherwise host routes first, then software.
+- `host-opengl` tries host routes (`-gpu host -feature -Vulkan -accel on`) and then software, without a
+  ranking. `software` tries only `swiftshader`, `software`, then `lavapipe` and `swangle`.
+- KVM is required. Every boot is verified (CPU mode, actual renderer, driver, image, resources and
+  animation scales); a candidate that fails or reports the wrong renderer is released and the next is
+  tried, and the run fails with an actionable message when none works. A fallback is recorded as a
+  different, `provisional` profile, not as the ranked hardware result.
+- A ranking is reused only while its `rankingFingerprint` still matches the app, flows, helpers,
+  fixtures, image, drivers, exposed GPUs, host power and guest settings; otherwise it is `stale`.
+  `measure --graphics auto` recalibrates one candidate per invocation.
+- On this Optimus laptop the NVIDIA GPU is visible only after `nvx on`. With it off, NVIDIA is reported
+  unavailable (not incompatible), and an `auto` run against the current rankings falls back and is
+  labelled stale. Ranked selection therefore needs `nvx on`; turn it off with `nvx off` afterwards. The
+  scripts never change GPU power, drivers, the SDK (resolved from `ANDROID_HOME` by
+  `scripts/validation/android-sdk.sh`) or the AVDs.
+
+Measured on 2026-10-16/17: API 31 ranks `host-intel-1` and API 36 ranks `host-nvidia-1`. The API 31
+ranked profile passed full acceptance. API 36 on NVIDIA booted and verified but is blocked by a flow
+race in `validation/maestro/subflows/open-sources.yaml` that Phase 4 fixes. Details and the automated
+fallback check (`scripts/validation/acceleration-fault-check.mjs`) are in
+[Validation performance evidence](./docs/validation-performance.md#graphics-acceleration-us2).
+
 ## End-to-end flows (Maestro)
 
 `pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36. For each
@@ -224,7 +258,7 @@ does not rewrite earlier results or contribute baseline samples. The separate fr
 passed 21 scheduled samples but failed H08 repetition 1's required scrollbar-thumb assertion and
 stopped safely; API 36 and full phase baselines were not started. Its cause needs diagnosis, not a
 parser/assertion waiver or automatic replacement. Evidence and cleanup proof are documented in the
-performance page; T014 remains incomplete.
+performance page; later per-cohort collection completed T014 there.
 
 On API 36, opening the system folder picker can close the debug app's Metro connection. `index.js`
 suppresses only the disconnected Fast Refresh banner and its related LogBox warnings in debug builds:

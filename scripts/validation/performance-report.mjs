@@ -806,9 +806,23 @@ async function main(args) {
       .filter(k => !POST_BOOT_INPUTS.includes(k))
       .every(k => JSON.stringify(entry.inputs[k]) === JSON.stringify(current[k]));
     if (matches) { return; }
-    const ids = [...discovery.candidates.filter(c => c.kind === 'hardware' && c.status === 'discovered'),
+    const planned = [...discovery.candidates.filter(c => c.kind === 'hardware' && c.status === 'discovered'),
       ...discovery.candidates.filter(c => c.kind === 'software').slice(0, 1)].map(c => c.candidateId);
-    console.log(ids.join('\n')); return;
+    if (!planned.length) { return; }
+    // One candidate per invocation (decision 2026-10-16): continue the stored
+    // calibration round for unchanged pre-boot inputs and candidate set with
+    // its first planned candidate that has no result yet; otherwise (changed
+    // inputs, or a finished round that did not rank) start a new round.
+    const preBoot = Object.fromEntries(Object.entries(current).filter(([k]) => !POST_BOOT_INPUTS.includes(k)));
+    const round = (await rankingStore(directory))?.calibrations?.[api];
+    const sameRound = !!round && JSON.stringify(round.planned) === JSON.stringify(planned) &&
+      JSON.stringify(round.preBootInputs) === JSON.stringify(preBoot);
+    const done = new Set(sameRound ? round.results.map(r => r.candidateId) : []);
+    const pending = planned.find(id => !done.has(id));
+    const c = await calibrationState(directory);
+    c.plans = {...c.plans, [api]: {planned, preBootInputs: preBoot, continueRound: sameRound && !!pending}};
+    await saveCalibration(directory, c);
+    console.log(pending ?? planned[0]); return;
   }
   if (command === 'calibration-begin') {
     const [directory, api, candidateId] = rest;
@@ -846,44 +860,76 @@ async function main(args) {
     await saveCalibration(directory, c); await save(directory, run); return;
   }
   if (command === 'rank') {
+    // Ranks a calibration round across invocations. This invocation measured
+    // exactly one candidate: its samples are this renderer's cohort, its
+    // result joins the per-API round in the shared ranking store, and the API
+    // is ranked only once every planned candidate of the round has a result.
     const [directory, api, repository] = rest;
     const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
     const c = await calibrationState(directory), acc = ensureAcceleration(a);
-    const result = rankCandidates(acc.calibration.map(e => ({candidateId: e.candidateId,
-      kind: c.candidates[`${api}:${e.candidateId}`]?.kind ?? 'software',
-      complexity: c.candidates[`${api}:${e.candidateId}`]?.complexity ?? 0,
-      verified: e.status !== 'boot-failed' && e.verified, samples: e.samples})));
+    const plan = c.plans?.[api];
+    if (!plan || acc.calibration.length !== 1 || !plan.planned.includes(acc.calibration[0].candidateId)) {
+      invalid('calibration-candidate-count');
+    }
+    const own = acc.calibration[0];
+    const snapshot = c.candidates?.[`${api}:${own.candidateId}`] ?? null;
+    let inputs = null, fingerprint = null;
+    if (snapshot) {
+      Object.assign(a, {profile: {...snapshot.profile, fallback: false}, image: snapshot.image,
+        resources: snapshot.resources, animations: snapshot.animations});
+      Object.assign(acc, snapshot.acceleration, {fallback: false});
+      a.samples = structuredClone(own.samples);
+      inputs = await collectRankingInputs(repository, rankingRuntime(run, a, acc.candidates));
+      fingerprint = rankingFingerprint(inputs);
+    } else {
+      a.samples = [];
+    }
+    const store = (await rankingStore(directory)) ?? {schemaVersion: 1, apis: {}};
+    store.calibrations ??= {}; store.calibrationHistory ??= {};
+    let round = plan.continueRound ? store.calibrations[api] ?? null : null;
+    // Post-boot inputs must match too: a different fingerprint is a new round.
+    if (round && fingerprint && round.rankingFingerprint && round.rankingFingerprint !== fingerprint) { round = null; }
+    if (!round) {
+      // A superseded round is retained beside the new one, never merged.
+      if (store.calibrations[api]) { (store.calibrationHistory[api] ??= []).push(store.calibrations[api]); }
+      round = {planned: plan.planned, preBootInputs: plan.preBootInputs, rankingFingerprint: null, inputs: null, results: []};
+      store.calibrations[api] = round;
+    }
+    round.rankingFingerprint ??= fingerprint; round.inputs ??= inputs;
+    round.results.push({candidateId: own.candidateId, invocationId: run.invocationId, status: own.status,
+      reason: own.reason, verified: own.verified, profileFingerprint: own.profileFingerprint,
+      kind: snapshot?.kind ?? acc.candidates.find(x => x.candidateId === own.candidateId)?.kind ?? 'software',
+      complexity: snapshot?.complexity ?? 0,
+      samples: own.samples.map(x => ({sampleId: x.sampleId, scenarioId: x.scenarioId, repetition: x.repetition,
+        status: x.status, elapsedMs: x.elapsedMs}))});
+    const complete = round.planned.every(id => round.results.some(r => r.candidateId === id));
+    const result = rankCandidates(round.results.map(e => ({candidateId: e.candidateId, kind: e.kind,
+      complexity: e.complexity, verified: e.status !== 'boot-failed' && e.verified, samples: e.samples})));
     for (const o of result.order) {
-      if (acc.calibration.find(e => e.candidateId === o.candidateId)?.status === 'boot-failed') { o.status = 'boot-failed'; }
+      if (round.results.find(e => e.candidateId === o.candidateId)?.status === 'boot-failed') { o.status = 'boot-failed'; }
     }
     // A viable candidate whose measurement failed could be the best one: the
     // calibration is then incomplete and its choice only provisional.
-    const incomplete = acc.calibration.some(e => e.status === 'measurement-failed');
-    const chosen = result.selectedCandidateId;
-    if (!chosen) {
-      a.samples = [];
-      acc.selection = {status: 'provisional', selectedCandidateId: null, rankingFingerprint: null,
-        order: result.order, tradeoffs: [], tie: false};
-      await save(directory, run);
-      console.error(`No graphics candidate completed calibration for API ${api}.`);
-      process.exitCode = 1; return;
+    const incomplete = round.results.some(e => e.status === 'measurement-failed');
+    const chosen = complete ? result.selectedCandidateId : null;
+    const ranked = complete && !!chosen && !incomplete && result.status === 'ranked';
+    if (ranked) {
+      store.apis[api] = {status: 'ranked', rankingFingerprint: round.rankingFingerprint, selectedCandidateId: chosen,
+        invocationId: run.invocationId, calibrationInvocations: round.results.map(r => r.invocationId), inputs: round.inputs};
     }
-    const snapshot = c.candidates[`${api}:${chosen}`];
-    Object.assign(a, {profile: {...snapshot.profile, fallback: false}, image: snapshot.image,
-      resources: snapshot.resources, animations: snapshot.animations});
-    Object.assign(acc, snapshot.acceleration, {fallback: false});
-    a.samples = structuredClone(acc.calibration.find(e => e.candidateId === chosen).samples);
-    const inputs = await collectRankingInputs(repository, rankingRuntime(run, a, acc.candidates));
-    const fingerprint = rankingFingerprint(inputs);
-    const status = incomplete ? 'provisional' : result.status;
-    acc.selection = {status, selectedCandidateId: chosen, rankingFingerprint: fingerprint,
-      order: result.order, tradeoffs: result.tradeoffs, tie: result.tie};
+    acc.selection = {status: ranked && chosen === own.candidateId ? 'ranked' : 'provisional',
+      selectedCandidateId: snapshot ? own.candidateId : null, rankedCandidateId: ranked ? chosen : null,
+      rankingFingerprint: fingerprint, order: result.order, tradeoffs: complete ? result.tradeoffs : [],
+      tie: complete ? result.tie : false};
     await save(directory, run);
-    if (status === 'ranked') {
-      const store = (await rankingStore(directory)) ?? {schemaVersion: 1, apis: {}};
-      store.apis[api] = {status: 'ranked', rankingFingerprint: fingerprint, selectedCandidateId: chosen,
-        invocationId: run.invocationId, inputs};
-      await writeFile(rankingStorePath(directory), `${JSON.stringify(store, null, 2)}\n`, {mode: 0o600});
+    await writeFile(rankingStorePath(directory), `${JSON.stringify(store, null, 2)}\n`, {mode: 0o600});
+    if (complete && !result.selectedCandidateId) {
+      console.error(`No graphics candidate completed calibration for API ${api}.`);
+      process.exitCode = 1;
+    } else if (!snapshot) {
+      // The result is recorded, but this invocation measured no baseline.
+      console.error(`Graphics candidate ${own.candidateId} did not boot for API ${api}; its calibration result is recorded.`);
+      process.exitCode = 1;
     }
     return;
   }

@@ -862,20 +862,47 @@ test('reports validate acceleration records; incomplete calibration is provision
   assert.throws(() => validateRun({...run, apiRuns: [{...a, acceleration: {...a.acceleration, extra: true}}, run.apiRuns[1]]}), /unknown-metadata/);
   assert.throws(() => validateRun({...run, apiRuns: [{...a, acceleration: {...a.acceleration,
     attempts: [{...a.acceleration.attempts[0], reason: 'emulator: /home/user/raw'}]}}, run.apiRuns[1]]}), /invalid-acceleration/);
-  const directory = join(root, 'reports', run.invocationId);
-  await mkdir(directory, {recursive: true});
-  await writeFile(join(directory, 'record.private.json'), JSON.stringify(run));
   const snapshot = {kind: 'software', complexity: 4, profile: a.profile, image: a.image, resources: a.resources,
     animations: a.animations, acceleration: {requestedProfile: 'auto', kvm: a.acceleration.kvm,
       candidates: a.acceleration.candidates, attempts: a.acceleration.attempts}};
-  await writeFile(join(directory, 'calibration.private.json'), JSON.stringify({active: null,
-    candidates: {'31:software-swiftshader': snapshot, '31:host-intel-1': {...snapshot, kind: 'hardware', complexity: 6}}}));
-  const result = spawnSync(process.execPath, [reporter, 'rank', directory, '31', root], {encoding: 'utf8'});
-  assert.equal(result.status, 0, result.stderr);
-  const ranked = JSON.parse(await readFile(join(directory, 'record.private.json'), 'utf8')).apiRuns[0].acceleration.selection;
+  // One candidate per invocation; both share the per-API round in the store.
+  const planned = ['software-swiftshader', 'host-intel-1'];
+  const invoke = async (name, entry, kind, continueRound) => {
+    const directory = join(root, 'reports', name);
+    await mkdir(directory, {recursive: true});
+    const record = structuredClone(run);
+    record.apiRuns[0].acceleration.calibration = [entry];
+    // rank runs before finish, while the invocation is still running.
+    record.status = 'running'; record.apiRuns[0].status = 'running';
+    await writeFile(join(directory, 'record.private.json'), JSON.stringify(record));
+    await writeFile(join(directory, 'calibration.private.json'), JSON.stringify({active: null,
+      plans: {31: {planned, preBootInputs: {}, continueRound}},
+      candidates: {[`31:${entry.candidateId}`]: {...snapshot, kind, complexity: kind === 'hardware' ? 6 : 4}}}));
+    const result = spawnSync(process.execPath, [reporter, 'rank', directory, '31', root], {encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(await readFile(join(directory, 'record.private.json'), 'utf8')).apiRuns[0];
+  };
+  let own = await invoke('first', calibrated('host-intel-1', 23), 'hardware', false);
+  assert.equal(own.acceleration.selection.status, 'provisional');
+  assert.equal(own.acceleration.selection.rankedCandidateId, null);
+  assert.equal(own.samples.length, 23);
+  own = await invoke('second', calibrated('software-swiftshader', 24), 'software', true);
+  const ranked = own.acceleration.selection;
   assert.equal(ranked.status, 'provisional');
   assert.equal(ranked.selectedCandidateId, 'software-swiftshader');
+  assert.equal(ranked.rankedCandidateId, null);
   assert.deepEqual(ranked.order.map(o => [o.candidateId, o.status]),
     [['software-swiftshader', 'measured'], ['host-intel-1', 'measurement-failed']]);
-  await assert.rejects(readFile(join(root, 'reports', 'acceleration-ranking.json')), /ENOENT/);
+  const store = JSON.parse(await readFile(join(root, 'reports', 'acceleration-ranking.json'), 'utf8'));
+  assert.deepEqual(store.apis, {});
+  assert.deepEqual(store.calibrations['31'].results.map(r => [r.candidateId, r.status]),
+    [['host-intel-1', 'measurement-failed'], ['software-swiftshader', 'measured']]);
+  // A calibrating invocation must hold exactly one planned candidate.
+  const directory = join(root, 'reports', 'third');
+  await mkdir(directory, {recursive: true});
+  await writeFile(join(directory, 'record.private.json'), JSON.stringify(run));
+  await writeFile(join(directory, 'calibration.private.json'), JSON.stringify({active: null,
+    plans: {31: {planned, preBootInputs: {}, continueRound: false}}, candidates: {}}));
+  const rejected = spawnSync(process.execPath, [reporter, 'rank', directory, '31', root], {encoding: 'utf8'});
+  assert.notEqual(rejected.status, 0);
 });
