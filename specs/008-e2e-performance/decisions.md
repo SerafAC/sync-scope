@@ -149,3 +149,7 @@
 **A:** Fix + short rerun (recommended). Tap the field first so the keyboard is open before the long press, so `hideKeyboard` never acts as Back. Then rerun only the real-form regression for the candidate, 3 repetitions per API (about 30 min), skipping the diagnostics and the original-helper runs.
 
 **Standing rule (user, 2026-10-19):** Do not ask the user on each failure. Always take the recommended option, unless the work is stuck, has reached a dead end or a loop, or raises a security concern. Only those cases go back to the user.
+
+## 2026-10-20 — T045 regression rerun in progress [T045-T048]
+**Q:** The T045 full two-API e2e (rerun8, started detached at 16:02, about 3.5 h, exit code in validation/evidence/performance/us1-regressions/rerun8/exit) must finish before this unit can go on. Should the unit be relaunched once that exit file appears?
+**A:** Relaunch the unit after rerun8 finishes (recommended; taken under the 2026-10-19 standing rule). Wait for rerun8/exit, then rerun T045–T048. The next implementer checks rerun8, reruns pnpm test:foundation with the machine idle, finishes us1-regressions.md, ticks T045, and prepares the T046 campaign for a detached launch.
