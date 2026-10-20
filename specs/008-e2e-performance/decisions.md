@@ -153,3 +153,7 @@
 ## 2026-10-20 — T045 regression rerun in progress [T045-T048]
 **Q:** The T045 full two-API e2e (rerun8, started detached at 16:02, about 3.5 h, exit code in validation/evidence/performance/us1-regressions/rerun8/exit) must finish before this unit can go on. Should the unit be relaunched once that exit file appears?
 **A:** Relaunch the unit after rerun8 finishes (recommended; taken under the 2026-10-19 standing rule). Wait for rerun8/exit, then rerun T045–T048. The next implementer checks rerun8, reruns pnpm test:foundation with the machine idle, finishes us1-regressions.md, ticks T045, and prepares the T046 campaign for a detached launch.
+
+## 2026-10-20 — T046 recalibration launch [T045-T048]
+**Q:** Can the main session launch the T046 recalibration campaign detached (about 16 h; the subagent's background processes die when it returns), then relaunch the unit for T046–T048 once its completion.json or blocker.json appears?
+**A:** Launch detached now (recommended; taken under the 2026-10-19 standing rule). The main session started validation/evidence/performance/after-host/recal-eccdfea2883721a5fb87bbb1/collect.private.mjs with setsid nohup at 2026-10-20T19:34+02:00. The ranking source tree stays frozen while it runs, and the unit is relaunched when it exits. The collector fingerprints file contents, not git state, so committing the finished T029–T045 work during the run is safe.
