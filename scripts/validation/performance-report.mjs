@@ -717,8 +717,7 @@ async function main(args) {
   if (command === 'acceleration-plan') {
     const [stateDir, sdk, api, profile, preferred, pin] = rest;
     const root = hostRoot();
-    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev'),
-      glxRoots: [join(root, 'usr/lib')]} : {});
+    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev')} : {});
     const plan = planAttempts(discovery, profile, {preferred: preferred === '-' ? null : preferred, pin: pin === '1'});
     await saveAccelerator(stateDir, {schemaVersion: 1, api: Number(api), requestedProfile: profile,
       discovery: {kvm: discovery.kvm, candidates: discovery.candidates}, attempts: plan.attempts, error: plan.error});
@@ -797,8 +796,7 @@ async function main(args) {
     const [directory, repository, api, sdk] = rest;
     const run = await state(directory), a = run.apiRuns.find(r => r.api === Number(api));
     const root = hostRoot();
-    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev'),
-      glxRoots: [join(root, 'usr/lib')]} : {});
+    const discovery = await discoverHost(sdk, root ? {sysfsRoot: join(root, 'sys'), devRoot: join(root, 'dev')} : {});
     if (!discovery.kvm.usable) { return; }
     const candidates = discovery.candidates.map(c => ({candidateId: c.candidateId, kind: c.kind, vendor: c.vendor,
       status: c.status, reason: c.reason, deviceId: c.deviceId, driver: c.driver}));

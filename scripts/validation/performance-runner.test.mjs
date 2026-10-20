@@ -1156,7 +1156,8 @@ test('auto falls back after stopping only the failed owned host candidate, then 
       assert.equal(apiRun.profile.fallback, true);
       assert.equal(apiRun.profile.graphics, 'software');
       assert.equal(apiRun.profile.verified, true);
-      assert.equal(a.candidates.find(c => c.candidateId === 'host-nvidia-1').reason, 'audio-only');
+      // NVIDIA is excluded (decision 2026-10-20) whatever the host exposes.
+      assert.equal(a.candidates.find(c => c.candidateId === 'host-nvidia-1').reason, 'excluded');
       assert.equal(a.selection.status, 'provisional');
       const retained = await readFile(join(h.root, 'reports', id, 'raw/validator-31/acceleration.private.json'), 'utf8');
       assert.doesNotMatch(retained, /CANARY|password|SwiftShader\)|Translator|\/tmp\//);

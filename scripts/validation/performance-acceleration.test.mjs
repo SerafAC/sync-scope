@@ -32,7 +32,7 @@ const nvidiaAudio = {address: '0000:01:00.1', pciClass: '0x040300', vendor: '0x1
   driver: 'snd_hda_intel', renderNodes: []};
 const nvidia = {address: '0000:01:00.0', pciClass: '0x030200', vendor: '0x10de', device: '0x2860',
   driver: 'nvidia', renderNodes: [{name: 'renderD129', accessible: true}]};
-const host = (devices, extra = {}) => discover({devices, modes, kvm, nvidiaGlx: true, ...extra});
+const host = (devices, extra = {}) => discover({devices, modes, kvm, ...extra});
 const byId = (d, id) => d.candidates.find(c => c.candidateId === id);
 const intelGles = 'GLES: Google (Intel), Android Emulator OpenGL ES Translator (Mesa Intel(R) Arc(tm) Graphics (MTL)), OpenGL ES 3.0';
 const nvidiaGles = 'GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 4060 Laptop GPU/PCIe/SSE2), OpenGL ES 3.0';
@@ -47,20 +47,20 @@ test('emulator help and accel-check parse to advertised modes and usable KVM', (
   assert.deepEqual(parseGpuModes(''), []);
 });
 
-test('Intel only: Intel is a discovered host candidate and NVIDIA is not exposed', () => {
+const excludedNvidia = {candidateId: 'host-nvidia-1', kind: 'hardware', vendor: 'nvidia', status: 'unavailable',
+  reason: 'excluded', deviceId: null, driver: null, renderNode: null, selector: {}};
+
+test('Intel only: Intel is a discovered host candidate and NVIDIA is excluded', () => {
   const d = host([intel]);
   assert.equal(byId(d, 'host-intel-1').status, 'discovered');
   assert.deepEqual(byId(d, 'host-intel-1').selector, {});
-  assert.equal(byId(d, 'host-nvidia-1').status, 'unavailable');
-  assert.equal(byId(d, 'host-nvidia-1').reason, 'not-exposed');
+  assert.deepEqual(byId(d, 'host-nvidia-1'), excludedNvidia);
   assert.deepEqual(d.software, ['swiftshader', 'software', 'lavapipe', 'swangle']);
 });
 
-test('NVIDIA audio-only exposure is unavailable, never an attempted incompatibility', () => {
+test('NVIDIA audio-only exposure is excluded, never an attempted incompatibility', () => {
   const d = host([intel, nvidiaAudio]);
-  const n = byId(d, 'host-nvidia-1');
-  assert.equal(n.status, 'unavailable');
-  assert.equal(n.reason, 'audio-only');
+  assert.deepEqual(byId(d, 'host-nvidia-1'), excludedNvidia);
   const plan = planAttempts(d, 'auto');
   assert.ok(!plan.attempts.some(a => a.candidateId.startsWith('host-nvidia')));
   validateAcceleration({requestedProfile: 'auto', kvm: d.kvm, candidates: d.candidates.map(c => ({
@@ -68,21 +68,33 @@ test('NVIDIA audio-only exposure is unavailable, never an attempted incompatibil
     deviceId: c.deviceId, driver: c.driver})), attempts: [], fallback: false, selection: null, calibration: []});
 });
 
-test('both GPUs exposed: independent routes with per-process selectors, Intel and NVIDIA checked separately', () => {
-  const d = host([intel, nvidia]);
+test('NVIDIA exposed with a driver and render node is still excluded (decision 2026-10-20): never planned or ranked', () => {
+  const d = host([intel, nvidia, nvidiaAudio]);
   assert.equal(byId(d, 'host-intel-1').status, 'discovered');
-  assert.deepEqual(byId(d, 'host-intel-1').selector, {DRI_PRIME: 'pci-0000_00_02_0'});
-  assert.equal(byId(d, 'host-nvidia-1').status, 'discovered');
-  assert.deepEqual(byId(d, 'host-nvidia-1').selector, {
-    __NV_PRIME_RENDER_OFFLOAD: '1', __GLX_VENDOR_LIBRARY_NAME: 'nvidia', __VK_LAYER_NV_optimus: 'NVIDIA_only'});
-  const plan = planAttempts(d, 'host-opengl');
-  assert.deepEqual(plan.attempts.map(a => a.candidateId), ['host-intel-1', 'host-nvidia-1',
-    'software-swiftshader', 'software-software', 'software-lavapipe', 'software-swangle']);
-  const spec = launchSpec(plan.attempts[1]);
+  // Only one usable render device remains, so no per-process selector is needed.
+  assert.deepEqual(byId(d, 'host-intel-1').selector, {});
+  assert.deepEqual(byId(d, 'host-nvidia-1'), excludedNvidia);
+  assert.equal(d.candidates.filter(c => c.vendor === 'nvidia').length, 1);
+  for (const profile of ['auto', 'host-opengl']) {
+    assert.deepEqual(planAttempts(d, profile).attempts.map(a => a.candidateId), ['host-intel-1',
+      'software-swiftshader', 'software-software', 'software-lavapipe', 'software-swangle']);
+  }
+  assert.equal(planAttempts(d, 'auto', {preferred: 'host-nvidia-1', pin: true}).error, 'unknown-candidate');
+  // A stale NVIDIA ranking preference only falls back to the normal order.
+  assert.equal(planAttempts(d, 'auto', {preferred: 'host-nvidia-1'}).attempts[0].candidateId, 'host-intel-1');
+  const spec = launchSpec(planAttempts(d, 'auto').attempts[0]);
   assert.deepEqual(spec.args, ['-gpu', 'host', '-feature', '-Vulkan', '-accel', 'on']);
-  assert.deepEqual(spec.env, ['__GLX_VENDOR_LIBRARY_NAME=nvidia', '__NV_PRIME_RENDER_OFFLOAD=1', '__VK_LAYER_NV_optimus=NVIDIA_only']);
-  // Without the vendor GLX library the offload selector is unverified: unavailable, not attempted.
-  assert.equal(byId(host([intel, nvidia], {nvidiaGlx: false}), 'host-nvidia-1').reason, 'selector-unsupported');
+  assert.deepEqual(spec.env, []);
+  // NVIDIA offload selectors are no longer launchable.
+  assert.throws(() => launchSpec({kind: 'hardware', request: 'host', selector: {__NV_PRIME_RENDER_OFFLOAD: '1'}}),
+    /invalid-selector/);
+  // The exclusion record is independent of NVIDIA power/driver state, so it never changes a ranking input.
+  assert.deepEqual(host([intel]).candidates, d.candidates);
+  assert.deepEqual(host([intel, {...nvidia, driver: null, renderNodes: []}]).candidates, d.candidates);
+  // Two usable Mesa devices still get DRI_PRIME selectors.
+  const second = {...intel, address: '0000:00:03.0', device: '0x7d56', renderNodes: [{name: 'renderD130', accessible: true}]};
+  assert.deepEqual(host([intel, second]).candidates.filter(c => c.status === 'discovered' && c.kind === 'hardware')
+    .map(c => c.selector), [{DRI_PRIME: 'pci-0000_00_02_0'}, {DRI_PRIME: 'pci-0000_00_03_0'}]);
 });
 
 test('inaccessible or missing render nodes and missing drivers are unavailable with reasons', () => {
@@ -90,7 +102,7 @@ test('inaccessible or missing render nodes and missing drivers are unavailable w
   assert.equal(byId(host([locked]), 'host-intel-1').reason, 'render-node-inaccessible');
   assert.equal(byId(host([{...intel, renderNodes: []}]), 'host-intel-1').reason, 'no-render-node');
   assert.equal(byId(host([{...intel, driver: null}]), 'host-intel-1').reason, 'no-kernel-driver');
-  const noHost = discover({devices: [intel], modes: modes.filter(m => m !== 'host'), kvm, nvidiaGlx: true});
+  const noHost = discover({devices: [intel], modes: modes.filter(m => m !== 'host'), kvm});
   assert.equal(byId(noHost, 'host-intel-1').reason, 'host-mode-unsupported');
 });
 
@@ -121,7 +133,7 @@ test('profiles order hardware then software fallback; software starts from suppo
   assert.equal(planAttempts(d, 'auto', {preferred: 'host-nvidia-1', pin: true}).error, 'unknown-candidate');
   assert.equal(planAttempts(d, 'bogus').error, 'invalid-profile');
   // Software fallback exhaustion: nothing advertised means a nonzero actionable result.
-  const none = discover({devices: [], modes: ['auto'], kvm, nvidiaGlx: false});
+  const none = discover({devices: [], modes: ['auto'], kvm});
   assert.equal(planAttempts(none, 'software').error, 'no-candidates');
 });
 
@@ -145,14 +157,15 @@ test('attempt states follow discovered -> claimed -> starting -> ready -> verifi
 
 test('renderer verification requires KVM, matching GPU and owned render node; software is never verified hardware', () => {
   const d = host([intel, nvidia]);
-  const [hostIntel, hostNvidia, swift] = planAttempts(d, 'auto').attempts;
+  const [hostIntel, swift] = planAttempts(d, 'auto').attempts;
   const base = {api: 31, expectedApi: 31, kvm: true, renderNodes: ['renderD128'], resources};
   assert.deepEqual(verifyAttempt(hostIntel, {...base, gles: intelGles}),
     {verified: true, reason: null, graphics: 'hardware', backend: 'host', vendor: 'intel', ramAgreement: false});
   assert.equal(verifyAttempt(hostIntel, {...base, gles: swiftGles}).reason, 'software-under-host');
   assert.equal(verifyAttempt(hostIntel, {...base, gles: swiftGles}).verified, false);
-  assert.equal(verifyAttempt(hostNvidia, {...base, gles: intelGles, renderNodes: ['renderD128']}).reason, 'wrong-gpu');
-  assert.equal(verifyAttempt(hostNvidia, {...base, gles: nvidiaGles, renderNodes: ['renderD128']}).reason, 'render-node-mismatch');
+  // An Intel route that actually renders on the excluded NVIDIA GPU is rejected, never verified.
+  assert.equal(verifyAttempt(hostIntel, {...base, gles: nvidiaGles, renderNodes: ['renderD128']}).reason, 'wrong-gpu');
+  assert.equal(verifyAttempt(hostIntel, {...base, gles: intelGles, renderNodes: ['renderD129']}).reason, 'render-node-mismatch');
   assert.equal(verifyAttempt(hostIntel, {...base, gles: intelGles, renderNodes: ['renderD128', 'renderD129']}).reason, 'ambiguous-identity');
   assert.equal(verifyAttempt(hostIntel, {...base, gles: 'GLES: Google, Translator (Unknown Device)'}).reason, 'ambiguous-identity');
   assert.equal(verifyAttempt(hostIntel, {...base, gles: intelGles, kvm: false}).reason, 'kvm-not-observed');
@@ -332,9 +345,9 @@ test('host device discovery reads only allowlisted sysfs/dev identities', async 
     ['0000:00:02.0', '0x8086', 'i915', [{name: 'renderD128', accessible: true}]],
     ['0000:01:00.1', '0x10de', 'snd_hda_intel', []],
   ]);
-  const d = discover({devices, modes, kvm, nvidiaGlx: false});
+  const d = discover({devices, modes, kvm});
   assert.equal(byId(d, 'host-intel-1').status, 'discovered');
-  assert.equal(byId(d, 'host-nvidia-1').reason, 'audio-only');
+  assert.equal(byId(d, 'host-nvidia-1').reason, 'excluded');
 });
 
 test('acceleration records reject unknown fields, free text and malformed identities', () => {

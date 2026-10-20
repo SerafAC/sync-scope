@@ -39,9 +39,14 @@ export const REASONS = ['not-exposed', 'audio-only', 'no-render-node', 'render-n
   'launch-failed', 'emulator-exited', 'boot-timeout', 'ownership-unproven', 'route-timeout',
   'watchdog-failed', 'kvm-not-observed', 'renderer-unknown', 'software-under-host', 'wrong-gpu',
   'render-node-mismatch', 'ambiguous-identity', 'unexpected-hardware', 'backend-mismatch',
-  'api-mismatch', 'metadata-failed', 'measurement-failed', 'interrupted'];
+  'api-mismatch', 'metadata-failed', 'measurement-failed', 'interrupted', 'excluded'];
 const CANDIDATE_ID = /^(?:host-(?:intel|nvidia)-[1-9]|software-(?:swiftshader|software|lavapipe|swangle)|legacy-swiftshader-indirect)$/;
-const SELECTOR_ENV = ['DRI_PRIME', '__NV_PRIME_RENDER_OFFLOAD', '__GLX_VENDOR_LIBRARY_NAME', '__VK_LAYER_NV_optimus'];
+const SELECTOR_ENV = ['DRI_PRIME'];
+// Vendors never offered as candidates (decision 2026-10-20: NVIDIA dropped).
+// Their routes are recorded as unavailable/excluded from fixed values only, so
+// the host's NVIDIA power or driver state can neither start an attempt nor
+// change a ranking input, and nothing here powers or probes that device.
+export const EXCLUDED_VENDORS = ['nvidia'];
 
 export function parseGpuModes(text) {
   const modes = [];
@@ -77,17 +82,15 @@ export async function readHostDevices({sysfsRoot = '/sys', devRoot = '/dev'} = {
   }
   return devices;
 }
-export async function hasNvidiaGlx(roots = ['/usr/lib', '/usr/lib64', '/usr/lib/x86_64-linux-gnu']) {
-  for (const root of roots) {
-    if (await access(join(root, 'libGLX_nvidia.so.0')).then(() => true, () => false)) { return true; }
-  }
-  return false;
-}
-
-export function discover({devices, modes, kvm, nvidiaGlx}) {
+export function discover({devices, modes, kvm}) {
   const display = devices.filter(d => d.pciClass.startsWith('0x03') && VENDORS[d.vendor]);
   const candidates = [];
   for (const vendor of ['intel', 'nvidia']) {
+    if (EXCLUDED_VENDORS.includes(vendor)) {
+      candidates.push({candidateId: `host-${vendor}-1`, kind: 'hardware', vendor, status: 'unavailable',
+        reason: 'excluded', deviceId: null, driver: null, renderNode: null, selector: {}});
+      continue;
+    }
     const own = display.filter(d => VENDORS[d.vendor] === vendor);
     if (!own.length) {
       const audio = devices.some(d => VENDORS[d.vendor] === vendor && d.pciClass.startsWith('0x0403'));
@@ -103,23 +106,17 @@ export function discover({devices, modes, kvm, nvidiaGlx}) {
       else if (!node) { reason = 'no-render-node'; }
       else if (!node.accessible) { reason = 'render-node-inaccessible'; }
       else if (!modes.includes('host')) { reason = 'host-mode-unsupported'; }
-      else if (d.driver === 'nvidia' && !nvidiaGlx) { reason = 'selector-unsupported'; }
       candidates.push({candidateId: `host-${vendor}-${i + 1}`, kind: 'hardware', vendor,
         status: reason ? 'unavailable' : 'discovered', reason,
         deviceId: `${d.vendor.slice(2)}:${d.device.slice(2)}`, driver, renderNode: node?.name ?? null,
         address: d.address, selector: {}});
     });
   }
-  // Per-process selectors only where the installed stack documents them: the
-  // NVIDIA PRIME offload variables for the proprietary GLX vendor library, and
+  // Per-process selectors only where the installed stack documents them:
   // Mesa's DRI_PRIME when more than one render device could be chosen.
   const usable = candidates.filter(c => c.status === 'discovered');
   for (const c of usable) {
-    if (c.driver === 'nvidia') {
-      c.selector = {__NV_PRIME_RENDER_OFFLOAD: '1', __GLX_VENDOR_LIBRARY_NAME: 'nvidia', __VK_LAYER_NV_optimus: 'NVIDIA_only'};
-    } else if (usable.length > 1) {
-      c.selector = {DRI_PRIME: `pci-${c.address.replace(/[:.]/g, '_')}`};
-    }
+    if (usable.length > 1) { c.selector = {DRI_PRIME: `pci-${c.address.replace(/[:.]/g, '_')}`}; }
     delete c.address;
   }
   for (const c of candidates) { delete c.address; }
@@ -375,7 +372,7 @@ export function validateAcceleration(record, {sample} = {}) {
 }
 
 // Host capability probes: the emulator's own advertised modes and KVM check.
-export async function discoverHost(sdk, {sysfsRoot, devRoot, glxRoots} = {}) {
+export async function discoverHost(sdk, {sysfsRoot, devRoot} = {}) {
   const emulator = join(sdk, 'emulator/emulator');
   const probe = args => spawnSync(emulator, args, {encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe']});
   const help = probe(['-help-gpu']), accel = probe(['-accel-check']);
@@ -385,5 +382,5 @@ export async function discoverHost(sdk, {sysfsRoot, devRoot, glxRoots} = {}) {
     kvm = {usable: false, reason: 'kvm-unavailable'};
   }
   return discover({devices: await readHostDevices({sysfsRoot, devRoot: dev}),
-    modes: help.status === 0 ? parseGpuModes(help.stdout) : [], kvm, nvidiaGlx: await hasNvidiaGlx(glxRoots)});
+    modes: help.status === 0 ? parseGpuModes(help.stdout) : [], kvm});
 }
