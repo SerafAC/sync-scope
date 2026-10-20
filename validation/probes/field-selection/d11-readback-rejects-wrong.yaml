@@ -1,0 +1,23 @@
+# T035 diagnostic: the candidate helper's read-back expression, inside a
+# subflow with its own TEXT, accepts the exact value and rejects a value that
+# only ends with it (the first probe's appended text). Both checks must hold.
+appId: com.syncscope
+name: probe/d11-readback-rejects-wrong
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.host"
+- inputText: "old10.0.2.2"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.host"
+- runFlow:
+    env:
+      TEXT: "10.0.2.2"
+    commands:
+      - assertTrue: "${!((maestro.copiedText.length > 0 && maestro.copiedText.split('•').join('') == '') ? maestro.copiedText.length == TEXT.length : maestro.copiedText == TEXT)}"
+- runFlow:
+    env:
+      TEXT: "old10.0.2.2"
+    commands:
+      - assertTrue: "${(maestro.copiedText.length > 0 && maestro.copiedText.split('•').join('') == '') ? maestro.copiedText.length == TEXT.length : maestro.copiedText == TEXT}"

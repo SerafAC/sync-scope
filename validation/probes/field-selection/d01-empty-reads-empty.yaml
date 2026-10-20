@@ -1,0 +1,13 @@
+# T035 diagnostic: does an empty field read back as ""? (Its placeholder is
+# "/photos"; d02 asks the opposite question. Exactly one should pass.)
+appId: com.syncscope
+name: probe/d01-empty-reads-empty
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == ''}"

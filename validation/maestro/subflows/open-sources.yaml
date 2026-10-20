@@ -1,12 +1,46 @@
-# Subflow: launch SyncScope without clearing state and open Settings › Device folders.
-# Never run on its own; feature flows call it with runFlow.
+# Subflow: open Settings › Device folders in the running app. Never run on its own;
+# feature flows call it with runFlow.
+#
+# Navigation only (feature 008, research R12): it never launches, stops or
+# resets the app. The caller owns that transition and leaves MainActivity open
+# first: a clearState launch, a real restart after stopApp, the return from a
+# debug seam Activity (configure-repository, release-grants), or the screen the
+# previous flow of a workspace or staged line ended on.
 appId: com.syncscope
 ---
-- launchApp
 - extendedWaitUntil:
     visible: "Settings"
     timeout: 60000
 - tapOn: "Settings"
+# Feature 008 T045: right after a clearState launch the tab bar can swallow
+# the first tap (us1-regressions, API 36, polish/08: still on Files, so the
+# loading waits below passed on the wrong screen). Only the selected tab
+# proves where the app is (Settings keeps its scroll position, so no section
+# text is reliably on screen): tap once more if the Settings tab is not
+# selected, then require it. The wait is mandatory, so a tab that never opens
+# fails.
+- runFlow:
+    when:
+      notVisible:
+        text: "Settings"
+        selected: true
+    commands:
+      - tapOn: "Settings"
+- extendedWaitUntil:
+    visible:
+      text: "Settings"
+      selected: true
+    timeout: 30000
+# Settings first draws the Repository and Device folders sections as loading
+# spinners. Add folder is already on that first frame, so a scroll that stops
+# there is undone once the repository card and the source rows load and push
+# it below the fold (decision 2026-10-18). Wait for both sections to load.
+- extendedWaitUntil:
+    notVisible: "Loading repository"
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible: "Loading folders"
+    timeout: 30000
 # Settings › Repository sits above Device folders (feature 006), so once folders are
 # listed, Add folder can be below the fold: scroll to it.
 - scrollUntilVisible:

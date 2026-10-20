@@ -1,0 +1,19 @@
+# T035 diagnostic: after a long press selects a whole host name (smart
+# selection, no Select all), does typing replace it? The first probe suggests
+# it is appended instead; the candidate erases in that case. Informational:
+# the candidate never relies on it.
+appId: com.syncscope
+name: probe/d12-type-over-smart-selection
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.host"
+- inputText: "old-host.example.com"
+- hideKeyboard
+- longPressOn:
+    id: "repository.host"
+- inputText: "new.invalid"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.host"
+- assertTrue: "${maestro.copiedText == 'new.invalid'}"

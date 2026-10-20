@@ -1,0 +1,19 @@
+# T035 diagnostic: does a password field read back only as a mask of the same
+# length (never in clear)? A synthetic value, not a credential.
+appId: com.syncscope
+name: probe/d08-secure-reads-masked
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.password"
+    direction: DOWN
+- tapOn:
+    id: "repository.password"
+- inputText: "probe1234"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.password"
+# A string comparison: the pinned engine rejects a regular-expression literal
+# at the start of a script (first probe, probe-0d4fb092b2d1015674004889).
+- assertTrue: "${maestro.copiedText == '•••••••••'}"

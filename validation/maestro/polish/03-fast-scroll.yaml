@@ -47,6 +47,9 @@ name: polish/03-fast-scroll
       USER: "${WEBDAV_USER}"
       PASSWORD: "${WEBDAV_PASSWORD}"
       ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow:
     file: ../subflows/add-scan-source.yaml
     env:

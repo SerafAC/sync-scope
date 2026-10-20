@@ -1,0 +1,251 @@
+# Feature 008, US1.2, FR-004, SC-004 (T034): field replacement on the real
+# Repository form, against the live SFTP service. The regression the field
+# helper (subflows/fill-field.yaml) must pass on both APIs before a cheaper
+# replacement path is adopted (research R11, contracts/acceptance.md › Helper
+# and progress proof additions); the injected model of the same matrix is
+# scripts/validation/performance-helpers.test.mjs.
+#
+# Matrix: empty fields (a cleared app's form, every field); prefilled host
+# with the cursor at its start and at its end; a prefilled numeric port with
+# the cursor in the middle; a partially selected user name; remote roots longer
+# than 128 characters (short to long, long to long, long to short); and the
+# secure password, prefilled and after a failed test.
+#
+# Every ordinary value is read back and compared exactly. The password is
+# never read back: a wrong one must fail Save and test with the
+# authentication error and the right one must connect (synthetic
+# credentials of this run's container).
+#
+# Appended after the 39 original workspace flows (config.yaml); it never
+# replaces them. Self-contained: starts from clearState.
+appId: com.syncscope
+name: performance/01-field-replacement
+---
+- evalScript: "${output.root = (SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
+# Longer than the original helper's 128-character erase, and distinct.
+- evalScript: "${output.longRoot = output.root + '/' + 'replacement-long-folder/'.repeat(6) + 'end'}"
+- evalScript: "${output.otherLongRoot = output.root + '/' + 'another-deep-folder-name/'.repeat(6) + 'tail'}"
+- assertTrue: "${output.longRoot.length > 128 && output.otherLongRoot.length > 128}"
+
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "No scan results yet"
+    timeout: 60000
+
+# Empty: every field of a cleared form, then a real authenticated test.
+- runFlow:
+    file: ../subflows/setup-repository.yaml
+    env:
+      PROTOCOL: "SFTP"
+      HOST: "${SFTP_HOST}"
+      PORT: "${SFTP_PORT}"
+      USER: "${SFTP_USER}"
+      PASSWORD: "${SFTP_PASSWORD}"
+      ROOT: "${output.root}"
+- assertVisible: "Connected"
+
+# Prefilled host, cursor at the start of the text.
+- scrollUntilVisible:
+    element:
+      id: "repository.host"
+    direction: UP
+- tapOn:
+    id: "repository.host"
+    point: "4%,70%"
+- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "wrong-host.invalid"
+- copyTextFrom:
+    id: "repository.host"
+- assertTrue: "${maestro.copiedText == 'wrong-host.invalid'}"
+# Prefilled host, cursor at the end of the text.
+- tapOn:
+    id: "repository.host"
+    point: "96%,70%"
+- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.host"
+      TEXT: "${SFTP_HOST}"
+- copyTextFrom:
+    id: "repository.host"
+- assertTrue: "${maestro.copiedText == SFTP_HOST}"
+
+# Prefilled numeric port, cursor in the middle.
+- tapOn:
+    id: "repository.port"
+    point: "50%,70%"
+- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.port"
+      TEXT: "2"
+- copyTextFrom:
+    id: "repository.port"
+- assertTrue: "${maestro.copiedText == '2'}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.port"
+      TEXT: "${SFTP_PORT}"
+- copyTextFrom:
+    id: "repository.port"
+- assertTrue: "${maestro.copiedText == SFTP_PORT}"
+
+# Partially selected user name: a long press selects the word under it.
+- scrollUntilVisible:
+    element:
+      id: "repository.username"
+    direction: DOWN
+# Focus first so the keyboard is certainly up, then select a word, and do not
+# hide the keyboard: after a bare long press the keyboard can stay closed and
+# hideKeyboard acts as Back, leaving the form (API 36, T045 rerun6); after a
+# tap and a long press, Back closes the selection toolbar and the keyboard
+# stays (API 31, rerun7: "Couldn't hide the keyboard"). The helper starts
+# here, by exception, with the keyboard up and a partial selection; the field
+# stays above the keyboard on both APIs.
+- tapOn:
+    id: "repository.username"
+- longPressOn:
+    id: "repository.username"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${SFTP_USER + '-other'}"
+- copyTextFrom:
+    id: "repository.username"
+- assertTrue: "${maestro.copiedText == SFTP_USER + '-other'}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.username"
+      TEXT: "${SFTP_USER}"
+- copyTextFrom:
+    id: "repository.username"
+- assertTrue: "${maestro.copiedText == SFTP_USER}"
+
+# Remote roots longer than 128 characters: short to long, long to long with
+# the cursor at the start, long to short with the cursor in the middle.
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "${output.longRoot}"
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == output.longRoot}"
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- tapOn:
+    id: "repository.remoteRoots.0"
+    point: "4%,70%"
+- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "${output.otherLongRoot}"
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == output.otherLongRoot}"
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- tapOn:
+    id: "repository.remoteRoots.0"
+    point: "50%,70%"
+- hideKeyboard
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.remoteRoots.0"
+      TEXT: "${output.root}"
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == output.root}"
+
+# Secure, prefilled: a wrong password must fail authentication.
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${SFTP_PASSWORD + 'wrong'}"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+- scrollUntilVisible:
+    element: "Connection failed: .+"
+    direction: DOWN
+    timeout: 60000
+- assertNotVisible: "Connected"
+# Secure, prefilled again: a wrong value replaced by the right one connects
+# only when nothing stale is left in the field.
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${SFTP_PASSWORD + 'stale'}"
+- runFlow:
+    file: ../subflows/fill-field.yaml
+    env:
+      FIELD: "repository.password"
+      TEXT: "${SFTP_PASSWORD}"
+- scrollUntilVisible:
+    element: "Save and test"
+    direction: DOWN
+- tapOn: "Save and test"
+- scrollUntilVisible:
+    element: "(Connected|Server key fingerprint .+|Connection failed: .+)"
+    direction: DOWN
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Server key fingerprint .+"
+    commands:
+      - tapOn: "Trust server key"
+- scrollUntilVisible:
+    element: "Connected"
+    direction: DOWN
+    timeout: 60000
+- assertNotVisible: "Connection failed: .+"
+- scrollUntilVisible:
+    element: "${output.root}: [0-9]+ entries"
+    direction: DOWN
+    timeout: 15000
+
+# Every replaced ordinary value is still exact after the authenticated save.
+- scrollUntilVisible:
+    element:
+      id: "repository.host"
+    direction: UP
+- copyTextFrom:
+    id: "repository.host"
+- assertTrue: "${maestro.copiedText == SFTP_HOST}"
+- copyTextFrom:
+    id: "repository.port"
+- assertTrue: "${maestro.copiedText == SFTP_PORT}"
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- copyTextFrom:
+    id: "repository.username"
+- assertTrue: "${maestro.copiedText == SFTP_USER}"
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == output.root}"
+- back
+- extendedWaitUntil:
+    visible: "Repository SFTP ${SFTP_HOST}"
+    timeout: 15000

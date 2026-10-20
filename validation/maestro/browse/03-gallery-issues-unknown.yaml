@@ -18,6 +18,9 @@ name: browse/03-gallery-issues-unknown
       USER: "${SFTP_USER}"
       PASSWORD: "${SFTP_PASSWORD}"
       ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery-partial'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow:
     file: ../subflows/add-scan-source.yaml
     env:

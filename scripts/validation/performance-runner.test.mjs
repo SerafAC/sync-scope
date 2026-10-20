@@ -62,7 +62,10 @@ printf '%s\\n' "$flow" >>"$SYNCSCOPE_TEST_CALLS"
 [ "\${FAKE_MISSING_ARTIFACT:-0}" != 1 ] || exit 0
 mkdir -p "$output"
 count=1
-[ "$flow" != "$SYNCSCOPE_TEST_ROOT/repo/validation/maestro" ] || count=39
+# One artifact per flow the workspace config orders (39 originals plus any
+# appended regression), as the runner's workspace-count expects.
+[ "$flow" != "$SYNCSCOPE_TEST_ROOT/repo/validation/maestro" ] ||
+  count=$(grep -c '^    - [a-z0-9/-]*$' "$flow/config.yaml")
 i=1
 while [ "$i" -le "$count" ]; do
   printf '%s\\n' '[{"command":{"assertConditionCommand":{}},"metadata":{"status":"COMPLETED","timestamp":1,"duration":1,"sequenceNumber":0,"depth":0}}]' >"$output/commands-$i.json"
@@ -712,6 +715,16 @@ test('watchdog shutdown waits for both asynchronous init services before unrooti
   }
 });
 
+// Feature 008 (T041): the one debug build runs before any emulator starts, so
+// a failed startup is followed by no build, install or Maestro run.
+function assertNothingAfterBoot(log) {
+  const lines = log.split('\n');
+  const boot = lines.findIndex(line => line.startsWith('emulator '));
+  assert.ok(boot >= 0, 'the emulator was started');
+  assert.ok(!lines.slice(boot).some(line => /^(gradle |maestro$|adb -s \S+ install )/.test(line)),
+    'nothing is built, installed or run after the failed startup');
+}
+
 test('watchdog failures and unknown observations never become readiness; rooted failures still unroot and release', async t => {
   for (const fault of ['root', 'unroot', 'stop0', 'stop1', 'read0', 'read', 'empty', 'malformed', 'running']) {
     await t.test(fault, async t2 => {
@@ -720,7 +733,9 @@ test('watchdog failures and unknown observations never become readiness; rooted 
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /Could not stop llkd/);
       const log = await h.log();
-      assert.doesNotMatch(log, /gradle |^maestro$/m);
+      // The shared debug build precedes boot (T041); nothing is built,
+      // installed or run after the failed startup.
+      assertNothingAfterBoot(log);
       if (fault !== 'root') assert.match(log, / unroot\n/);
       assert.match(log, /emulator terminated dependency_api31/);
       await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
@@ -1174,7 +1189,7 @@ test('all candidates fail: actionable nonzero exhaustion and no surviving acquir
   const log = await h.log();
   assert.deepEqual(log.split('\n').filter(l => l.startsWith('emulator gpu ')).map(l => l.split(' ')[2]),
     ['host', 'swiftshader', 'software', 'lavapipe', 'swangle']);
-  assert.doesNotMatch(log, /gradle |^maestro$/m);
+  assertNothingAfterBoot(log);
   await assert.rejects(lstat(join(h.state, 'api31')), /ENOENT/);
   const {id} = await acceleration(h);
   assert.equal(await readFile(join(h.root, 'reports', id, 'raw/lifecycle/emulator-31'), 'utf8'), 'released\n');
@@ -1406,4 +1421,134 @@ test('a calibration candidate that fails to boot is retained as incompatible, no
   assert.equal(two.apiRun.samples.length, 24);
   const store = await rankingStoreOf(h);
   assert.equal(store.apis['31'].selectedCandidateId, 'software-swiftshader');
+});
+
+// Feature 008, US1 (T032): build and staged lifecycle contracts for T041/T042.
+const debugBuilds = log => log.split('\n').filter(line => /^gradle .*:app:assembleDebug/.test(line));
+const debugInstalls = log => log.split('\n').filter(line => /^adb -s \S+ install /.test(line));
+
+async function onlyReport(h) {
+  const [id] = await readdir(join(h.root, 'reports'));
+  return JSON.parse(await readFile(join(h.root, 'reports', id, 'run.json')));
+}
+
+test('e2e assembles one emulator-only x86_64 debug APK before boot and installs it on both APIs', async t => {
+  const h = await harness(t);
+  const run = h.run(['e2e', '--api', '31', '--api', '36']);
+  assert.equal(run.status, 0, run.stderr);
+  const log = await h.log();
+  const builds = debugBuilds(log);
+  assert.equal(builds.length, 1, 'one debug assembly for the whole invocation');
+  assert.match(builds[0], /(?:^| )-PreactNativeArchitectures=x86_64(?: |$)/);
+  assert.match(builds[0], /--no-daemon|--daemon/, 'the Gradle daemon policy is explicit');
+  assert.ok(log.indexOf(builds[0]) < log.indexOf('validator start'), 'built before the API loop');
+  const installs = debugInstalls(log);
+  assert.equal(installs.length, 2, 'one install per API');
+  assert.equal(new Set(installs.map(line => line.split(' ').at(-1))).size, 1, 'the same APK file');
+  const report = await onlyReport(h);
+  assert.equal(report.build.abi, 'x86_64');
+  assert.ok(['no-daemon', 'default'].includes(report.build.cachePolicy));
+  assert.ok(report.build.apkDigest);
+  for (const apiRun of report.apiRuns) {
+    assert.deepEqual(apiRun.build, report.build, `API ${apiRun.api} records the shared build`);
+    assert.ok(!apiRun.phases.some(phase => phase.phase === 'build'), 'no per-API build phase');
+  }
+  assert.equal(report.sharedPhases.filter(phase => phase.phase === 'build').length, 1);
+});
+
+test('measure shares the same single x86_64 debug build across APIs', async t => {
+  const h = await harness(t);
+  h.run(['measure', '--api', '31', '--api', '36'], {FAKE_BOOT_STATUS: '1'});
+  const builds = debugBuilds(await h.log());
+  assert.equal(builds.length, 1);
+  assert.match(builds[0], /-PreactNativeArchitectures=x86_64/);
+});
+
+test('connected and release builds keep their original ABI, signing and update paths', async t => {
+  const h = await harness(t);
+  const run = h.run(['connected', '--api', '31', '--api', '36']);
+  assert.equal(run.status, 0, run.stderr);
+  const log = await h.log();
+  const gradle = log.split('\n').filter(line => line.startsWith('gradle '));
+  assert.equal(gradle.length, 2, 'connected instrumentation still builds per API');
+  assert.ok(gradle.every(line => /connectedDebugAndroidTest/.test(line)));
+  assert.doesNotMatch(log, /reactNativeArchitectures/);
+  const report = await onlyReport(h);
+  assert.equal(report.build.abi, 'instrumented');
+  const flow = await readFile(join(h.repo, 'scripts/validation/android-flow.sh'), 'utf8');
+  const release = flow.split('\n').filter(line => /assemble:release|assembleRelease/.test(line));
+  assert.ok(release.length > 0);
+  assert.ok(release.every(line => !/reactNativeArchitectures/.test(line)), 'release keeps every ABI');
+});
+
+test('a failed debug build boots, installs and runs nothing, and releases what it acquired', async t => {
+  const h = await harness(t);
+  const run = h.run(['e2e', '--api', '31', '--api', '36'], {FAKE_GRADLE_STATUS: '1'});
+  assert.notEqual(run.status, 0);
+  const log = await h.log();
+  assert.equal(debugBuilds(log).length, 1);
+  assert.doesNotMatch(log, /^validator start$/m, 'no emulator for an APK that does not exist');
+  assert.equal(debugInstalls(log).length, 0);
+  assert.doesNotMatch(log, /^maestro$/m);
+  for (const service of ['sftp', 'webdav', 'ftp']) {
+    if (log.includes(`protocol start ${service}`)) {
+      assert.match(log, new RegExp(`^protocol stop ${service}$`, 'm'), `${service} released`);
+    }
+  }
+  if (log.includes('metro start')) {
+    assert.match(log, /^metro stop$/m);
+  }
+});
+
+test('fixtures reset before each API, never between staged parts; restoration still runs', async t => {
+  const h = await harness(t);
+  const run = h.run(['e2e', '--api', '31', '--api', '36']);
+  assert.equal(run.status, 0, run.stderr);
+  const lines = (await h.log()).split('\n');
+  const starts = lines.flatMap((line, index) => (line === 'validator start' ? [index] : []));
+  assert.equal(starts.length, 2);
+  for (const [n, start] of starts.entries()) {
+    const end = starts[n + 1] ?? lines.length;
+    const part = lines.slice(start, end);
+    const fixtures = part.flatMap((line, index) => (line === 'fixtures' ? [index] : []));
+    assert.equal(fixtures.length, 1, `API run ${n + 1} resets its fixtures once`);
+    const workspace = part.findIndex(line => line.endsWith('/validation/maestro'));
+    assert.ok(fixtures[0] < workspace, 'fixtures are reset before the workspace');
+    const firstStaged = part.findIndex(line => /staged\/06-recheck-removed-a\.yaml$/.test(line));
+    const lastStaged = part.findIndex(line => /staged\/08-changed-b\.yaml$/.test(line));
+    const staged = part.slice(firstStaged, lastStaged + 1);
+    assert.ok(firstStaged > workspace && lastStaged > firstStaged);
+    assert.ok(!staged.some(line => /^(fixtures|gradle |adb -s \S+ install )/.test(line)),
+      'staged continuation state is never reseeded, rebuilt or reinstalled');
+  }
+  assert.ok(lines.filter(line => line === 'hook restore-recheck-file').length >= 2);
+});
+
+test('a failing staged part still restores the recheck fixture and keeps the failure', async t => {
+  const h = await harness(t);
+  await executable(join(h.bin, 'maestro'), `
+[ "\${1:-}" != --version ] || { printf '2.10.0\\n'; exit 0; }
+printf 'maestro\\n' >>"$SYNCSCOPE_TEST_CALLS"
+output=; flow=
+while [ "$#" -gt 0 ]; do
+  case "$1" in --test-output-dir) output=$2; shift 2 ;; --debug-output|-e) shift 2 ;;
+    *) flow=$1; shift ;; esac
+done
+printf '%s\\n' "$flow" >>"$SYNCSCOPE_TEST_CALLS"
+mkdir -p "$output"
+count=1
+[ "$flow" != "$SYNCSCOPE_TEST_ROOT/repo/validation/maestro" ] ||
+  count=$(grep -c '^    - [a-z0-9/-]*$' "$flow/config.yaml")
+i=1
+while [ "$i" -le "$count" ]; do
+  printf '%s\\n' '[{"command":{"assertConditionCommand":{}},"metadata":{"status":"COMPLETED","timestamp":1,"duration":1,"sequenceNumber":0,"depth":0}}]' >"$output/commands-$i.json"
+  i=$((i + 1))
+done
+case "$flow" in *06-recheck-removed-b.yaml) exit 1 ;; esac
+exit 0`);
+  const run = h.run(['e2e', '--api', '31']);
+  assert.notEqual(run.status, 0);
+  const log = await h.log();
+  assert.match(log, /06-recheck-removed-b\.yaml\n[\s\S]*hook restore-recheck-file/);
+  assert.doesNotMatch(log, /07-delete-offline-a\.yaml/, 'the run stops at the failed part');
 });

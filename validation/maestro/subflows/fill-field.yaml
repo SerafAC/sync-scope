@@ -5,30 +5,108 @@
 #   FIELD  the field's testID, for example repository.host
 #   TEXT   the text to type
 #
-# The keyboard covers the lower half of the form, and the form does not scroll
-# a focused field into view, so the keyboard is hidden and the field scrolled
-# to before every tap. The field is tapped by testID: its label also matches
-# its name, and a tap on a prefilled field's floating label does not focus the
-# input. eraseText deletes backwards from the cursor, and a tap puts the cursor
-# where it lands, so the field is tapped and erased twice: the second tap lands
-# past the end of whatever the first erase left.
+# Callers leave the keyboard hidden, and this subflow leaves it hidden.
+#
+# Feature 008 (T036, research R11; validation/evidence/performance/
+# field-selection.md). The original helper (tap, erase 128, hide, tap, erase
+# 128, type) left part of a remote root longer than 128 characters. The
+# probed one-focus path (long press, contextual "Select all", one hide) is
+# not usable on the real emulators: "Select all" is not always offered, and
+# whether a long press raises the keyboard varies (a focused field usually
+# not, a password field did), while hideKeyboard with no keyboard open acts
+# as Back and leaves the form, and with the keyboard up a field low on the
+# form is covered (API 36 overlays it) or scrolled out (API 31 resizes). So
+# this keeps the original's safe order (a field is touched only with the
+# keyboard down, and the keyboard is hidden only right after a tap raised it)
+# and fixes its correctness, without a speed claim:
+#   1. read the value (its hint when empty, a mask for a password; 128 when
+#      nothing is readable), tap the field's right edge and erase that many
+#      characters before the cursor;
+#   2. hide the keyboard, read again, and while something is left (always
+#      after the first erase, then while the read changes; an unchanged read
+#      is the hint of an empty field), tap the right edge (the cursor lands
+#      at the end of what is shown) and erase what was read; at most 8
+#      passes (fill-field-pass.yaml), unrolled as conditional runFlows: the
+#      pinned driver ran a `repeat` with a script `while` only once
+#      (probe-1a19a3b5b6168451703cd741);
+#   3. tap the right edge again (keyboard up), type, hide the keyboard, read
+#      the value back and require it exactly, never optionally; a password is read back
+#      only as a mask of the typed length (its last character may still show)
+#      and proven by authentication.
+# No regular-expression literal is used in a script: the pinned engine
+# rejects one at the start of an expression. Unsupported and not used:
+# eraseText "all", an inputText replace flag, and Ctrl+A / End keys.
 appId: com.syncscope
 ---
-# Callers leave the keyboard hidden (this subflow ends with hideKeyboard).
 - scrollUntilVisible:
     element:
       id: "${FIELD}"
     direction: DOWN
+- evalScript: "${output.fillText = '', output.fillLength = 128, output.fillPass = 0}"
+- runFlow:
+    when:
+      visible:
+        id: "${FIELD}"
+        text: ".+"
+    commands:
+      - copyTextFrom:
+          id: "${FIELD}"
+      - evalScript: "${output.fillText = maestro.copiedText, output.fillLength = maestro.copiedText.length}"
 - tapOn:
     id: "${FIELD}"
-- eraseText: 128
-- hideKeyboard
-- scrollUntilVisible:
-    element:
-      id: "${FIELD}"
-    direction: DOWN
+    point: "97%,50%"
+- repeat:
+    times: "${Math.ceil(output.fillLength / 32)}"
+    commands:
+      - eraseText: 32
+- evalScript: "${output.fillResidue = true}"
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    file: fill-field-pass.yaml
+# The passes end with the keyboard hidden and the field in view. Whether
+# typing raises the keyboard differs (API 36 did, probe-b0dcba38891f4d946614cee2),
+# so the text is typed after a tap that certainly raised it, and that is hidden.
 - tapOn:
     id: "${FIELD}"
-- eraseText: 128
+    point: "97%,50%"
 - inputText: "${TEXT}"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "${FIELD}"
+    direction: DOWN
+- copyTextFrom:
+    id: "${FIELD}"
+# A password reads back as a mask, its last character possibly still shown
+# for a moment after typing (probe-1a19a3b5b6168451703cd741, API 36).
+- evalScript: "${output.fillMask = maestro.copiedText.length > 1 && maestro.copiedText.slice(0, -1).split('•').join('') == '' && (maestro.copiedText.slice(-1) == '•' || maestro.copiedText.slice(-1) == TEXT.slice(-1))}"
+- assertTrue: "${output.fillMask ? maestro.copiedText.length == TEXT.length : maestro.copiedText == TEXT}"

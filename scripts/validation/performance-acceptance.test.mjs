@@ -94,7 +94,20 @@ test('original real flows retain restart and background definitions without edit
     captureLifecycle(
       await readFile(new URL(`validation/maestro/${path}.yaml`, root), 'utf8'),
     );
-  const reopen = await capture('scan/04-reopen-refresh');
+  // Feature 008 (T037, research R12): a caller coming back from the
+  // configure-repository seam now launches MainActivity itself, because
+  // open-sources is navigation only. That explicit launch comes before the
+  // original restart/background definitions, which stay exactly as they were.
+  const seamReturn = records => {
+    const [first, ...rest] = records;
+    assert.equal(first.command, 'launchApp');
+    assert.equal(first.clearState, true);
+    assert.equal(rest.length, 3, 'one seam return before the original definitions');
+    assert.equal(rest[0].command, 'launchApp');
+    assert.equal(rest[0].clearState, null, 'the seam return keeps app state');
+    return [first, ...rest.slice(1)];
+  };
+  const reopen = seamReturn(await capture('scan/04-reopen-refresh'));
   assert.deepEqual(
     reopen.map(record => record.command),
     ['launchApp', 'stopApp', 'launchApp'],
@@ -104,7 +117,7 @@ test('original real flows retain restart and background definitions without edit
     sort.map(record => record.command),
     ['launchApp', 'stopApp', 'launchApp'],
   );
-  const background = await capture('scan/05-background-discards');
+  const background = seamReturn(await capture('scan/05-background-discards'));
   assert.deepEqual(
     background.map(record => record.command),
     ['launchApp', 'pressKey', 'launchApp'],

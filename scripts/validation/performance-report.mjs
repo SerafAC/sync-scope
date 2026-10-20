@@ -503,7 +503,9 @@ async function initialRun(repository, mode, apis, requested) {
       os: 'linux', kernel: parsedVersion(release()), cpu: hash(JSON.stringify(cpus().map(c => c.model))),
       tools, power: power.length ? hash(power) : null},
     workloadFingerprint: manifest.definitionFingerprint,
-    build: {apkDigest: null, abi: mode === 'release-smoke' ? 'release-default' : mode === 'connected' ? 'instrumented' : 'debug-default',
+    // e2e/measure build one emulator-only x86_64 debug APK (T041); release and
+    // connected builds keep their default ABIs.
+    build: {apkDigest: null, abi: mode === 'release-smoke' ? 'release-default' : mode === 'connected' ? 'instrumented' : 'x86_64',
       cachePolicy: mode === 'release-smoke' ? 'default' : 'no-daemon', cacheState: 'unknown', tasks: 'unknown'},
     fixtureSet: {fingerprint: hash(JSON.stringify(manifest.fixtureParameters) +
       (await Promise.all(manifest.fixtureAuthorities.map(p => bytes(join(repository, p))))).map(b => hash(b)).join('')),

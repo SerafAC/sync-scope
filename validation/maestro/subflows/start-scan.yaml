@@ -1,12 +1,20 @@
 # Subflow: on the Scan tab, tap Scan (or Rescan from scratch), and wait for the
-# run to end. The caller asserts how it ended. Never run on its own.
+# run it started to end. The caller asserts how it ended. Never run on its own.
 #
 # Params (runFlow env):
 #   BUTTON    optional: "Rescan from scratch"; "Scan" by default
 #   PROGRESS  optional: "required" asserts that the live progress card is
-#             drawn (acceptance 1). By default a run over the seven Scan
-#             fixture files may publish before Maestro's next hierarchy
-#             snapshot, so the card is only waited for, briefly.
+#             drawn (acceptance 1): progress visible -> terminal outcome ->
+#             progress absent. Required progress is never optional.
+#
+# Feature 008 (US1.4, FR-006, research R13): "Scan progress" disappearing, or
+# never appearing, is not evidence that the tap started a run; a run over the
+# seven Scan fixture files can end before Maestro's next hierarchy snapshot.
+# The Last scan block always shows the newest run's "Generation <n>", so the
+# requested run is established by a generation other than the one shown
+# before the tap, followed by that run's terminal line ("Completed <time>" or
+# "Ended <time>") with no progress card left. A tap that starts nothing, or a
+# stale run that ends, leaves the generation unchanged and fails the wait.
 #
 # The Scan button shares its text with the tab and the screen title, so it is
 # the one between the description and the tab bar.
@@ -14,6 +22,20 @@ appId: com.syncscope
 ---
 - evalScript: "${output.scanButton = typeof BUTTON !== 'undefined' && BUTTON ? BUTTON : 'Scan'}"
 - evalScript: "${output.progressRequired = typeof PROGRESS !== 'undefined' && PROGRESS == 'required'}"
+# The generation shown before the tap; -1 before the first run.
+- evalScript: "${output.scanPrevious = -1}"
+- runFlow:
+    when:
+      visible: "Generation [0-9]+"
+    commands:
+      - copyTextFrom: "Generation [0-9]+"
+      - evalScript: "${output.scanPrevious = parseInt(maestro.copiedText.replace('Generation ', ''), 10)}"
+# No "$" may appear inside a ${...} expression: the pinned Maestro 2.10.0
+# interpolates only `\$\{([^$]*)}`, so an expression containing "$" is left
+# unevaluated (a "$)" end anchor here made the pattern "undefined",
+# configuration probe config-5c81e48302e236a7232de469). The previous number is
+# excluded by a lookahead that forbids a further digit instead.
+- evalScript: "${output.scanNewGeneration = output.scanPrevious < 0 ? 'Generation [0-9]+' : 'Generation (?!' + output.scanPrevious + '(?![0-9]))[0-9]+'}"
 - tapOn:
     text: "${output.scanButton}"
     below: "Checks every file in your folders against the backup."
@@ -25,17 +47,19 @@ appId: com.syncscope
       - extendedWaitUntil:
           visible: "Scan progress"
           timeout: 15000
-# Without the requirement, a bounded wait for the card: it either shows up
-# (and is then waited out below) or the run has already ended by the time the
-# wait gives up, so "not visible" below never passes before the run started.
-- runFlow:
-    when:
-      true: "${!output.progressRequired}"
-    commands:
-      - extendedWaitUntil:
-          visible: "Scan progress"
-          timeout: 5000
-          optional: true
+# The requested run: a new generation. While the progress card is drawn the
+# Last scan block can sit below it, so the wait spans the whole run.
+- extendedWaitUntil:
+    visible: "${output.scanNewGeneration}"
+    timeout: 180000
 - extendedWaitUntil:
     notVisible: "Scan progress"
     timeout: 180000
+# Its terminal line, on the same Last scan block as the new generation.
+- extendedWaitUntil:
+    visible: "${output.scanNewGeneration}"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "(Completed|Ended)( .+)?"
+    timeout: 15000
+- assertNotVisible: "In progress"

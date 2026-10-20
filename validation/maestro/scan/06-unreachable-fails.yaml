@@ -15,6 +15,9 @@ name: scan/06-unreachable-fails
       USER: "${SFTP_USER}"
       PASSWORD: "${SFTP_PASSWORD}"
       ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/scan/clean'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow: ../subflows/add-scan-source.yaml
 - runFlow: ../subflows/open-scan.yaml
 - runFlow: ../subflows/start-scan.yaml

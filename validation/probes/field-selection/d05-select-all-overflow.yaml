@@ -1,0 +1,21 @@
+# T035 diagnostic: is "Select all" reachable at all, directly or through the
+# floating toolbar's overflow ("More options")? Passing here while d03 fails
+# means the overflow is needed.
+appId: com.syncscope
+name: probe/d05-select-all-overflow
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.host"
+- inputText: "10.0.2.2"
+- hideKeyboard
+- longPressOn:
+    id: "repository.host"
+- runFlow:
+    when:
+      notVisible: "Select all"
+    commands:
+      - tapOn: "More options"
+- extendedWaitUntil:
+    visible: "Select all"
+    timeout: 5000

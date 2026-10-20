@@ -387,6 +387,30 @@ if [ "$mode" = release-smoke ]; then
     "$SYNCSCOPE_PERFORMANCE_DIR" "$release_apk" /dev/null
 fi
 
+debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"
+if [ "$mode" = e2e ] || [ "$mode" = measure ]; then
+  # Feature 008 (T041, research R9): one debug assembly per invocation, before
+  # any service, emulator or API loop, so a failed build acquires nothing and
+  # every API installs the same recorded APK. Only the emulator ABI is built,
+  # through the documented override in android/gradle.properties; release and
+  # connected builds keep every ABI. Gradle always runs (no "APK exists" skip),
+  # so its own up-to-date checks decide what is rebuilt.
+  validation_phase_begin shared build
+  gradle_log="$SYNCSCOPE_PERFORMANCE_DIR/raw/build-shared.log"
+  setsid timeout --signal=TERM --kill-after=20 1200 \
+    "$repo/android/gradlew" -p "$repo/android" --no-daemon \
+    -PreactNativeArchitectures=x86_64 \
+    :app:assembleDebug >"$gradle_log" 2>&1 9>&- &
+  gradle_pid=$!
+  mkdir -p "$claims/gradle"
+  validation_save_pid "$gradle_pid" "$claims/gradle" 2>/dev/null || true
+  wait "$gradle_pid"
+  gradle_pid=
+  validation_phase_end 0
+  node "$repo/scripts/validation/performance-report.mjs" build \
+    "$SYNCSCOPE_PERFORMANCE_DIR" "$debug_apk" "$gradle_log"
+fi
+
 for protocol in sftp webdav ftp; do
   case "$protocol" in
     sftp) port=32122; passive= ;;
@@ -431,7 +455,6 @@ for api in $apis; do
     preferred=$(node "$repo/scripts/validation/performance-report.mjs" ranking-preference \
       "$SYNCSCOPE_PERFORMANCE_DIR" "$api")
   fi
-  api_built=0
   for candidate in $api_candidates; do
   unset SYNCSCOPE_GRAPHICS_CANDIDATE SYNCSCOPE_GRAPHICS_PIN
   if [ "$calibrating" -eq 1 ]; then
@@ -493,13 +516,6 @@ for api in $apis; do
       "$repo/android/gradlew" -p "$repo/android" --no-daemon \
       :app:connectedDebugAndroidTest >"$gradle_log" 2>&1 9>&- &
     gradle_pid=$!
-  elif { [ "$mode" = e2e ] || [ "$mode" = measure ]; } && [ "$api_built" -eq 0 ]; then
-    validation_phase_begin "$api" build
-    gradle_log="$SYNCSCOPE_PERFORMANCE_DIR/raw/build-$api.log"
-    setsid timeout --signal=TERM --kill-after=20 1200 \
-      "$repo/android/gradlew" -p "$repo/android" --no-daemon \
-      :app:assembleDebug >"$gradle_log" 2>&1 9>&- &
-    gradle_pid=$!
   fi
   if [ -n "$gradle_pid" ]; then
     mkdir -p "$claims/gradle"
@@ -508,9 +524,7 @@ for api in $apis; do
     gradle_pid=
     validation_phase_end 0
     node "$repo/scripts/validation/performance-report.mjs" build \
-      "$SYNCSCOPE_PERFORMANCE_DIR" "$repo/android/app/build/outputs/apk/debug/app-debug.apk" "$gradle_log" "$api"
-    # Calibration measures every candidate with this one APK.
-    api_built=1
+      "$SYNCSCOPE_PERFORMANCE_DIR" "$debug_apk" "$gradle_log" "$api"
   fi
 
   if [ "$mode" = release-smoke ]; then
@@ -520,7 +534,7 @@ for api in $apis; do
     adb install "$release_apk"
   elif [ "$mode" = e2e ] || [ "$mode" = measure ]; then
     validation_phase_begin "$api" install
-    debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"
+    # The shared build's APK; every API and calibration candidate gets the same one.
     # A release-smoke run leaves the release-signed APK installed, and Android
     # refuses to update it with the debug-signed one. Only in that case is the
     # app uninstalled first; every flow directory starts from clearState anyway.
@@ -611,9 +625,12 @@ EOF
       # order with fresh app state per scan flow) takes well over 10 minutes.
       # With 006's mvp/ flows the workspace runs about 55 minutes per API, so
       # the cap leaves headroom above that (2400 s cut it off at mvp/01).
+      # Feature 008 appends performance/01-field-replacement: the 40-flow
+      # software workspace took 4996 s on API 31 and 5400 s cut API 36 off
+      # after 39 flows (T045, us1-regressions/rerun5), so the cap is 7200 s.
       prepare_maestro
       expected_artifacts=$(node "$repo/scripts/validation/performance-report.mjs" workspace-count "$repo")
-      setsid timeout --signal=TERM --kill-after=10 5400 \
+      setsid timeout --signal=TERM --kill-after=10 7200 \
         "$maestro_bin" \
         test "$@" "$repo/validation/maestro" \
         --test-output-dir "$artifact/output" --debug-output "$artifact/debug" \
