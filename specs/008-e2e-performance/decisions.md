@@ -188,3 +188,7 @@ How should T046 report before/after medians?
 - Match resources on configured values, not observedRamKiB.
 
 Add regression tests, place the existing calibration samples as the after-host and after-software cohorts, and write the medians before T047 is launched. The x86_64 emulator loads the same x86_64 native libraries from either APK, so the ABI change is not expected to affect guest timing. `performance-report.mjs` is reporting-only and outside the ranking fingerprint, so no new recalibration is needed.
+
+## 2026-10-21 — T047 acceptance launch [T047-T048]
+**Q:** Can the main session launch the T047 full two-API acceptance run detached now (validation/evidence/performance/us1-acceptance/launch.private.sh, about 3–3.5 h), then relaunch the unit for T047–T048 once us1-acceptance/exit appears?
+**A:** Launch detached now and relaunch the unit on exit (recommended; taken under the 2026-10-19 standing rule). T046 was committed first because the launcher records the git status before and after the run. T046 measured H03–H07 as 5–16% slower and H01–H02 as 13–17% faster, roughly flat overall. That result goes into T048 and US3 and is not investigated before T047.
