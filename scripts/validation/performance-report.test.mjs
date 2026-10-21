@@ -232,6 +232,38 @@ test('actual renderer/cache/resources and unknown critical metadata cannot be po
   assert.ok(zero.rows[0].reasons.includes('zero-baseline'));
 });
 
+test('dataset fixture identity, declared debug ABI change and RAM jitter match with notes (decision 2026-10-21)', () => {
+  const after = syntheticRun(80);
+  after.fixtureSet.fingerprint = 'e'.repeat(64);
+  after.build.abi = 'x86_64';
+  after.apiRuns[0].resources.observedRamKiB = 3000004;
+  const before = syntheticRun();
+  before.build.abi = 'debug-default';
+  const result = compareRuns([before], [after]);
+  assert.equal(result.complete, true);
+  assert.equal(result.rows[0].status, 'matched');
+  assert.equal(result.rows[0].improvementPercent, 20);
+  assert.deepEqual(result.rows[0].notes,
+    ['fixture-script-fingerprint-changed', 'build-abi-changed', 'observed-ram-differs']);
+  assert.deepEqual(compareRuns([syntheticRun()], [syntheticRun()]).rows[0].notes, []);
+  for (const mutate of [
+    run => { run.fixtureSet.counts.bulkFiles = 19999; },
+    run => { run.fixtureSet.logicalBytes = 43; },
+    run => { run.fixtureSet.logicalBytes = null; },
+    run => { run.build.abi = 'release-default'; },
+    run => { run.build.cachePolicy = 'default'; },
+    run => { run.build.cacheState = 'cold'; },
+    run => { run.apiRuns[0].resources.requestedRamMiB = 4096; },
+    run => { run.apiRuns[0].resources.cpus = 2; },
+    run => { run.apiRuns[0].resources.observedRamKiB = null; },
+  ]) {
+    const changed = syntheticRun(); mutate(changed);
+    const row = compareRuns([syntheticRun()], [changed]).rows[0];
+    assert.equal(row.status, 'incompatible');
+    assert.ok(row.reasons.includes('cohort-mismatch-or-unknown-metadata'));
+  }
+});
+
 test('flat executed metadata is allowlisted; definitions, secrets and UI are never published', async t => {
   const commands = [
     {command: {runFlowCommand: {commands: [{inputTextCommand: {text: 'SECRET_CANARY'}}]}},

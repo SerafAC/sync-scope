@@ -206,14 +206,29 @@ export function validateRun(run) {
   return structuredClone(run);
 }
 
+// Equality key for matched cohorts (decision 2026-10-21): fixtures match on dataset identity
+// (parameters, counts, logical bytes), not on the fixture-script fingerprint; the debug build ABI
+// change (debug-default -> x86_64, T041) is a declared optimization input; resources match on the
+// configured values, never on boot-to-boot observed RAM jitter. Each relaxed field is reported as a
+// row note, and unknown values still make the row incompatible.
+const debugAbis = ['debug-default', 'x86_64'];
 function cohort(run, a) {
   const build = a.build ?? run.build;
-  const fixtures = {fingerprint: run.fixtureSet.fingerprint, counts: run.fixtureSet.counts,
-    logicalBytes: run.fixtureSet.logicalBytes};
+  const fixtures = {counts: run.fixtureSet.counts, logicalBytes: run.fixtureSet.logicalBytes};
+  const {observedRamKiB, ...resources} = a.resources;
   return {host: run.host, workload: run.workloadFingerprint, fixtures,
     api: a.api, image: a.image, profile: {...a.profile, requested: undefined, fallback: undefined},
-    resources: a.resources, animations: a.animations,
-    build: {abi: build.abi, cachePolicy: build.cachePolicy, cacheState: build.cacheState}};
+    resources, animations: a.animations,
+    build: {abi: debugAbis.includes(build.abi) ? 'debug' : build.abi,
+      cachePolicy: build.cachePolicy, cacheState: build.cacheState}};
+}
+function cohortNotes(entries) {
+  const differs = value => new Set(entries.map(e => JSON.stringify(value(e)))).size > 1;
+  const notes = [];
+  if (differs(e => e.run.fixtureSet.fingerprint)) { notes.push('fixture-script-fingerprint-changed'); }
+  if (differs(e => (e.a.build ?? e.run.build).abi)) { notes.push('build-abi-changed'); }
+  if (differs(e => e.a.resources.observedRamKiB)) { notes.push('observed-ram-differs'); }
+  return notes;
 }
 function known(value) {
   if (value === null || value === 'unknown' || value === false) { return false; }
@@ -234,7 +249,7 @@ export function compareRuns(before, after) {
         beforeSampleIds: b.flatMap(e => e.samples.map(s => s.sampleId)),
         afterSampleIds: a.flatMap(e => e.samples.map(s => s.sampleId)),
         beforeMedianMs: null, afterMedianMs: null, elapsedChangeMs: null,
-        elapsedChangePercent: null, improvementPercent: null};
+        elapsedChangePercent: null, improvementPercent: null, notes: []};
       if (!b.length || !a.length) { row.reasons.push('missing-samples'); }
       else {
         const all = [...b, ...a], reference = cohort(b[0].run, b[0].a);
@@ -246,6 +261,7 @@ export function compareRuns(before, after) {
         if (lifecycleFailed) {
           row.status = 'incomplete'; row.reasons.push('failed-or-incomplete-lifecycle');
         } else if (all.some(e => !known(cohort(e.run, e.a)) || !e.a.profile.verified ||
+            !known(e.a.resources.observedRamKiB) || !known(e.run.fixtureSet.fingerprint) ||
             !(e.a.build ?? e.run.build).apkDigest ||
             ['node', 'maestro', 'emulator', 'adb', 'docker', 'compose', 'java', 'pnpm']
               .some(tool => !e.run.host.tools[tool]) ||
@@ -259,6 +275,7 @@ export function compareRuns(before, after) {
             row.status = 'incomplete'; row.reasons.push('three-original-successful-samples-required');
           } else {
             row.status = 'matched';
+            row.notes = cohortNotes(all);
             row.beforeMedianMs = median(bs.map(s => s.elapsedMs));
             row.afterMedianMs = median(as.map(s => s.elapsedMs));
             row.elapsedChangeMs = row.afterMedianMs - row.beforeMedianMs;
@@ -1118,7 +1135,7 @@ async function main(args) {
       '| Subject | API | Status | Before median ms | After median ms | After − before ms | Improvement % | Diagnostics |\n' +
       '| --- | --- | --- | --- | --- | --- | --- | --- |\n' + comparison.rows.map(r =>
         `| ${r.scenarioId} | ${r.api} | ${r.status} | ${r.beforeMedianMs ?? 'n/a'} | ${r.afterMedianMs ?? 'n/a'} | ` +
-        `${r.elapsedChangeMs ?? 'n/a'} | ${r.improvementPercent ?? 'n/a'} | ${r.reasons.join(', ')} |`).join('\n') + '\n',
+        `${r.elapsedChangeMs ?? 'n/a'} | ${r.improvementPercent ?? 'n/a'} | ${[...r.reasons, ...r.notes].join(', ')} |`).join('\n') + '\n',
       {flag: 'wx', mode: 0o600});
     process.exitCode = comparison.complete ? 0 : 1; return;
   }
