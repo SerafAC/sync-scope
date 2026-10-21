@@ -187,44 +187,58 @@ If no `mounted` public volume is listed, see
 
 ### Graphics acceleration (feature 008)
 
-`pnpm e2e:android` keeps the original emulator launch (`-gpu swiftshader_indirect`) until T046 makes
-`--graphics auto` the default, after the T037 Settings flow-race fix. Until then, to use verified
-acceleration, pass `--graphics` to `scripts/validation/android-flow.sh`:
+`pnpm e2e:android` runs `scripts/validation/android-flow.sh e2e --api 31 --api 36 --graphics auto`, so
+normal validation uses the verified, ranked automatic profile. Calling `android-flow.sh` directly without
+`--graphics` still reproduces the original emulator launch (`-gpu swiftshader_indirect`). That launch
+exists only to reproduce the original baseline and is never used as a fallback.
 
 ```sh
-scripts/validation/android-flow.sh e2e --api 31 --graphics auto --report-dir <dir>
+scripts/validation/android-flow.sh e2e --api 31 --graphics auto
 ```
 
-- `auto` discovers the exposed host GPUs (Intel and NVIDIA are separate candidates) and the emulator's
-  software modes. It tries the ranked candidate first when `<dir>/acceleration-ranking.json` holds a
-  ranking for that API, otherwise host routes first, then software.
+- `auto` discovers the exposed Intel host GPU and the emulator's software modes. It tries the ranked
+  candidate first when the report directory holds a ranking for that API. The default report directory
+  is `validation/evidence/performance/`, whose `acceleration-ranking.json` is the published ranking.
+  Without a ranking it tries host routes first, then software.
+- NVIDIA is excluded from discovery and ranking (decision 2026-10-20). `host-nvidia-1` is recorded as
+  `unavailable` with reason `excluded`, and the scripts never call `nvx`. Earlier NVIDIA calibrations
+  remain only as history.
 - `host-opengl` tries host routes (`-gpu host -feature -Vulkan -accel on`) and then software, without a
   ranking. `software` tries only `swiftshader`, `software`, then `lavapipe` and `swangle`.
-- KVM is required. Every boot is verified (CPU mode, actual renderer, driver, image, resources and
-  animation scales); a candidate that fails or reports the wrong renderer is released and the next is
-  tried, and the run fails with an actionable message when none works. A fallback is recorded as a
-  different, `provisional` profile, not as the ranked hardware result.
+- KVM is required. Every boot is verified: CPU mode, actual renderer, driver, image, resources and
+  animation scales. A candidate that fails, or that reports the wrong renderer, is released and the next
+  one is tried. The run fails with an actionable message when no candidate works. A fallback is
+  recorded as a different, `provisional` profile, not as the ranked hardware result.
 - A ranking is reused only while its `rankingFingerprint` still matches the app, flows, helpers,
-  fixtures, image, drivers, exposed GPUs, host power and guest settings; otherwise it is `stale`.
-  `measure --graphics auto` recalibrates one candidate per invocation.
-- On this Optimus laptop the NVIDIA GPU is visible only after `nvx on`. With it off, NVIDIA is reported
-  unavailable (not incompatible), and an `auto` run against the current rankings falls back and is
-  labelled stale. Ranked selection therefore needs `nvx on`; turn it off with `nvx off` afterwards. The
-  scripts never change GPU power, drivers, the SDK (resolved from `ANDROID_HOME` by
+  fixtures, image, drivers, exposed GPUs, host power and guest settings. Otherwise it is `stale`.
+  `measure --graphics auto` recalibrates one candidate per invocation. Any change to a flow, helper, the
+  app or a fixture script therefore makes the published ranking stale until it is recalibrated.
+- The scripts never change GPU power, drivers, the SDK (resolved from `ANDROID_HOME` by
   `scripts/validation/android-sdk.sh`) or the AVDs.
 
-Measured on 2026-10-16/17: API 31 ranks `host-intel-1` and API 36 ranks `host-nvidia-1`. The API 31
-ranked profile passed full acceptance. API 36 on NVIDIA booted and verified but is blocked by a flow
-race in `validation/maestro/subflows/open-sources.yaml` that Phase 4 fixes. Details and the automated
-fallback check (`scripts/validation/acceleration-fault-check.mjs`) are in
+Measured on 2026-10-21 (T046 recalibration, three H01–H08 repetitions per candidate and API):
+`host-intel-1` ranks first on both APIs. Its H03+H07+H08 subtotal was 443.5 s against 469.4 s for
+`software-swiftshader` on API 31, and 454.4 s against 502.6 s on API 36. The full `pnpm e2e:android`
+acceptance (T047) passed on both APIs with that profile. Details and the automated fallback check
+(`scripts/validation/acceleration-fault-check.mjs`) are in
 [Validation performance evidence](./docs/validation-performance.md#graphics-acceleration-us2).
 
 ## End-to-end flows (Maestro)
 
-`pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36. For each
-API level `scripts/validation/android-flow.sh` starts the protocol containers and Metro, boots the AVD,
-builds and installs the debug APK, runs `scripts/validation/device-fixtures.sh`, and then runs
-`maestro test validation/maestro`, followed by the [staged pairs](#staged-pairs-and-hooks).
+`pnpm e2e:android` runs every Maestro flow in `validation/maestro/` on API 31 and then API 36.
+`scripts/validation/android-flow.sh` starts the protocol containers and Metro, and builds the debug APK
+once, before the API loop. It uses `--no-daemon` and `-PreactNativeArchitectures=x86_64`, because the
+emulators are x86_64. Release, signing and connected builds keep all their ABIs. For each API level it
+boots the AVD, installs that same APK (the invocation records its digest), runs
+`scripts/validation/device-fixtures.sh`, and then runs `maestro test validation/maestro`, followed by
+the [staged pairs](#staged-pairs-and-hooks).
+
+**How long it takes.** On the development host, with the ranked `host-intel-1` profile on both APIs
+(T047, 2026-10-21), the whole two-API run took about 3 h 03 min (10,995 s). Per API, the workspace of
+40 flows took 4,780–4,984 s, the seven staged parts 447–454 s and the device-fixture validation about
+97–99 s. The build took 22 s and each boot 36–41 s. The legacy software launch with the same flows
+took about 3 h 16 min (T045). The workspace step is capped at 7,200 s per API. The old estimate of
+"about 55 minutes per API" predates feature 007 and is no longer accurate.
 Metro is started once and serves both API levels under the unchanged 14,400-second (four-hour) cap
 (`scripts/validation/metro-service.sh`); e2e, connected, release and standalone owned emulators retain
 the separate 9,000-second (2.5-hour) cap (`scripts/validation/android-validator.sh`). Newly acquired
@@ -274,12 +288,14 @@ validation/maestro/
 ├── config.yaml      # executionOrder.flowsOrder + continueOnFailure: false
 ├── subflows/        # reusable steps, never run on their own
 │   ├── pick-folder.yaml            # drives the system folder picker; env VOLUME, PATH
-│   ├── open-sources.yaml           # launches the app, opens Settings and scrolls to Add folder (below Repository)
+│   ├── open-sources.yaml           # navigation only: opens Settings, waits for its sections to load, scrolls to Add folder
+│   ├── fill-field.yaml             # replaces one form field's text; env FIELD, TEXT. Since feature 008 it erases the measured length and requires the exact value on read-back
+│   ├── fill-field-pass.yaml        # one erase-residue pass of fill-field (at most 8, unrolled)
 │   ├── configure-repository.yaml   # the configure-repository seam; env PROTOCOL, PORT, USER, PASSWORD, ROOT, ROOT_2
 │   ├── add-scan-source.yaml        # adds SyncScopeE2E/Scan (and Bulk with BULK=true), or the SOURCES list
 │   ├── open-scan.yaml              # opens the Scan tab
 │   ├── setup-repository.yaml       # the Repository form, as a user fills it; env PROTOCOL, PORT, USER, PASSWORD, ROOT, HTTPS, START, EXPECT
-│   ├── start-scan.yaml             # taps Scan (or BUTTON) and waits for the run to end
+│   ├── start-scan.yaml             # taps Scan (or BUTTON); requires a new generation and its terminal line
 │   └── open-files.yaml             # opens the Files tab and waits for its first page
 ├── sources/         # one directory per feature area (feature 003)
 │   ├── 01-add-internal.yaml
@@ -309,6 +325,8 @@ validation/maestro/
 │   ├── 06-remote-browse-sftp.yaml
 │   ├── 07-results-updated-keeps-place.yaml
 │   └── 08-add-large-folder.yaml
+├── performance/     # feature 008 regressions, after the 39 original flows
+│   └── 01-field-replacement.yaml   # real-form field matrix: empty/prefilled/secure/numeric, long roots
 └── staged/          # feature 006: a/b(/c) parts with a hook between them; not in config.yaml
     ├── pairs.txt
     ├── 06-recheck-removed-{a,b}.yaml
@@ -357,6 +375,24 @@ validation/maestro/
   configures the repository (through the seam, or through the form with `subflows/setup-repository.yaml`)
   and adds only the sources it needs. A restart is `stopApp` then
   `launchApp` without `clearState`.
+- `subflows/open-sources.yaml` is navigation only (feature 008). It never launches, stops or resets the
+  app, so the caller owns that transition and leaves `MainActivity` open: a `clearState` launch, a real
+  restart, a return from a debug seam Activity (with `launchApp`), or the screen the previous flow ended
+  on. The subflow waits until the Settings tab is selected and "Loading repository" and "Loading
+  folders" are gone before it scrolls to `sources.add`. A new source row is scrolled to
+  (`scrollUntilVisible`), not only waited for, because a late load can push it below the fold.
+- `subflows/start-scan.yaml` proves that the tap started a run. It reads the "Generation <n>" shown
+  before the tap and requires a different generation, then the run's terminal line ("Completed …" or
+  "Ended …") with no progress card left. With `PROGRESS: required`, the "Scan progress" card must be
+  visible first. A disappearing card alone is never accepted, and no step is optional. The
+  `01-clean-scan-*` flows keep `SCAN_DELAY_MS: "4000"`: at 1000 ms the WebDAV scan (and SFTP on API 31)
+  finished before Maestro could see the card (`validation/evidence/performance/scan-pacing.md`).
+- `subflows/fill-field.yaml` never assumes a contextual "Select all". It reads the field, erases the
+  measured length, hides the keyboard and reads again. It repeats the erase until the value is
+  unchanged (at most eight passes), then taps, types, hides the keyboard once and requires the exact
+  value. A password is checked only as a mask of the typed length, and the authentication proves it.
+  Do not use `eraseText` "all", an `inputText` replace flag or Ctrl+A/End keys, because pinned Maestro
+  2.10.0 does not support them. `performance/01-field-replacement` covers the matrix on both APIs.
 
 ### Test-only seams
 
@@ -395,7 +431,8 @@ Each folder gets one small file. For the scan flows (feature 004) it also seeds,
   NFD, which proves NFC matching. `size-mismatch.txt` differs in size, `local-only.txt` has no remote
   copy, and `only-here.txt` matches only the file in the unreadable `scan/partial/restricted` folder.
 - `SyncScopeE2E/Bulk`: `BULK_FILES` small generated files (default 20 000, whole numbers 1 to 99 999) in
-  200 folders, regenerated on every run. Only the progress and backgrounding flow
+  200 folders, kept while its validated marker matches (see
+  [Fixture reuse](#fixture-reuse-feature-008)). Only the progress and backgrounding flow
   (`scan/05-background-discards`) adds it.
 
 For the browse flows (feature 005) it seeds three more sources on internal storage, made of real,
@@ -407,7 +444,7 @@ decodable PNGs so the gallery can draw thumbnails:
 - `SyncScopeE2E/GalleryTwin`: a `sunset.png` of a different size, so it is UNSYNCED and shares its name
   with the Gallery copy, which gives both tiles an origin badge.
 - `SyncScopeE2E/GalleryBulk`: `g0000.png` and on, `GALLERY_BULK_FILES` copies of one PNG (default 2 000,
-  whole numbers 1 to 9 999), regenerated on every run. Only `browse/01-gallery-thousands` adds it, and it
+  whole numbers 1 to 9 999), kept while its validated marker matches. Only `browse/01-gallery-thousands` adds it, and it
   asserts `Filter All, 2000`, so keep the default when running that flow; spec scenario 1 needs at least
   2 000.
 
@@ -443,8 +480,24 @@ For sorting, the scrollbar, several server folders and the picker (feature 007,
 | `SyncScopeE2E/Narrow` | 200 padded PNGs, all 3–5 MB with at least 8 distinct sizes, within 21 days, so the size bands must be narrow | `polish/03` |
 | `DCIM/Big` | 10 000 empty `.jpg` files, made with one `adb shell` loop | `polish/08` and the picker spike |
 
-`Scroll` and `Big` take a while to create, so they are kept when their file count is already complete (in
-practice once per emulator boot); the others are re-created on each run.
+#### Fixture reuse (feature 008)
+
+The five large, immutable sets (`Bulk`, `GalleryBulk`, `Narrow`, `Scroll` and `DCIM/Big`) are kept
+only when they are proven unchanged. A matching file count is no longer enough. Each set has a
+completion marker in `/data/local/tmp/syncscope-fixtures`, outside every scanned tree. The marker holds
+a fingerprint of the generator scripts, the set's name, path and parameters, and a digest of the tree
+taken right after a successful seed. That digest covers paths, sizes, content hashes, and mtimes where
+the flows depend on them. On each run the script recomputes the digest and keeps the set (`unknown →
+validating → valid`) or removes the marker and reseeds it. The marker is written only after the seed
+succeeds, so a failed or interrupted seed always reseeds next time.
+
+Every mutable tree (`Scan`, `TwoFolders`, `Gallery`, `GalleryTwin`, `Delete`, `Recheck`, `Offline`,
+`Select`, `Changed`) is re-created on every run, on primary storage and on the SD card. The runner
+resets the fixtures once per API before its workspace and before every measured repetition, but never
+between the parts of a staged line. Validating all five kept sets takes about 88–99 s per API.
+Regenerating them takes about 580–630 s (`validation/evidence/performance/fixture-reuse.md`). Changing
+`device-fixtures.sh`, `fixture-images.sh` or `scroll-manifest.sh` changes the generator fingerprint, so
+the next run reseeds every set.
 
 **The scroll manifest.** `scripts/validation/scroll-manifest.sh` is the one definition of the `Scroll` and
 `Narrow` files (Principle III). Sourced, it defines `scroll_name`, `scroll_size` and `scroll_mtime <i>`
@@ -462,7 +515,8 @@ value independently. To run a `polish/` flow by hand, pass the same variables:
 **Calibrating `BULK_FILES`.** The Bulk source must keep a full scan running for at least 15 s on the API 31
 emulator, so a flow can cancel it or leave the app mid-run. With 20 000 files a FULL scan over SFTP of
 `Scan` and `Bulk` took about 22 s on the reference host (`specs/004-scan-engine-matching/research.md`,
-R11), and seeding takes about 70 s. On a much faster or slower machine, time a scan of both sources from
+R11). Generating the Bulk set took about 70 s at the time. It is now kept between runs while its marker
+validates, so a changed `BULK_FILES` reseeds it once. On a much faster or slower machine, time a scan of both sources from
 the first progress frame to the summary and set `BULK_FILES` (an environment variable read by
 `device-fixtures.sh`) so the run lasts at least 15 s.
 

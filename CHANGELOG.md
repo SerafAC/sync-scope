@@ -10,16 +10,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 ### Added
 
 - Verified emulator acceleration for the validation runner (feature 008, US2):
-  `scripts/validation/android-flow.sh --graphics auto|host-opengl|software` discovers exposed Intel and
-  NVIDIA host GPUs and the emulator's software modes, requires KVM, verifies the actual renderer after
-  every boot, falls back in a fixed order (`swiftshader`, `software`, then others) while releasing only
-  the rejected emulator, and fails with an actionable message when nothing works. `measure --graphics
-  auto` calibrates one candidate per invocation on the frozen workload and ranks each API; later `auto`
-  runs reuse the ranking only while its `rankingFingerprint` matches. Measured on the development host,
-  API 31 ranks Intel and passed full acceptance; API 36 ranks NVIDIA, which needs `nvx on` and whose
-  acceptance is blocked by a known flow race fixed in a later phase. A developer harness,
-  `scripts/validation/acceleration-fault-check.mjs`, proves fallback and exhaustion by injecting launch
-  failures. `pnpm e2e:android` without `--graphics` keeps the original emulator launch.
+  `scripts/validation/android-flow.sh --graphics auto|host-opengl|software` discovers the exposed Intel
+  host GPU and the emulator's software modes, and requires KVM. It verifies the actual renderer after
+  every boot and falls back in a fixed order (`swiftshader`, `software`, then others), releasing only
+  the rejected emulator. When nothing works it fails with an actionable message. `measure --graphics
+  auto` calibrates one candidate per invocation on the frozen workload and ranks each API. Later `auto`
+  runs reuse the ranking only while its `rankingFingerprint` matches. `pnpm e2e:android` now runs with
+  `--graphics auto` and the published ranking `validation/evidence/performance/acceleration-ranking.json`.
+  On the development host it ranks `host-intel-1` on both APIs, and the full suite passes on both with
+  that profile. The NVIDIA GPU is excluded from discovery and ranking, and no script calls `nvx`. A
+  direct `android-flow.sh` call without `--graphics` keeps the original emulator launch. A developer
+  harness, `scripts/validation/acceleration-fault-check.mjs`, proves fallback and exhaustion by
+  injecting launch failures.
+- Feature 008 validation regressions (US1). `validation/maestro/performance/01-field-replacement` runs
+  after the 39 original flows and checks real-form replacement of empty, prefilled, secure and numeric
+  fields and of remote roots longer than 128 characters, on both APIs. Host contract tests cover the
+  field helper, navigation, scan-start proof, the runner and the fixtures
+  (`scripts/validation/performance-{helpers,navigation,progress,runner,fixtures}.test.mjs`).
 - Measurement-owned validation emulators receive a finite four-hour lifetime through an authenticated
   full-invocation mode claim. Other modes retain 2.5 hours, borrowed emulators remain unchanged, and
   Metro stays capped at four hours; no arbitrary lifetime override or action-speedup claim is added.
@@ -90,6 +97,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- The validation runner builds the debug APK once per invocation, for x86_64 only
+  (`-PreactNativeArchitectures=x86_64`, `--no-daemon`), and installs that same APK on API 31 and API 36.
+  Release, signing, update and connected builds are unchanged. Daemon reuse was measured and not
+  adopted (feature 008, US1).
+- `scripts/validation/device-fixtures.sh` keeps the five large, immutable fixture sets only when a
+  marker with a generator/parameter fingerprint and a full tree digest still matches, and reseeds
+  otherwise. This replaces count-only reuse and regeneration on every run. Validating all five takes
+  about 90–100 s per API, against about 10 minutes to regenerate them. Mutable fixtures are still reset
+  per API and per measured repetition, never between the parts of a staged line (feature 008, US1).
+- `validation/maestro/subflows/open-sources.yaml` is navigation only, and its callers own the
+  launch, restart or seam return. `subflows/start-scan.yaml` now proves that the tap started a run (a
+  new generation, then its terminal line with no progress card) instead of an optional running wait.
+  The workspace cap is 7,200 s per API. With these changes, the H01/H02 setup flows are 13–22 % faster
+  and H03–H07 are 3–21 % slower on both renderers. The total is about flat. A full two-API
+  `pnpm e2e:android` takes about 3 hours on the development host. Reduced guest animations and shorter
+  scan pacing were measured and deferred (feature 008, US1; `docs/validation-performance.md`).
 - The gallery / list switch in the Files tab is now a view drop-down next to the sort drop-down, and the
   view and each view's sort are remembered across restarts, starting at date, newest first for gallery
   and name, A to Z for list (feature 007).
@@ -142,6 +165,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Fixed
 
+- The validation field helper (`validation/maestro/subflows/fill-field.yaml`) now replaces long
+  values completely, for example remote roots longer than 128 characters. It erases the measured length
+  until the field reads back unchanged, then requires the exact typed value. Before, it erased two
+  fixed 128-character steps and could leave part of a long root behind (feature 008, US1).
+- Validation flows no longer race the Settings screen on API 36. `open-sources.yaml` waits for the
+  Settings tab to be selected and for its sections to load before scrolling to Add folder, and a newly
+  added source row is scrolled to before it is asserted (feature 008, US1).
 - The validation FTP service now restarts on failure. The pinned `vsftpd` image intermittently
   segfaults, and with no restart policy FTP stayed down for the rest of an invocation. A restarted
   container keeps its fixture account and appends to its scoped audit log. Every protocol container

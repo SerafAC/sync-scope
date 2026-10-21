@@ -3,14 +3,16 @@
 ## Current boundary
 
 Feature 008 foundation adds observational reporting, private artifact routing and resource-ownership
-safety. It does **not** optimize app behavior, interactions, builds, fixtures or guest settings, or
-establish a timing baseline merely by passing unit tests.
+safety. Unit tests alone never establish a timing baseline. US1 (helper, progress, build and fixture
+changes) and US2 (verified acceleration) are implemented and measured; see
+[Interaction, build and fixture changes](#interaction-build-and-fixture-changes-us1). US3 profiling and
+any app changes it justifies have not started.
 The runner accepts `connected`, `e2e`, `release-smoke` and `measure`, repeated `--api` arguments,
-`--report-dir`, and `--graphics auto|host-opengl|software`. Direct invocation still defaults to API 31;
-`pnpm e2e:android` still requests API 31 followed by 36 and, without `--graphics`, keeps the original
-**legacy launch request** (`-gpu swiftshader_indirect`), reported as software, until T046 makes
-`--graphics auto` the default after the T037 Settings flow-race fix. `swiftshader_indirect` is
-only that baseline reproduction, never a fallback.
+`--report-dir`, and `--graphics auto|host-opengl|software`. Direct invocation still defaults to API 31
+and, without `--graphics`, to the original **legacy launch request** (`-gpu swiftshader_indirect`),
+reported as software. `pnpm e2e:android` requests API 31 followed by 36 with `--graphics auto` (T046),
+which reads the published ranking `validation/evidence/performance/acceleration-ranking.json`.
+`swiftshader_indirect` only reproduces the baseline and is never a fallback.
 
 US2 (verified acceleration) is implemented; see [Graphics acceleration](#graphics-acceleration-us2)
 for the selection, fallback and ownership behavior and its measured compatibility evidence.
@@ -1230,7 +1232,9 @@ candidate is `provisional`, changed inputs are `stale`. T026 therefore changes n
 editing `android-flow.sh` or `android-validator.sh` would change the ranking's `helperClosure` input and
 make both rankings stale, which the 2026-10-17 decision rules out (keep the rankings, no recalibration).
 Ranked selection needs `nvx on`, because the exposed candidate set is a ranking input; with NVIDIA
-off, auto falls back to the next option and is truthfully labeled stale.
+off, auto falls back to the next option and is truthfully labeled stale. (Historical. Since
+2026-10-20 NVIDIA is excluded and no script calls `nvx`; see
+[Graphics acceleration](#graphics-acceleration-us2).)
 
 The detached campaign `ranked-acceptance-3382f9f6de494bb4f8e83778` (`acceptance-host/`) ran
 two children. It runs two normal `e2e --api <31|36> --graphics auto` invocations into one report
@@ -1280,10 +1284,68 @@ T037; T046's recalibration and T047's full both-API e2e prove it. All three runs
 `validation/evidence/performance/acceleration-acceptance.md`; the US2 contract check and local decision
 are in `validation/evidence/performance/us2-acceptance.md`.
 
+## Interaction, build and fixture changes (US1)
+
+Every change keeps the original proof: the 39 workspace entries and seven staged parts still run in
+order on both APIs, and new regressions are appended after them. Evidence for each item is under
+`validation/evidence/performance/`.
+
+| Area | Implemented behavior | Measured result | Decision |
+| --- | --- | --- | --- |
+| Field helper (T035/T036, `subflows/fill-field.yaml`) | Reads the field, erases the measured length, hides the keyboard and re-reads. It repeats the erase until the value is unchanged (at most 8 unrolled passes in `fill-field-pass.yaml`), then taps, types, hides once and requires the exact value. A password is checked as a mask of the typed length, and authentication proves it | The original helper failed the real-form matrix 6 of 6 times: erasing 2 × 128 characters left part of a remote root longer than 128 characters. The one-focus "Select all" path was not compatible, because the action is not always offered and `hideKeyboard` with no keyboard acts as Back. The adopted helper passed 6 of 6 runs (`field-selection.md`) | Adopted as a **correctness fix**. No helper speedup is claimed, because the original never completed a comparable run. The one-focus path stays rejected, as do `eraseText` "all", replace flags and Ctrl+A/End |
+| Navigation (T037, `subflows/open-sources.yaml`) | Navigation only: no launch, stop or reset. The caller owns the lifecycle transition. Waits for the Settings tab to be selected and for "Loading repository"/"Loading folders" to clear. New source rows are scrolled to | Fixes the API 36 Settings race found in T026 (decision 2026-10-18) and the swallowed first tab tap found in T045 | Retained |
+| Scan start (T038, `subflows/start-scan.yaml`) | Requires a generation different from the one shown before the tap, then the terminal line with no progress card. `PROGRESS: required` callers must also see the card | Removes the original optional running wait, which was a known weakness | Retained, with no optional step |
+| Scan pacing (T040) | `SCAN_DELAY_MS: "4000"` kept in `scan/01-clean-scan-*` | At 1000 ms, 16 of 36 clean-scan runs failed the mandatory "Scan progress" proof (WebDAV on both APIs, SFTP on API 31). The saving would have been about 21–23 s per flow (`scan-pacing.md`) | **Zero gain kept.** An intermediate value is deferred until it passes all three protocols and `05-background-discards` three times on each API |
+| Guest animations (T039) | Unchanged: 1.0/1.0/unset | `0/0/0` kept every assertion in 60 of 60 runs, but saved only 0–4 % per flow (5-flow sum −1.1 % on API 31 and −4.8 % on API 36, the latter mostly from one noisy flow) (`animations.md`) | **Deferred.** The setting is a ranking and cohort input, and adopting it would need new `0/0/0` original-code cohorts plus set/restore cleanup |
+| Build (T041/T042, `android-flow.sh`) | One `--no-daemon` x86_64 debug build before the API loop, with the same APK digest installed on both APIs. Release, signing, update and connected paths are unchanged | Build takes about 22 s per invocation. A reused daemon would take about 3.6 s, but only by keeping a 2 GB JVM alive after the run or borrowing a foreign daemon (`build-reuse.md`) | One build is retained. **Daemon reuse is deferred**: an opt-in runner-owned daemon only if repeated short invocations make build time matter |
+| Device fixtures (T043/T044, `device-fixtures.sh`) | Validated reuse of the five immutable sets through generator, parameter and tree-digest markers. Mutable trees are reset per API and per measured repetition, never between staged parts | Validation takes about 88–99 s per API, against 580–630 s to regenerate (`fixture-reuse.md`) | Retained. The saving against the original mixed count-only policy is not quantified |
+| Workspace cap (T045) | `maestro test` workspace cap raised from 5,400 s to 7,200 s | The 40-flow software workspace took 4,996 s on API 31 and exceeded 5,400 s on API 36 | Retained |
+
+**Matched before/after (T046).** With `performance-report.mjs`, all 16 subject/API rows are matched for
+each renderer (`after-host/comparison-t046-host-intel-1.md`,
+`after-software/comparison-t046-software-swiftshader.md`). Rows that differ only by dataset-identical
+fixtures, the intended x86_64 debug ABI or observed-RAM jitter carry notes, not mismatches (decision
+2026-10-21). Medians on the selected `host-intel-1`, in seconds:
+
+| Subject | API 31 before → after | API 36 before → after |
+| --- | --- | --- |
+| H01 setup errors | 309.2 → 257.1 (16.9 % faster) | 311.0 → 268.7 (13.6 % faster) |
+| H02 setup SFTP | 159.3 → 136.1 (14.6 % faster) | 155.5 → 134.7 (13.4 % faster) |
+| H03 add internal | 68.6 → 72.2 (5.2 % slower) | 68.2 → 72.7 (6.6 % slower) |
+| H04 reopen refresh | 79.4 → 89.2 (12.3 % slower) | 76.0 → 88.4 (16.2 % slower) |
+| H05 clean scan FTP | 95.2 → 108.0 (13.5 % slower) | 93.8 → 106.9 (13.9 % slower) |
+| H06 background discards | 138.3 → 148.9 (7.6 % slower) | 140.3 → 161.5 (15.1 % slower) |
+| H07 gallery thousands | 99.1 → 110.4 (11.4 % slower) | 106.4 → 112.9 (6.1 % slower) |
+| H08 fast scroll | 256.4 → 260.9 (1.8 % slower) | 265.8 → 268.8 (1.1 % slower) |
+| Sum | 1205.6 → 1182.7 (1.9 % faster) | 1217.1 → 1214.5 (0.2 % faster) |
+
+The `software-swiftshader` control shows the same pattern: H01/H02 13–22 % faster and H03–H07 3–21 %
+slower. Its sums were 5.9 % faster on API 31 and 0.7 % slower on API 36. The form gains come from the
+field helper. The H03–H07 slowdown appears on both renderers, so it most likely comes from the stronger
+navigation and scan-start waits and the fixture resets, not from the renderer. These whole-flow
+medians cannot separate those causes, so they are input for the US3 profiles (T049+). No minimum gain
+is required, and the slower rows are reported, not hidden.
+
+**Full acceptance (T047).** `pnpm e2e:android` on `host-intel-1` (selection `current` on both APIs)
+passed the workspace of 40 flows and all seven staged parts on API 31 and API 36, against live
+FTP/SFTP/WebDAV with clean audits, unchanged manifests and fixture restoration `passed`. Compared with
+the T014 original-input runs, no original non-optional assertion is missing, optionalized or failed.
+54 `sources.row.alias` visibility waits are now `scrollUntilVisible` on the same selector
+(`us1-acceptance.md`, `us1-acceptance/assertion-diff.json`). The two-API run took 10,995 s
+(about 3 h 03 min). The T045 legacy software run with the same flows took 11,739 s. These are single
+runs, not a cohort comparison.
+
+**Timing guidance.** Plan for about 3 h for `pnpm e2e:android` on this host, and longer on the
+legacy software launch. One API's workspace takes 80–92 min, which is why the cap is 7,200 s. A
+`measure` round of H01–H08 × 3 takes about 1.6–1.8 h per API and candidate (5,867–6,596 s in T046),
+including the fixture reset before each repetition. The four invocations of the T046 recalibration
+therefore took about 6.9 h. Earlier figures of about 55 minutes per API predate
+features 007 and 008 and are obsolete.
+
 ## Graphics acceleration (US2)
 
-**Profiles.** `--graphics` is one of a finite set. `auto` discovers exposed host GPUs (Intel and NVIDIA
-are independent candidates, each with its render node and per-process selector), then the emulator's
+**Profiles.** `--graphics` is one of a finite set. `auto` discovers exposed host GPUs (each with its
+render node and per-process selector; NVIDIA is excluded, see below), then the emulator's
 advertised software modes; it tries the ranked candidate first when the report directory holds a
 ranking for the API, otherwise exposed host routes before software. `host-opengl` tries exposed host
 routes, then software, without ranking. `software` tries only the software modes, in the fixed order
@@ -1308,26 +1370,33 @@ drivers, exposed candidates, host power and resources, build/cache policy and gu
 Later `auto` runs reuse it only while that fingerprint matches (`current`); changed inputs make it
 `stale`, and the selection is then not called best-performing.
 
-**Measured compatibility on this host (2026-10-16/17).** Calibration (T024) ranked `host-intel-1` on
-API 31 (424.1 s against 440.9 s for NVIDIA and 473.0 s for the swiftshader control) and `host-nvidia-1`
-on API 36 (429.7 s against 440.4 s for Intel and 474.7 s for swiftshader). These are cross-mode
-configuration timings, not optimization speedups. The ranked API 31 profile passed full workspace plus
-staged acceptance (T026). On API 36 the ranked NVIDIA profile booted and verified twice but its
-acceptance is blocked by the flow race above. The automated fault check (T025) proved fallback from an
-injected host failure to verified `software-swiftshader`, and clean nonzero exhaustion of all five
-candidates, on both APIs.
+**Measured compatibility on this host.** The first calibration (T024, 2026-10-16/17) ranked
+`host-intel-1` on API 31 (424.1 s against 440.9 s for NVIDIA and 473.0 s for the swiftshader control)
+and `host-nvidia-1` on API 36 (429.7 s against 440.4 s for Intel and 474.7 s for swiftshader). The
+ranked API 31 profile passed full acceptance (T026). On API 36 the NVIDIA profile booted and verified,
+but its acceptance was blocked by the Settings flow race that T037 fixed. The automated fault check
+(T025) proved fallback from an injected host failure to verified `software-swiftshader`, and a clean
+nonzero exhaustion of all five candidates, on both APIs. After the US1 changes, the T046
+recalibration (2026-10-20/21, `recal-2908e271c692af2a319b71f6`, 96 of 96 samples passed) ranked
+`host-intel-1` on both APIs: 443.5 s against 469.4 s for `software-swiftshader` on API 31, and
+454.4 s against 502.6 s on API 36. That ranking is published as
+`validation/evidence/performance/acceleration-ranking.json`. With it, the full `pnpm e2e:android`
+acceptance passed on both APIs (T047). These are cross-mode configuration timings, not optimization
+speedups.
 
-**NVIDIA unavailability versus compatibility.** On this Optimus host the RTX 4070 is exposed only after
-`nvx on`; in the default `off` state discovery reports `host-nvidia-1` unavailable (`audio-only`). That
-is unavailability, not incompatibility: the powered route calibrated and verified on both APIs. The
-exposed candidate set is a ranking input, so ranked selection needs `nvx on`; with NVIDIA off, `auto`
-falls back to the next option and labels the selection stale. The validator never changes host power.
+**NVIDIA excluded.** On this Optimus host the RTX 4070 is exposed only after `nvx on`. Powered, it
+calibrated and verified on both APIs, so it was available, not incompatible. Calibration showed it
+barely faster than Intel, and on 2026-10-20 the `nvx` daemon hung while powering it off. Since that
+decision, discovery records `host-nvidia-1` as `unavailable` with reason `excluded`, it is never
+planned or ranked, and no script calls `nvx`. The NVIDIA calibrations and acceptance runs are kept
+as history only.
 
 **Limits.** The SDK is resolved only through `scripts/validation/android-sdk.sh` (`ANDROID_HOME`); the
 validator never installs or changes drivers, the installed SDK, AVD definitions, host power or security
-settings, and never wipes an AVD or stops a foreign or borrowed emulator. NVIDIA power is switched only
-by an explicitly authorized campaign collector, which records it in `nvidia-power.json` and turns it
-off at the end. A Vulkan-enabled host route was not probed, because no measured experiment justified it.
+settings, and never wipes an AVD or stops a foreign or borrowed emulator. Before NVIDIA was excluded,
+only an explicitly authorized campaign collector switched its power. The collector recorded the switch
+in `nvidia-power.json` and turned the GPU off at the end. No current script does this. A
+Vulkan-enabled host route was not probed, because no measured experiment justified it.
 
 ## Safe records and comparability
 
@@ -1353,5 +1422,7 @@ acquired/borrowed cleanup; receipts, not these historical observations, authoriz
 Never stop pre-existing services/emulators to acquire a lock, wipe AVDs or change
 host packages, power/driver/security policy without separate authorization.
 
-Full workspace and staged acceptance, signed release qualification, matched three-sample baselines
-and after measurements remain required. Current private setup evidence is not any of those gates.
+The matched three-sample before and after cohorts (T014, T024, T046) and the US1 full workspace and
+staged acceptance (T047, `validation/evidence/performance/us1-acceptance.md`) exist. Signed release
+qualification and the final acceptance against the final code (T063) are still required. Private
+setup evidence is not any of those gates.
