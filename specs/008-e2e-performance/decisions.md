@@ -173,3 +173,18 @@
 ## 2026-10-20 — T046 recalibration without NVIDIA [T046-T048]
 **Q:** Can the main session launch the T046 recalibration campaign recal-2908e271c692af2a319b71f6 detached (about 10–12 h, no nvx calls, API 31/36 × host-intel-1/software-swiftshader), then relaunch the unit for T046–T048 once completion.json or blocker.json appears?
 **A:** Launch detached now and relaunch the unit when it exits (recommended; taken under the 2026-10-19 standing rule). Keep the ranking source tree frozen while it runs. The NVIDIA-exclusion code and tests are committed during the run; the collector fingerprints file contents, not git state.
+
+## 2026-10-21 — T046 before/after matching [T046-T048]
+**Q:** The T046 recalibration (recal-2908e271c692af2a319b71f6) passed: host-intel-1 ranked first on API 31 (443471 ms vs 469434 ms) and API 36 (454377 ms vs 502599 ms). But `performance-report.mjs` marks all 16 subject/API pairs incompatible with the before runs because of three metadata differences:
+- the fixture fingerprint, which changed only because T043/T044 edited `device-fixtures.sh` logic while the generated data is identical;
+- the build ABI (debug-default vs x86_64, the intended T041 change);
+- a 4 KiB boot-to-boot jitter in observed RAM on API 36.
+
+How should T046 report before/after medians?
+
+**A:** Loosen the match rules in compareRuns (recommended; taken under the 2026-10-19 standing rule):
+- Match fixtures on dataset identity (parameters, counts, logical bytes), and report a changed fixture-script fingerprint as a note.
+- Treat the build ABI as the intended T041 change and show it as a note, while build-cache policy and cache state must still match.
+- Match resources on configured values, not observedRamKiB.
+
+Add regression tests, place the existing calibration samples as the after-host and after-software cohorts, and write the medians before T047 is launched. The x86_64 emulator loads the same x86_64 native libraries from either APK, so the ABI change is not expected to affect guest timing. `performance-report.mjs` is reporting-only and outside the ranking fingerprint, so no new recalibration is needed.
