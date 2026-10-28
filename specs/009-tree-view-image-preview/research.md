@@ -247,6 +247,34 @@ button's `100%` is a percentage of the content width.
 **Rationale**: 007's fix passed unit tests and still failed on the device, so this time the acceptance
 check measures the device layout itself.
 
+**Spike result (T020, 2026-10-28)**: run on the `dependency_api36` emulator (1080 px wide), and again on
+`dependency_api31`, with the debug build of this branch (007's T082 styles, Paper 5.15.3): Files opened
+after scanning the `tree` set (`staged/11-toolbar-halves-a`), then a `uiautomator dump`. Bounds in px:
+
+| Box | API 36 | API 31 |
+| --- | --- | --- |
+| `files-toolbar` | `[44,334][1036,450]`, 992 wide | `[44,343][1036,459]`, 992 wide |
+| `files-sort-control` / `files-view-control` | 485 wide each | 485 wide each |
+| Paper `Menu`'s anchor wrapper (unnamed `ViewGroup`) | 485 wide, same as the control | 485 wide |
+| `files-sort-container` (the button's `Surface`) | 485 wide | 485 wide |
+| `files-sort` / `files-view` (the buttons) | 479 wide each, 48.3 % | 479 wide each, 48.3 % |
+
+- **No box shrinks to its content.** The anchor wrapper fills the control (a column, so its default
+  `alignItems: 'stretch'` stretches it), and each button is the wrapper less its 3 px border on each side.
+  The 22 px gap between the halves caps a button at 48.9 % of the row, so 48.3 % is the full half. The
+  row is already in equal halves on both API levels with 007's styles, and `assert-equal-halves.sh`
+  passes on both. The earlier device report predates T082 or came from another build.
+- **Neither planned style is the fix.** In Paper 5.15.3 `Menu`'s `style` goes to the open menu's
+  absolutely positioned wrapper inside the `Portal`, not to the anchor wrapper, which takes no style at
+  all. `alignSelf: 'stretch'` or `flex: 1` there could only change the open menu, so `Menu` keeps no
+  `style`.
+- **Chosen fix**: keep 007's wrapper (`flex: 1; minWidth: 0`) and button (`width: '100%'`) styles, which
+  the dump shows are enough, and make a long label truncate. Paper already sets `numberOfLines={1}` on the
+  label, but a `Text` does not shrink in the button's row by default, so a long choice would overflow its
+  half. `labelStyle={styles.label}` adds `flexShrink: 1`. `src/files/__tests__/ChoiceMenu.test.tsx`
+  pins this, and `staged/11-toolbar-halves` measures the device. The recorded API 36 dump is the passing
+  fixture of `scripts/validation/assert-equal-halves.test.mjs`.
+
 ## R11: Selection parity in tree view and the preview
 
 **Decision**:

@@ -14,3 +14,4 @@
 staged/06-recheck-removed-a.yaml|remove-recheck-file.sh|staged/06-recheck-removed-b.yaml
 staged/07-delete-offline-a.yaml|pause-service.sh sftp|staged/07-delete-offline-b.yaml|resume-service.sh sftp|staged/07-delete-offline-c.yaml
 staged/08-changed-a.yaml|change-device-files.sh|staged/08-changed-b.yaml
+staged/11-toolbar-halves-a.yaml|assert-equal-halves.sh|staged/11-toolbar-halves-b.yaml

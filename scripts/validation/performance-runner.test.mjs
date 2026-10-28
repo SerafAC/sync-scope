@@ -119,7 +119,7 @@ exit "\${FAKE_BOOT_STATUS:-0}"`);
 printf "fixtures\\n" >>"$SYNCSCOPE_TEST_CALLS"
 # Real adb shell forwards stdin; a fixture child must not consume the schedule.
 if [ "\${FAKE_FIXTURE_CONSUMES_STDIN:-0}" = 1 ]; then cat >/dev/null; fi`);
-  for (const hook of ['remove-recheck-file', 'restore-recheck-file', 'change-device-files', 'pause-service', 'resume-service']) {
+  for (const hook of ['remove-recheck-file', 'restore-recheck-file', 'change-device-files', 'pause-service', 'resume-service', 'assert-equal-halves']) {
     await executable(join(repo, `scripts/validation/hooks/${hook}.sh`), `
 printf 'hook ${hook}\\n' >>"$SYNCSCOPE_TEST_CALLS"
 exit "\${FAKE_HOOK_STATUS:-0}"`);

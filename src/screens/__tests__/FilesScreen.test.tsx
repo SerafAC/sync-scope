@@ -470,6 +470,23 @@ describe('FilesScreen', () => {
       );
     });
 
+    it('keeps the IDs assert-equal-halves.sh measures: the row and both buttons (009 T024)', async () => {
+      render(ui());
+
+      const toolbar = await screen.findByTestId('files-toolbar');
+      const buttons: readonly (readonly [string, string])[] = [
+        ['files-sort', 'Sort: Date, newest first'],
+        ['files-view', 'View: Gallery'],
+      ];
+      for (const [id, label] of buttons) {
+        const button = screen.getByTestId(id);
+        expect(button).toHaveProp('accessibilityLabel', label);
+        expect(toolbar.findAll(node => node === button).length).toBeGreaterThan(
+          0,
+        );
+      }
+    });
+
     it('gives both dropdowns equal shares of the entire toolbar width', async () => {
       render(ui());
       await screen.findByTestId('files-toolbar');
