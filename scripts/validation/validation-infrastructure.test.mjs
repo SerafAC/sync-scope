@@ -1747,17 +1747,51 @@ test('the workspace keeps the 39 original flows in order, then appends the regre
   const ordered = [...config.matchAll(/^ {4}- ([a-z0-9/-]+)$/gm)].map(match => match[1]);
   assert.equal(ORIGINAL_WORKSPACE.length, 39);
   assert.deepEqual(ordered.slice(0, 39), ORIGINAL_WORKSPACE);
-  assert.deepEqual(ordered.slice(39), APPENDED_REGRESSIONS);
+  assert.deepEqual(ordered.slice(39, 39 + APPENDED_REGRESSIONS.length), APPENDED_REGRESSIONS);
   const globs = [...config.matchAll(/^ {2}- "([a-z]+)\/\*"$/gm)].map(match => match[1]);
-  assert.deepEqual(globs, ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance']);
+  assert.deepEqual(globs.slice(0, 6), ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance']);
   assert.match(config, /continueOnFailure: false/);
-  for (const flow of ordered) {
+  for (const flow of ordered.slice(0, 39 + APPENDED_REGRESSIONS.length)) {
     const source = await text(`validation/maestro/${flow}.yaml`);
     assert.match(source, new RegExp(`^name: ${flow}$`, 'm'), `${flow} declares its name`);
   }
   const hotspots = JSON.parse(await text('validation/performance/hotspots.json'));
   assert.ok(hotspots.scenarios.every(s => !s.flow.includes('/performance/')),
     'the frozen H01-H08 subjects stay original flows');
+});
+
+// Feature 009 (T006, contracts/maestro-tree-preview.md): the tree flows come
+// after 008's part, in the order of the contract table; staged/ stays unlisted.
+const TREE_FLOWS = [
+  'tree/01-expand-collapse-sftp',
+  'tree/02-filter-dimmed-ftp',
+  'tree/03-preview-image-webdav',
+  'tree/04-video-gallery-preview-sftp',
+  'tree/05-tree-select-delete-ftp',
+];
+
+test('the workspace appends the tree glob and the five tree flows after the 008 regressions (feature 009)', async () => {
+  const config = await text('validation/maestro/config.yaml');
+  const ordered = [...config.matchAll(/^ {4}- ([a-z0-9/-]+)$/gm)].map(match => match[1]);
+  const after008 = 39 + APPENDED_REGRESSIONS.length;
+  assert.deepEqual(ordered.slice(after008), TREE_FLOWS);
+  const globs = [...config.matchAll(/^ {2}- "([a-z]+)\/\*"$/gm)].map(match => match[1]);
+  assert.deepEqual(globs, ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance', 'tree']);
+  assert.ok((await lstat(new URL('../../validation/maestro/tree', import.meta.url))).isDirectory());
+  assert.doesNotMatch(config, /staged/);
+  // Each tree flow lands with its part (tasks.md Phases 3-6); one that exists
+  // declares its name, so it matches flowsOrder.
+  for (const flow of TREE_FLOWS) {
+    const source = await text(`validation/maestro/${flow}.yaml`).catch(error => {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    });
+    if (source !== null) {
+      assert.match(source, new RegExp(`^name: ${flow}$`, 'm'), `${flow} declares its name`);
+    }
+  }
 });
 
 test('the field replacement regression covers the real-form matrix with real authentication (feature 008)', async () => {
