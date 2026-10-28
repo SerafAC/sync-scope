@@ -16,8 +16,11 @@ const getLocalImageHandleMock = getLocalImageHandle as jest.MockedFunction<
   typeof getLocalImageHandle
 >;
 
-function ok(uri: string): LocalImageHandleResult {
-  return { contractVersion: 4, status: 'ok', handle: { uri } };
+function ok(
+  uri: string,
+  durationMillis: number | null = null,
+): LocalImageHandleResult {
+  return { contractVersion: 7, status: 'ok', handle: { uri, durationMillis } };
 }
 
 function unavailable(): LocalImageHandleResult {
@@ -49,10 +52,15 @@ describe('useLocalImage', () => {
     getLocalImageHandleMock.mockResolvedValue(ok('file:///cache/t/a.jpg'));
     const { result } = setup({ snapshotId: 'snap-1', entryId: 'e-1' });
 
-    expect(result.current).toEqual({ uri: null, failed: false });
+    expect(result.current).toEqual({
+      uri: null,
+      durationMillis: null,
+      failed: false,
+    });
     await waitFor(() =>
       expect(result.current).toEqual({
         uri: 'file:///cache/t/a.jpg',
+        durationMillis: null,
         failed: false,
       }),
     );
@@ -60,6 +68,21 @@ describe('useLocalImage', () => {
     expect(getLocalImageHandleMock).toHaveBeenCalledWith('snap-1', 'e-1', {
       maxEdgePx: GALLERY_THUMBNAIL_EDGE_PX,
     });
+  });
+
+  it('exposes a video duration (contract v7)', async () => {
+    getLocalImageHandleMock.mockResolvedValue(
+      ok('file:///cache/t/v.jpg', 2000),
+    );
+    const { result } = setup({ snapshotId: 'snap-1', entryId: 'v-1' });
+
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        uri: 'file:///cache/t/v.jpg',
+        durationMillis: 2000,
+        failed: false,
+      }),
+    );
   });
 
   it('passes a custom edge', async () => {
@@ -81,7 +104,11 @@ describe('useLocalImage', () => {
     const { result } = setup({ snapshotId: 'snap-1', entryId: 'e-1' });
 
     await waitFor(() =>
-      expect(result.current).toEqual({ uri: null, failed: true }),
+      expect(result.current).toEqual({
+        uri: null,
+        durationMillis: null,
+        failed: true,
+      }),
     );
   });
 
@@ -108,7 +135,11 @@ describe('useLocalImage', () => {
     expect(getLocalImageHandleMock).toHaveBeenCalledTimes(1);
 
     rerender({ snapshotId: 'snap-1', entryId: 'e-2' });
-    expect(result.current).toEqual({ uri: null, failed: false });
+    expect(result.current).toEqual({
+      uri: null,
+      durationMillis: null,
+      failed: false,
+    });
     await waitFor(() =>
       expect(result.current.uri).toBe('file:///cache/e-2.jpg'),
     );
@@ -142,7 +173,11 @@ describe('useLocalImage', () => {
     const { result } = setup({ snapshotId: null, entryId: 'e-1' });
     await act(async () => {});
 
-    expect(result.current).toEqual({ uri: null, failed: false });
+    expect(result.current).toEqual({
+      uri: null,
+      durationMillis: null,
+      failed: false,
+    });
     expect(getLocalImageHandleMock).not.toHaveBeenCalled();
   });
 
@@ -162,7 +197,11 @@ describe('useLocalImage', () => {
       unmount();
       await act(async () => resolve(ok('file:///cache/late.jpg')));
 
-      expect(result.current).toEqual({ uri: null, failed: false });
+      expect(result.current).toEqual({
+        uri: null,
+        durationMillis: null,
+        failed: false,
+      });
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();

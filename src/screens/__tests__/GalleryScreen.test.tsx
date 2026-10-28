@@ -192,7 +192,7 @@ beforeEach(() => {
   getLocalImageHandleMock.mockResolvedValue({
     contractVersion: 4,
     status: 'ok',
-    handle: { uri: 'file:///cache/t.jpg' },
+    handle: { uri: 'file:///cache/t.jpg', durationMillis: null },
   });
 });
 

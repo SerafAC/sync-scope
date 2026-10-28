@@ -613,6 +613,11 @@ export interface LocalImageSpec {
 export interface LocalImageHandleDto {
   /** `file://` URI of a JPEG in the app's own cache. Never a document URI or a user path. */
   uri: string;
+  /**
+   * A video's duration in milliseconds (contract v7); null for an image and
+   * for a video whose duration cannot be read.
+   */
+  durationMillis: number | null;
 }
 
 export interface LocalImageHandleOk {

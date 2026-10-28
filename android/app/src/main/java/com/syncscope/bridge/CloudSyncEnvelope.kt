@@ -6,6 +6,7 @@ import com.facebook.react.bridge.WritableMap
 import com.syncscope.deletion.DeletionPlanView
 import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
+import com.syncscope.image.LocalImageHandle
 import com.syncscope.persistence.FileEntry
 import com.syncscope.persistence.ScrollIndex
 import com.syncscope.persistence.SelectableEntries
@@ -215,6 +216,16 @@ class CloudSyncEnvelope(
       putNullableNumber("anchorIndex", index.anchorIndex?.toLong())
     }
   }
+
+  /**
+   * `LocalImageHandleDto` (contract v7): the cached JPEG's `file://` URI and `durationMillis`, null for an
+   * image or an unreadable video duration. Nothing that locates the document.
+   */
+  fun localImageHandle(handle: LocalImageHandle): WritableMap =
+    newMap().apply {
+      putString("uri", handle.uri)
+      putNullableNumber("durationMillis", handle.durationMillis)
+    }
 
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)

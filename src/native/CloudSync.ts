@@ -19,6 +19,7 @@ import {
   type HostKeyChallengeDto,
   type LaunchSourcePickerResult,
   type ListSourcesResult,
+  type LocalImageHandleDto,
   type LocalImageHandleResult,
   type LocalImageSpec,
   type OperationError,
@@ -454,14 +455,42 @@ export async function getLocalImageHandle(
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  const handle = result.handle as { uri?: unknown } | null | undefined;
-  if (handle == null || typeof handle.uri !== 'string') {
+  const handle = localImageHandleOf(result.handle);
+  if (handle == null) {
     return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    handle: { uri: handle.uri },
+    handle,
+  };
+}
+
+/**
+ * The wire `handle` of `getLocalImageHandle` as a {@link LocalImageHandleDto}
+ * (contract v7), or null when it has no string `uri`. A `durationMillis`
+ * that is not a finite non-negative number (missing, negative, NaN, a
+ * string) becomes null; stray fields are dropped.
+ */
+export function localImageHandleOf(raw: unknown): LocalImageHandleDto | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null;
+  }
+  const { uri, durationMillis } = raw as {
+    uri?: unknown;
+    durationMillis?: unknown;
+  };
+  if (typeof uri !== 'string') {
+    return null;
+  }
+  return {
+    uri,
+    durationMillis:
+      typeof durationMillis === 'number' &&
+      Number.isFinite(durationMillis) &&
+      durationMillis >= 0
+        ? durationMillis
+        : null,
   };
 }
 
@@ -656,10 +685,7 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const { entryIds, sizes, statuses, media } = value as Record<
-    string,
-    unknown
-  >;
+  const { entryIds, sizes, statuses, media } = value as Record<string, unknown>;
   if (
     !Array.isArray(entryIds) ||
     !Array.isArray(sizes) ||

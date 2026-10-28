@@ -13,6 +13,7 @@ import {
   launchSourcePicker,
   listSelectableEntries,
   listSources,
+  localImageHandleOf,
   prepareLocalDeletion,
   queryFiles,
   rejectSftpHostKey,
@@ -688,7 +689,28 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     expect(result).toEqual({
       contractVersion: v,
       status: 'ok',
-      handle: { uri: 'file:///cache/thumbnails/e-1_256.jpg' },
+      handle: {
+        uri: 'file:///cache/thumbnails/e-1_256.jpg',
+        durationMillis: null,
+      },
+    });
+  });
+
+  it('passes a video duration through (contract v7)', async () => {
+    mockNative({
+      getLocalImageHandle: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'ok',
+        handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: 2000 },
+      }),
+    });
+
+    expect(
+      await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 256 }),
+    ).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: 2000 },
     });
   });
 
@@ -791,6 +813,52 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     if (result.status === 'error') {
       expect(result.error.code).toBe('NATIVE_MODULE_UNAVAILABLE');
     }
+  });
+});
+
+describe('localImageHandleOf (contract v7)', () => {
+  const uri = 'file:///cache/thumbnails/a.jpg';
+
+  it.each([
+    [0, 0],
+    [2000, 2000],
+    [3723000, 3723000],
+    [1500.5, 1500.5],
+  ])('keeps the finite non-negative duration %p', (durationMillis, kept) => {
+    expect(localImageHandleOf({ uri, durationMillis })).toEqual({
+      uri,
+      durationMillis: kept,
+    });
+  });
+
+  it.each([
+    ['a negative value', -1],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['a string', '2000'],
+    ['null', null],
+    ['a missing value', undefined],
+  ])('turns %s into a null duration', (_label, durationMillis) => {
+    expect(localImageHandleOf({ uri, durationMillis })).toEqual({
+      uri,
+      durationMillis: null,
+    });
+  });
+
+  it('drops stray fields', () => {
+    expect(
+      localImageHandleOf({ uri, durationMillis: 5, stray: 'ignored' }),
+    ).toEqual({ uri, durationMillis: 5 });
+  });
+
+  it.each([
+    ['null', null],
+    ['a string', 'file:///a.jpg'],
+    ['no uri', { durationMillis: 5 }],
+    ['a non-string uri', { uri: 42, durationMillis: 5 }],
+  ])('is null for %s', (_label, handle) => {
+    expect(localImageHandleOf(handle)).toBeNull();
   });
 });
 

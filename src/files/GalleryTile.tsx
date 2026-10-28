@@ -1,25 +1,18 @@
 import React, { memo, useMemo } from 'react';
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Badge, Icon, useTheme } from 'react-native-paper';
 
 import type { FileEntryDto } from '../native/CloudSyncContracts';
 import { density, gridColumns, spacing } from '../theme/spacing';
+import { MediaThumbnail } from './MediaThumbnail';
 import { StatusChip } from './StatusChip';
 import { galleryTileLabel, originBadgeLabel } from './a11y';
-import { useLocalImage } from './useLocalImage';
 
 /** The edge of one square gallery tile on a screen [screenWidth] wide. */
 export function galleryTileSize(screenWidth: number): number {
   return (screenWidth - (gridColumns - 1) * density.tileGap) / gridColumns;
 }
 
-const BROKEN_ICON_SIZE = 32;
 const CHECK_ICON_SIZE = 24;
 
 export interface GalleryTileProps {
@@ -37,8 +30,10 @@ export interface GalleryTileProps {
 }
 
 /**
- * One gallery tile: the local thumbnail (a placeholder while it loads, a
- * broken-image icon when it cannot be read), a status chip, and, when the
+ * One gallery tile: the local thumbnail through `MediaThumbnail` (a
+ * placeholder while it loads, a broken-image icon when it cannot be read; a
+ * video adds a play badge and its duration, or shows `video-off` when its
+ * frame cannot be read), a status chip, and, when the
  * same file name exists in another source folder, an origin badge with this
  * file's source alias (FR-001, clarification 1). A selected tile shows a
  * check-circle overlay and announces `, selected` (FR-017); the tile size
@@ -55,7 +50,6 @@ export const GalleryTile = memo(function GalleryTileBody({
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const size = galleryTileSize(width);
-  const { uri, failed } = useLocalImage(snapshotId, entry.entryId);
   const origin = entry.nameInOtherSource && alias ? alias : undefined;
 
   const themed = useMemo(
@@ -96,23 +90,13 @@ export const GalleryTile = memo(function GalleryTileBody({
       style={[styles.tile, themed.tile]}
       testID={`gallery-tile-${entry.entryId}`}
     >
-      {uri != null ? (
-        <Image
-          source={{ uri }}
-          style={styles.image}
-          testID="gallery-tile-image"
-        />
-      ) : failed ? (
-        <View style={styles.center} testID="gallery-tile-broken">
-          <Icon
-            color={theme.colors.onSurfaceVariant}
-            size={BROKEN_ICON_SIZE}
-            source="image-broken-variant"
-          />
-        </View>
-      ) : (
-        <View style={styles.center} testID="gallery-tile-placeholder" />
-      )}
+      <MediaThumbnail
+        entryId={entry.entryId}
+        mimeType={entry.mimeType}
+        name={entry.name}
+        snapshotId={snapshotId}
+        testID="gallery-tile"
+      />
       <View style={styles.status}>
         <StatusChip status={entry.status} />
       </View>
@@ -153,18 +137,10 @@ const styles = StyleSheet.create({
     right: spacing.xs,
     top: spacing.xs,
   },
-  center: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-  },
   check: {
     left: spacing.xs,
     position: 'absolute',
     top: spacing.xs,
-  },
-  image: {
-    flex: 1,
   },
   selectedFrame: {
     borderWidth: 3,

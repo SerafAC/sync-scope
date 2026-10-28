@@ -34,6 +34,20 @@ export function galleryTileLabel(
   return withSelected(withOrigin, selected);
 }
 
+/**
+ * `sunset.png, image`, or `clip.mp4, video` plus `, 0:02` once the
+ * duration is known: a media thumbnail names its file and its kind
+ * (009 research R6). [duration] is already formatted (`formatDuration`).
+ */
+export function mediaThumbnailLabel(
+  name: string,
+  kind: 'image' | 'video',
+  duration?: string | null,
+): string {
+  const label = `${name}, ${kind}`;
+  return duration ? `${label}, ${duration}` : label;
+}
+
 /** `Origin GalleryTwin`. */
 export function originBadgeLabel(alias: string): string {
   return `Origin ${alias}`;

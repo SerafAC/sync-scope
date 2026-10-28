@@ -8,7 +8,9 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.syncscope.image.LocalImageStore
+import com.syncscope.image.Thumbnail
 import com.syncscope.image.ThumbnailSource
+import com.syncscope.media.MediaKind
 import com.syncscope.persistence.stagingSnapshot
 import com.syncscope.scan.REMOTE_HOST
 import com.syncscope.scan.REMOTE_ROOT
@@ -40,6 +42,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 /** One envelope test per `startScan` row of contracts/cloudsync-scan.md, plus cancel, state and queries. */
 @RunWith(RobolectricTestRunner::class)
@@ -629,7 +632,9 @@ class ScanOperationsTest {
 
     assertError(ops.imageHandle("no-such-snapshot", photo, edge), "SNAPSHOT_NOT_FOUND")
     for (entryId in listOf("no-such-entry", idOf.getValue("Photos"), idOf.getValue("notes.txt"))) {
-      assertEquals(entryId, "entryId", assertError(ops.imageHandle(snapshotId, entryId, edge), "INVALID_QUERY").getString("field"))
+      val invalid = assertError(ops.imageHandle(snapshotId, entryId, edge), "INVALID_QUERY")
+      assertEquals(entryId, "entryId", invalid.getString("field"))
+      assertEquals(entryId, "The media entryId is invalid.", invalid.getString("message"))
     }
     for (bad in listOf(JavaOnlyMap(), JavaOnlyMap.of("maxEdgePx", "256"), JavaOnlyMap.of("maxEdgePx", Double.NaN))) {
       assertEquals("maxEdgePx", assertError(ops.imageHandle(snapshotId, photo, bad), "INVALID_QUERY").getString("field"))
@@ -643,7 +648,9 @@ class ScanOperationsTest {
     assertTrue(uri, uri.startsWith("file://"))
     assertFalse(uri, uri.contains("secret"))
     assertFalse(uri, uri.contains("content://"))
-    assertEquals(setOf("uri"), ok.getMap("handle")!!.toHashMap().keys)
+    assertEquals(setOf("uri", "durationMillis"), ok.getMap("handle")!!.toHashMap().keys)
+    // An image has no duration.
+    assertTrue(ok.getMap("handle")!!.isNull("durationMillis"))
     assertNoPathOrHost(ok)
     assertEquals(1, thumbnails.loads)
     // A clamped edge is the same cache entry: no second decode.
@@ -657,15 +664,66 @@ class ScanOperationsTest {
     assertNoPathOrHost(unavailable)
   }
 
-  /** Returns a small bitmap, or throws [failure] when set. */
+  @Test
+  fun aVideoHandleCarriesItsDurationAndNothingLocatesTheDocument() = runBlocking<Unit> {
+    ShadowLog.clear()
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Camera"),
+      video("d2", "secret-clip.mp4", parent = "d1"),
+      video("d3", "no-duration.mp4", parent = "d1"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    val idOf = (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
+    val edge = JavaOnlyMap.of("maxEdgePx", 256.0)
+
+    thumbnails.durationMillis = 2_000L
+    val clip = ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), edge)
+    assertEquals("ok", clip.getString("status"))
+    val handle = clip.getMap("handle")!!
+    assertEquals(setOf("uri", "durationMillis"), handle.toHashMap().keys)
+    assertEquals(2_000.0, handle.getDouble("durationMillis"), 0.0)
+    assertTrue(handle.getString("uri")!!.startsWith("file://"))
+    assertEquals(MediaKind.VIDEO, thumbnails.kinds.last())
+    assertNoPathOrHost(clip)
+    // A cache hit answers with the same duration and no decode.
+    val hit = ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), edge)
+    assertEquals(2_000.0, hit.getMap("handle")!!.getDouble("durationMillis"), 0.0)
+    assertEquals(1, thumbnails.loads)
+
+    thumbnails.durationMillis = null
+    val unknown = ops.imageHandle(snapshotId, idOf.getValue("no-duration.mp4"), edge)
+    assertEquals("ok", unknown.getString("status"))
+    assertTrue(unknown.getMap("handle")!!.isNull("durationMillis"))
+
+    thumbnails.failure = FileNotFoundException("content://gone/secret-clip.mp4")
+    assertError(ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), JavaOnlyMap.of("maxEdgePx", 512.0)), "IMAGE_UNAVAILABLE")
+
+    // No document URI, document ID or file name reached the log.
+    for (item in ShadowLog.getLogs()) {
+      val text = "${item.msg} ${item.throwable}"
+      for (secret in listOf("content://", "primary:", "secret-clip")) {
+        assertFalse("'$secret' was logged: $text", text.contains(secret))
+      }
+    }
+  }
+
+  /** Returns a small bitmap with [durationMillis], or throws [failure] when set; records each kind. */
   private class FakeThumbnails : ThumbnailSource {
     @Volatile var loads = 0
     @Volatile var failure: Exception? = null
+    @Volatile var durationMillis: Long? = null
+    val kinds: MutableList<MediaKind> = java.util.Collections.synchronizedList(mutableListOf())
 
-    override fun load(documentUri: String, edgePx: Int): Bitmap? {
+    override fun load(documentUri: String, edgePx: Int, kind: MediaKind): Thumbnail? {
       loads++
+      kinds += kind
       failure?.let { throw it }
-      return Bitmap.createBitmap(edgePx, edgePx, Bitmap.Config.ARGB_8888)
+      return Thumbnail(Bitmap.createBitmap(edgePx, edgePx, Bitmap.Config.ARGB_8888), durationMillis)
     }
   }
 
@@ -677,6 +735,9 @@ class ScanOperationsTest {
 
   private fun image(documentId: String, name: String, parent: String? = null) =
     localFile(documentId, name, parent = parent).copy(mimeType = "image/png")
+
+  private fun video(documentId: String, name: String, parent: String? = null) =
+    localFile(documentId, name, parent = parent).copy(mimeType = "video/mp4")
 
   private fun spec(pageSize: Double? = null): ReadableMap =
     JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC").apply { pageSize?.let { putDouble("pageSize", it) } }

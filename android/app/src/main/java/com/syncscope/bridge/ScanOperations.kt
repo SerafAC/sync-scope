@@ -5,6 +5,7 @@ import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import com.syncscope.image.ImageUnavailable
 import com.syncscope.image.LocalImageStore
+import com.syncscope.media.MediaKind
 import com.syncscope.persistence.FileFilter
 import com.syncscope.persistence.FilePage
 import com.syncscope.persistence.FileKind
@@ -196,9 +197,11 @@ class ScanOperations(
     )
 
   /**
-   * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle"): a `file://` URI of
-   * a cached JPEG thumbnail of an `image/` `FILE` entry of a published snapshot. Reads local storage
-   * only and never opens a remote connection.
+   * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle", changed by 009
+   * contracts/cloudsync-tree-preview.md): a `file://` URI of a cached JPEG thumbnail of an `image/` or
+   * `video/` `FILE` entry of a published snapshot, with the video's `durationMillis` (null for an image
+   * and for a duration that cannot be read). Reads local storage only and never opens a remote
+   * connection; neither the document URI nor its ID is returned or logged.
    */
   suspend fun imageHandle(snapshotId: String, entryId: String, spec: ReadableMap): WritableMap {
     val entry =
@@ -207,10 +210,11 @@ class ScanOperations(
       } catch (_: SnapshotNotFoundException) {
         return snapshotNotFound()
       }
-    if (entry == null || entry.mimeType?.startsWith(IMAGE_MIME_PREFIX) != true) {
+    val kind = entry?.let { MediaKind.of(it.mimeType) }
+    if (entry == null || kind == null) {
       return envelope.error(
         CloudSyncErrorCode.INVALID_QUERY,
-        "The image entryId is invalid.",
+        "The media entryId is invalid.",
         "Reload the gallery and try again.",
         field = "entryId",
       )
@@ -224,8 +228,7 @@ class ScanOperations(
           field = "maxEdgePx",
         )
     return try {
-      val uri = images().handle(entryId, entry.documentUri, edge)
-      envelope.ok("handle", envelope.map().apply { putString("uri", uri) })
+      envelope.ok("handle", envelope.localImageHandle(images().handle(entryId, entry.documentUri, edge, kind)))
     } catch (_: ImageUnavailable) {
       envelope.sourceError(CloudSyncErrorCode.IMAGE_UNAVAILABLE)
     }
@@ -456,6 +459,5 @@ class ScanOperations(
 
   private companion object {
     val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
-    const val IMAGE_MIME_PREFIX = "image/"
   }
 }

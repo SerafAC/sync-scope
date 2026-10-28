@@ -250,7 +250,7 @@ beforeEach(() => {
   getLocalImageHandleMock.mockResolvedValue({
     contractVersion: 4,
     status: 'ok',
-    handle: { uri: 'file:///cache/t.jpg' },
+    handle: { uri: 'file:///cache/t.jpg', durationMillis: null },
   });
   queryFilesMock.mockImplementation(async snapshotId =>
     ok([file(`${snapshotId}-e1`, `${snapshotId}.png`)], GALLERY_COUNTS),

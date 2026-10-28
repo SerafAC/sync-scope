@@ -652,7 +652,10 @@ describe('CloudSync versioned contract', () => {
       const ok: LocalImageHandleResult = {
         contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
         status: 'ok',
-        handle: {uri: 'file:///data/cache/thumbnails/e-1_256.jpg'},
+        handle: {
+          uri: 'file:///data/cache/thumbnails/e-1_256.jpg',
+          durationMillis: null,
+        },
       };
       const unavailable: LocalImageHandleResult = {
         contractVersion: CLOUD_SYNC_CONTRACT_VERSION,
