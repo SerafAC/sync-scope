@@ -14,7 +14,7 @@ import org.junit.Test
 class SchemaContractTest {
 
   /** The current schema version's export; older exports stay frozen for MigrationTest. */
-  private val schemaFile = schemaExport(5)
+  private val schemaFile = schemaExport(6)
 
   private fun schemaExport(version: Int) =
     File("schemas/com.syncscope.persistence.SyncScopeDatabase/$version.json")
@@ -123,7 +123,7 @@ class SchemaContractTest {
 
   @Test
   fun version5RenamesRemoteRootsAndAddsSortNameRemotePathAndTwoIndexes() {
-    assertTrue(schemaText.contains("\"version\": 5"))
+    assertTrue(schemaExport(5).readText().contains("\"version\": 5"))
     val repository = sectionFor("repository_config")
     assertTrue(repository.contains("`remoteRoots` TEXT NOT NULL"))
     assertFalse(repository.contains("`remoteRoot` TEXT"))
@@ -141,6 +141,20 @@ class SchemaContractTest {
       indexNames(4) + setOf("index_local_node_snapshotId_kind_sizeBytes", "index_local_node_snapshotId_kind_sortName"),
       indexNames(5),
     )
+  }
+
+  @Test
+  fun version6AddsTheDocumentIndexAndNullableRecheckCounters() {
+    assertTrue(schemaText.contains("\"version\": 6"))
+    val scanRun = sectionFor("scan_run")
+    for (column in listOf("recheckedFolders", "promotedFiles")) {
+      assertTrue(
+        "scan_run.$column must be a nullable INTEGER",
+        scanRun.contains("`$column` INTEGER,") || scanRun.contains("`$column` INTEGER)"),
+      )
+      assertFalse("$column must be nullable", scanRun.contains("`$column` INTEGER NOT NULL"))
+    }
+    assertEquals(indexNames(5) + setOf("index_local_node_snapshotId_sourceId_documentId"), indexNames(6))
   }
 
   @Test

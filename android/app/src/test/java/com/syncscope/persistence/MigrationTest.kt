@@ -33,6 +33,10 @@ import org.robolectric.annotation.Config
  * folder becomes a one-element list), `local_node.sortName` is added and filled in SQL with the prefix rule on
  * `lower(name)` (accents not folded), `remote_ambiguity.remotePath` is added as `NULL`, and the
  * `(snapshotId, kind, sizeBytes)` and `(snapshotId, kind, sortName)` indexes are created.
+ *
+ * Schema version 5 → 6 (feature 009): the `(snapshotId, sourceId, documentId)` index is added to `local_node`
+ * for the selection carry-over, and the nullable `scan_run.recheckedFolders` and `promotedFiles` are added;
+ * every existing row survives unchanged and the new counters read `NULL`.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -312,6 +316,79 @@ class MigrationTest {
   }
 
   @Test
+  fun version5RowsMigrateToVersion6WithTheDocumentIndexAndNullRecheckCounts() {
+    val v5 = helper.createDatabase(DB_NAME, 5)
+    v5.execSQL(
+      "INSERT INTO scan_run (runId, generation, configRevision, includeHidden, phase, startedAtMillis, " +
+        "finishedAtMillis, terminalState, errorCode, errorSummary, mode) " +
+        "VALUES ('run-1', 7, 3, 0, 'PUBLISHED', 1000, 2000, 'COMPLETED', NULL, NULL, 'FULL')",
+    )
+    v5.execSQL(
+      "INSERT INTO scan_run (runId, generation, configRevision, includeHidden, phase, startedAtMillis, " +
+        "finishedAtMillis, terminalState, errorCode, errorSummary, mode) " +
+        "VALUES ('run-2', 8, 3, 0, 'PUBLISHED', 3000, 4000, 'COMPLETED', NULL, NULL, 'LOCAL_REFRESH')",
+    )
+    v5.execSQL(
+      "INSERT INTO snapshot (snapshotId, scanRunId, completedAtMillis, coverage, configRevision, " +
+        "includeHidden, publishable, remoteListedAtMillis) VALUES ('snap-1', 'run-1', 2000, 'COMPLETE', 3, 0, 1, 1500)",
+    )
+    v5.execSQL(
+      "INSERT INTO source_root (sourceId, treeUri, authority, volumeId, documentPath, canonicalRoot, alias, " +
+        "canWrite, addedAtMillis) VALUES ('src-1', 'content://tree/1', 'auth', 'primary', 'DCIM', " +
+        "'primary:DCIM', 'DCIM', 1, 10)",
+    )
+    v5.execSQL(
+      "INSERT INTO local_node (entryId, snapshotId, sourceId, parentId, kind, documentUri, documentId, name, " +
+        "mimeType, sizeBytes, modifiedUtcMillis, precisionMillis, status, issueCode, descSynced, descUnsynced, " +
+        "descUnknown, sortName) VALUES ('dir-1', 'snap-1', 'src-1', NULL, 'DIRECTORY', 'content://doc/dir', " +
+        "'doc-dir', 'Album', NULL, NULL, NULL, 1000, 'UNSYNCED', NULL, 0, 1, 0, '1album')",
+    )
+    v5.execSQL(
+      "INSERT INTO local_node (entryId, snapshotId, sourceId, parentId, kind, documentUri, documentId, name, " +
+        "mimeType, sizeBytes, modifiedUtcMillis, precisionMillis, status, issueCode, descSynced, descUnsynced, " +
+        "descUnknown, sortName) VALUES ('file-1', 'snap-1', 'src-1', 'dir-1', 'FILE', 'content://doc/file', " +
+        "'doc-file', 'clip.mp4', 'video/mp4', 70, 1704067200000, 1000, 'UNSYNCED', NULL, NULL, NULL, NULL, " +
+        "'1clip.mp4')",
+    )
+    val rowsBefore = localNodeRows(v5, V5_LOCAL_NODE_COLUMNS)
+    val runsBefore = rows(v5, "scan_run", V5_SCAN_RUN_COLUMNS, "runId")
+    val snapshotsBefore = rows(v5, "snapshot", V5_SNAPSHOT_COLUMNS, "snapshotId")
+    val indicesBefore = indices(v5)
+    v5.close()
+
+    val v6 = helper.runMigrationsAndValidate(DB_NAME, 6, true)
+
+    // Every existing row survives unchanged.
+    assertEquals(rowsBefore, localNodeRows(v6, V5_LOCAL_NODE_COLUMNS))
+    assertEquals(runsBefore, rows(v6, "scan_run", V5_SCAN_RUN_COLUMNS, "runId"))
+    assertEquals(snapshotsBefore, rows(v6, "snapshot", V5_SNAPSHOT_COLUMNS, "snapshotId"))
+
+    // The re-check counters are nullable integers and NULL on every migrated run.
+    for (name in listOf("recheckedFolders", "promotedFiles")) {
+      val col = column(v6, "scan_run", name)
+      assertEquals("scan_run.$name type", "INTEGER", col.type)
+      assertTrue("scan_run.$name must be nullable", !col.notNull)
+    }
+    v6.query("SELECT runId, recheckedFolders, promotedFiles FROM scan_run ORDER BY runId").use { c ->
+      assertEquals(2, c.count)
+      while (c.moveToNext()) {
+        assertTrue("${c.getString(0)}.recheckedFolders", c.isNull(1))
+        assertTrue("${c.getString(0)}.promotedFiles", c.isNull(2))
+      }
+    }
+
+    // Exactly one index is added, on (snapshotId, sourceId, documentId); every earlier one is unchanged.
+    val indicesAfter = indices(v6)
+    assertTrue(indicesAfter.containsAll(indicesBefore))
+    val added = (indicesAfter - indicesBefore).map { it.first to indexColumns(v6, it.first) }.toSet()
+    assertEquals(
+      setOf("index_local_node_snapshotId_sourceId_documentId" to listOf("snapshotId", "sourceId", "documentId")),
+      added,
+    )
+    v6.close()
+  }
+
+  @Test
   fun migratedDatabaseOpensWithRoomAndReadsTheEntities(): Unit = runBlocking {
     helper.createDatabase(DB_NAME, 1).apply {
       execSQL(
@@ -447,6 +524,18 @@ class MigrationTest {
       listOf("matchKeyId", "snapshotId", "name", "sizeBytes", "precisionMillis", "bucket", "duplicateCount")
     val V4_LOCAL_NODE_COLUMNS =
       V2_LOCAL_NODE_COLUMNS + listOf("descSynced", "descUnsynced", "descUnknown")
+
+    val V5_LOCAL_NODE_COLUMNS = V4_LOCAL_NODE_COLUMNS + listOf("sortName")
+    val V5_SCAN_RUN_COLUMNS =
+      listOf(
+        "runId", "generation", "configRevision", "includeHidden", "phase", "startedAtMillis", "finishedAtMillis",
+        "terminalState", "errorCode", "errorSummary", "mode",
+      )
+    val V5_SNAPSHOT_COLUMNS =
+      listOf(
+        "snapshotId", "scanRunId", "completedAtMillis", "coverage", "configRevision", "includeHidden", "publishable",
+        "remoteListedAtMillis",
+      )
 
     /** The repository columns that are neither renamed nor added by 4 → 5. */
     val V4_REPOSITORY_COLUMNS_KEPT =

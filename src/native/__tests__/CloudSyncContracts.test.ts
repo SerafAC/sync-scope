@@ -67,7 +67,7 @@ import {
 
 describe('CloudSync versioned contract', () => {
   it('exposes a stable positive contract version', () => {
-    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(6);
+    expect(CLOUD_SYNC_CONTRACT_VERSION).toBe(7);
     expect(Number.isInteger(CLOUD_SYNC_CONTRACT_VERSION)).toBe(true);
   });
 
@@ -544,6 +544,7 @@ describe('CloudSync versioned contract', () => {
         'CONNECTING',
         'LISTING_REMOTE',
         'COPYING_REMOTE',
+        'RECHECKING_REMOTE',
         'ENUMERATING_LOCAL',
         'PUBLISHING',
         'PUBLISHED',
@@ -570,7 +571,7 @@ describe('CloudSync versioned contract', () => {
       // @ts-expect-error unknown cancel reason
       const badReason: ScanRunDto['cancelReason'] = 'TIMEOUT';
       expect(modes).toHaveLength(2);
-      expect(phases).toHaveLength(9);
+      expect(phases).toHaveLength(10);
       expect(terminal).toHaveLength(4);
       expect(issues).toHaveLength(6);
       expect([badMode, badReason]).toHaveLength(2);
@@ -789,7 +790,7 @@ describe('CloudSync versioned contract', () => {
           entryIds: ['e-1', 'e-2'],
           sizes: [70, -1],
           statuses: ['SYNCED', 'UNKNOWN'],
-          images: [true, false],
+          media: [true, false],
         },
       };
       const stale: ListSelectableEntriesResult = {
@@ -801,6 +802,14 @@ describe('CloudSync versioned contract', () => {
           action: null,
         },
       };
+      const oldField: ListSelectableEntriesResult = {
+        ...ok,
+        selectable: {
+          ...ok.selectable,
+          // @ts-expect-error `images` was renamed `media` (contract v7)
+          images: [true, false],
+        },
+      };
       const badStatus: ListSelectableEntriesResult = {
         ...ok,
         // @ts-expect-error statuses are FileStatus values
@@ -809,6 +818,7 @@ describe('CloudSync versioned contract', () => {
       expect(isErrorResult(ok)).toBe(false);
       expect(isErrorResult(stale)).toBe(true);
       expect(badStatus.status).toBe('ok');
+      expect(oldField.status).toBe('ok');
     });
 
     it('types the deletion plan and result envelopes', () => {
