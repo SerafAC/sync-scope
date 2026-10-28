@@ -51,6 +51,8 @@ jest.mock('../../native/CloudSync', () => ({
   listSelectableEntries: jest.fn(),
   queryTreeChildren: jest.fn(),
   getScrollIndex: jest.fn(),
+  // Media rows read their thumbnail; it stays loading here (FileRow has its own tests).
+  getLocalImageHandle: jest.fn(() => new Promise(() => {})),
 }));
 
 const getScrollIndexMock = getScrollIndex as jest.MockedFunction<

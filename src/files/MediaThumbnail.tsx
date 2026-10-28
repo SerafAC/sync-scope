@@ -28,6 +28,12 @@ export interface MediaThumbnailProps {
   size?: number;
   /** Prefix of the part IDs: `<testID>-image`, `-placeholder`, `-broken`, `-video-off`, `-play`, `-duration`. */
   testID?: string;
+  /**
+   * No label or image role of its own: for a row whose own label already
+   * names the file and which screen readers read as one element (list and
+   * tree rows).
+   */
+  decorative?: boolean;
 }
 
 /**
@@ -47,6 +53,7 @@ export const MediaThumbnail = memo(function MediaThumbnailBody({
   edge = GALLERY_THUMBNAIL_EDGE_PX,
   size,
   testID = 'media-thumbnail',
+  decorative = false,
 }: MediaThumbnailProps): React.JSX.Element {
   const theme = useTheme();
   const kind = mediaKindOf(mimeType) === 'video' ? 'video' : 'image';
@@ -86,8 +93,10 @@ export const MediaThumbnail = memo(function MediaThumbnailBody({
 
   return (
     <View
-      accessibilityLabel={mediaThumbnailLabel(name, kind, duration)}
-      accessibilityRole="image"
+      accessibilityLabel={
+        decorative ? undefined : mediaThumbnailLabel(name, kind, duration)
+      }
+      accessibilityRole={decorative ? undefined : 'image'}
       style={[styles.box, themed.box, themed.size]}
       testID={testID}
     >

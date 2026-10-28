@@ -1,5 +1,4 @@
 import React, {
-  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -8,7 +7,6 @@ import React, {
 } from 'react';
 import {
   FlatList,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -27,8 +25,8 @@ import {
   useReportToFilesScreen,
   type FilesViewProps,
 } from '../files/FilesViewParts';
-import { StatusChip } from '../files/StatusChip';
-import { fileRowLabel, folderRowLabel, placeholderLabel } from '../files/a11y';
+import { FileRow, formatSize } from '../files/FileRow';
+import { folderRowLabel, placeholderLabel } from '../files/a11y';
 import { useFiles } from '../files/useFiles';
 import { useListNavigation } from '../files/useListNavigation';
 import {
@@ -42,16 +40,14 @@ import {
 } from '../files/usePagedQuery';
 import { getScrollIndex, queryTreeChildren } from '../native/CloudSync';
 import type {
-  FileEntryDto,
   FileFilter,
   FileStatus,
   QuerySpec,
   ScrollAnchor,
   StatusCountDto,
 } from '../native/CloudSyncContracts';
-import { formatTimestamp } from '../scan/ScanSummaryCard';
 import { useSelection } from '../selection/SelectionProvider';
-import { density, spacing } from '../theme/spacing';
+import { density } from '../theme/spacing';
 import { chipCount } from '../theme/statusLabels';
 
 export const NO_SOURCES_TEXT = 'No folders added yet.';
@@ -68,20 +64,7 @@ export interface ListScreenProps extends FilesViewProps {
   onFolderChange?: (folder: ListFolder | null) => void;
 }
 
-const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-/** `512 B`, `1.5 KB`, `12 MB`: one decimal below 10 units. */
-export function formatSize(bytes: number): string {
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  const shown =
-    unit === 0 || value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${shown} ${UNITS[unit]}`;
-}
+export { formatSize };
 
 /** `queryTreeChildren` as a {@link PageReader}: the parent travels in `query.parentId`. */
 const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
@@ -202,19 +185,6 @@ function FolderIcon({ color }: { color: string }): React.JSX.Element {
   return <List.Icon color={color} icon="folder-outline" />;
 }
 
-function FileIcon({ color }: { color: string }): React.JSX.Element {
-  return <List.Icon color={color} icon="file-outline" />;
-}
-
-/** A selected file row's icon: a check mark, so the state is not colour alone (FR-017). */
-function SelectedIcon({ color }: { color: string }): React.JSX.Element {
-  return (
-    <View testID="list-row-selected">
-      <List.Icon color={color} icon="check-circle" />
-    </View>
-  );
-}
-
 /** A source or directory row: `N matching`, dimmed at 0 and still pressable (clarification 3). */
 function FolderRow({
   name,
@@ -241,48 +211,6 @@ function FolderRow({
     />
   );
 }
-
-/**
- * A file row: name, size, modified time and status; never an origin badge
- * (FR-002). A long-press starts the selection; [onPress] (given only while
- * selecting) toggles it. A selected row shows a check mark and announces
- * `, selected` (FR-015, FR-017).
- */
-const FileRow = memo(function FileRowBody({
-  entry,
-  selected,
-  onPress,
-  onLongPress,
-}: {
-  entry: FileEntryDto;
-  selected: boolean;
-  onPress?: (entry: FileEntryDto) => void;
-  onLongPress: (entry: FileEntryDto) => void;
-}): React.JSX.Element {
-  const details = [
-    entry.sizeBytes == null ? null : formatSize(entry.sizeBytes),
-    entry.modifiedUtcMillis == null
-      ? null
-      : formatTimestamp(entry.modifiedUtcMillis),
-  ].filter(part => part != null);
-  return (
-    <Pressable
-      accessibilityLabel={fileRowLabel(entry.name, entry.status, selected)}
-      accessibilityState={{ selected }}
-      onLongPress={() => onLongPress(entry)}
-      onPress={onPress ? () => onPress(entry) : undefined}
-      style={styles.fileRow}
-    >
-      <List.Item
-        description={details.join(' · ')}
-        left={selected ? SelectedIcon : FileIcon}
-        style={styles.fileItem}
-        title={entry.name}
-      />
-      <StatusChip status={entry.status} />
-    </Pressable>
-  );
-});
 
 /** A row of a band not read yet: the fixed row height, no spinner (research R7). */
 function PlaceholderRow(): React.JSX.Element {
@@ -431,9 +359,10 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
           onLongPress={longPress}
           onPress={isSelecting ? toggle : undefined}
           selected={isSelected(item.entryId)}
+          snapshotId={readSnapshot}
         />
       ),
-    [openFolder, isSelected, isSelecting, longPress, toggle],
+    [openFolder, isSelected, isSelecting, longPress, readSnapshot, toggle],
   );
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
@@ -641,16 +570,6 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  fileItem: {
-    flex: 1,
-    paddingVertical: 0,
-  },
-  fileRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    height: density.rowHeight,
-    paddingRight: spacing.lg,
-  },
   folder: {
     flex: 1,
   },

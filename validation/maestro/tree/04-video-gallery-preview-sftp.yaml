@@ -1,0 +1,82 @@
+# US1 sc. 4-6, FR-004, FR-005, SC-004 (SFTP), feature 009
+# (contracts/maestro-tree-preview.md): videos are in the gallery with a frame,
+# a play badge and their duration, and list rows show a thumbnail with the
+# same badge. The fixture clip Album/2025/clip.mp4 of the tree set is 2 s
+# long, so it reads "0:02" (formatDuration).
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# This file holds the gallery and list-view steps (tasks.md T034). The
+# preview steps are added by T046, and the tree-row step by T061.
+#
+# The thumbnail's parts are matched by testID under their tile or row:
+# gallery-tile-play and gallery-tile-duration in GalleryTile, and
+# file-row-thumbnail-image and file-row-thumbnail-play in FileRow
+# (src/files/MediaThumbnail.tsx prefixes each part with the given testID).
+appId: com.syncscope
+name: tree/04-video-gallery-preview-sftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. The gallery shows the MP4 tile with a play badge and "0:02" (US1 sc. 4-5).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+# The frame and the duration are read from local storage after the tile
+# appears, so the badge is waited for.
+- extendedWaitUntil:
+    visible:
+      id: "gallery-tile-play"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "gallery-tile-duration"
+      text: "0:02"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertNotVisible:
+    id: "gallery-tile-video-off"
+    childOf: "clip\\.mp4, .+"
+
+# 2. In list view, the MP4 row in Album/2025 shows a thumbnail with a play
+# badge (US1 sc. 6, FR-005).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder 2025(, .+)?"
+    timeout: 15000
+- tapOn: "Folder 2025(, .+)?"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "file-row-thumbnail-image"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertVisible:
+    id: "file-row-thumbnail-play"
+    childOf: "clip\\.mp4, .+"
+- assertNotVisible:
+    id: "file-row-icon"
+    childOf: "clip\\.mp4, .+"
