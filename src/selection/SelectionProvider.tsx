@@ -8,15 +8,15 @@ import React, {
   useState,
 } from 'react';
 
-import {isMediaMime} from '../files/media';
-import {useFiles} from '../files/useFiles';
-import {listSelectableEntries} from '../native/CloudSync';
+import { isMediaMime } from '../files/media';
+import { useFiles } from '../files/useFiles';
+import { listSelectableEntries } from '../native/CloudSync';
 import type {
   CloudSyncError,
   FileEntryDto,
   QuerySpec,
 } from '../native/CloudSyncContracts';
-import {useScan} from '../scan/useScan';
+import { useScan } from '../scan/useScan';
 import {
   selectionSummary,
   type SelectionItem,
@@ -58,6 +58,11 @@ export interface SelectionState {
   clear: () => void;
   /** After a deletion: drops [entryIds]; leaves selection mode when empty. */
   removeIds: (entryIds: readonly string[]) => void;
+  /**
+   * Counts finished deletions (each `removeIds` call), wherever they ran: the
+   * Files views reload page 1 when it changes, also after one in the preview.
+   */
+  deletionKey: number;
   dismissNotice: () => void;
   dismissError: () => void;
 }
@@ -67,7 +72,7 @@ interface Selection {
   items: ReadonlyMap<string, SelectionItem>;
 }
 
-const EMPTY: Selection = {snapshotId: null, items: new Map()};
+const EMPTY: Selection = { snapshotId: null, items: new Map() };
 
 export const SelectionContext = createContext<SelectionState | null>(null);
 
@@ -93,7 +98,7 @@ function withItems(
   snapshotId: string | null,
   items: Map<string, SelectionItem>,
 ): Selection {
-  return items.size === 0 ? EMPTY : {snapshotId, items};
+  return items.size === 0 ? EMPTY : { snapshotId, items };
 }
 
 /**
@@ -107,12 +112,13 @@ export function SelectionProvider({
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
-  const {view, filter} = useFiles();
+  const { view, filter } = useFiles();
   const activeSnapshotId = useScan().active?.snapshotId ?? null;
   const [selection, setSelection] = useState<Selection>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<CloudSyncError | null>(null);
   const [selectingAll, setSelectingAll] = useState(false);
+  const [deletionKey, setDeletionKey] = useState(0);
 
   const activeRef = useRef(activeSnapshotId);
   activeRef.current = activeSnapshotId;
@@ -165,7 +171,7 @@ export function SelectionProvider({
         ) {
           return prev;
         }
-        const {entryIds, sizes, statuses, media} = result.selectable;
+        const { entryIds, sizes, statuses, media } = result.selectable;
         const items = new Map(prev.items);
         // The wrapper checked that the arrays are parallel; the fallbacks only satisfy the index type.
         entryIds.forEach((entryId, i) => {
@@ -190,13 +196,14 @@ export function SelectionProvider({
       entryIds.forEach(id => items.delete(id));
       return withItems(prev.snapshotId, items);
     });
+    setDeletionKey(key => key + 1);
   }, []);
 
   const dismissNotice = useCallback(() => setNotice(null), []);
   const dismissError = useCallback(() => setError(null), []);
 
   const value = useMemo<SelectionState>(() => {
-    const {items} = selection;
+    const { items } = selection;
     return {
       snapshotId: selection.snapshotId,
       items,
@@ -211,6 +218,7 @@ export function SelectionProvider({
       selectAll,
       clear,
       removeIds,
+      deletionKey,
       dismissNotice,
       dismissError,
     };
@@ -226,6 +234,7 @@ export function SelectionProvider({
     selectAll,
     clear,
     removeIds,
+    deletionKey,
     dismissNotice,
     dismissError,
   ]);

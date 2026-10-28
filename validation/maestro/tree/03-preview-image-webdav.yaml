@@ -1,0 +1,82 @@
+# US1 sc. 2, FR-002 (WebDAV), feature 009 (contracts/maestro-tree-preview.md):
+# tapping an image opens the full preview from local storage, from every
+# view. Loose.jpg sits at the top of the tree set (ScanTree/Loose.jpg), so it
+# is a tile in the gallery and a row of the ScanTree folder in list view.
+# Each time `preview-image` is visible and the full image is drawn
+# (`preview-image-full`, read with getLocalImageHandle at the screen's long
+# edge), and Back returns to the same view and place.
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# This file holds the gallery and list-view steps (tasks.md T045). The tree
+# step is added as the last step by T061, once tree view exists.
+#
+# The tree set has 9 media files (8 JPEGs and clip.mp4), so the whole gallery
+# fits one screen and Loose.jpg needs no scrolling in either view.
+appId: com.syncscope
+name: tree/03-preview-image-webdav
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "WEBDAV"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. Gallery: tap Loose.jpg → the preview shows the image; Back → the gallery.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- extendedWaitUntil:
+    visible: "Loose\\.jpg, .+"
+    timeout: 15000
+- tapOn: "Loose\\.jpg, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-image"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "preview-image-full"
+    timeout: 15000
+- assertNotVisible: "This file is no longer on the device"
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: Gallery"
+- assertVisible: "Loose\\.jpg, .+"
+
+# 2. List view: open ScanTree, tap Loose.jpg → the preview; Back → still in
+# ScanTree with the row on screen.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Loose\\.jpg, .+"
+    timeout: 15000
+- tapOn: "Loose\\.jpg, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-image"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "preview-image-full"
+    timeout: 15000
+- assertNotVisible: "This file is no longer on the device"
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: List"
+- assertVisible: "Breadcrumb ScanTree"
+- assertVisible: "Loose\\.jpg, .+"

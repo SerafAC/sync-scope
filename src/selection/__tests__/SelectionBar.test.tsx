@@ -31,6 +31,7 @@ function selectionState(summary: Partial<SelectionSummary>): SelectionState {
     selectAll: jest.fn(),
     clear: jest.fn(),
     removeIds: jest.fn(),
+    deletionKey: 0,
     dismissNotice: jest.fn(),
     dismissError: jest.fn(),
   };

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Appbar, Button, Text, useTheme } from 'react-native-paper';
+import type { DeletionResultDto } from '../native/CloudSyncContracts';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mediaKindOf } from '../files/media';
@@ -12,6 +13,9 @@ import {
   clampImageEdge,
 } from '../native/CloudSyncContracts';
 import SyncScopeVideoView from '../native/specs/SyncScopeVideoViewNativeComponent';
+import { DeleteFlow } from '../selection/DeleteFlow';
+import { SelectionBar } from '../selection/SelectionBar';
+import { useSelection } from '../selection/SelectionProvider';
 import { spacing } from '../theme/spacing';
 
 export const FILE_GONE_TEXT = 'This file is no longer on the device';
@@ -98,6 +102,12 @@ function ImagePreview({
   );
 }
 
+/** The selection being deleted: fixed when Delete is pressed, as in Files. */
+interface DeletionTarget {
+  snapshotId: string;
+  entryIds: string[];
+}
+
 /**
  * The full preview of an image or a video (FR-002, research R8), pushed on the
  * root stack above the tabs. Its params come from the tapped row. Images are
@@ -105,13 +115,32 @@ function ImagePreview({
  * `SyncScopeVideoView`, muted by default, with the platform controller for
  * play/pause and seek, and a mute toggle in the top bar. Nothing is read from
  * the server (R026), and no document URI reaches JavaScript.
+ *
+ * The preview takes part in the Files selection (research R11): the top bar
+ * toggles this file in or out, the selection bar shows at the bottom whenever
+ * something is selected, and its Delete opens the existing `DeleteFlow` for
+ * the whole selection. When a finished deletion removed the previewed file,
+ * the preview closes as the dialog is dismissed.
  */
 export function PreviewScreen({
   navigation,
   route,
 }: PreviewScreenProps): React.JSX.Element {
-  const { snapshotId, entryId, name, mimeType } = route.params;
+  const { snapshotId, entryId, name, mimeType, sizeBytes, status } =
+    route.params;
   const theme = useTheme();
+  const selection = useSelection();
+  const {
+    isSelected,
+    isSelecting,
+    items,
+    removeIds,
+    snapshotId: selectionSnapshotId,
+    toggle,
+  } = selection;
+  const selected = isSelected(entryId);
+  const [deletion, setDeletion] = useState<DeletionTarget | null>(null);
+  const [previewDeleted, setPreviewDeleted] = useState(false);
   const kind = mediaKindOf(mimeType);
   const [muted, setMuted] = useState(true);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -119,6 +148,34 @@ export function PreviewScreen({
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
   const toggleMuted = useCallback(() => setMuted(value => !value), []);
   const onPlaybackError = useCallback(() => setVideoFailed(true), []);
+
+  const toggleSelected = useCallback(
+    () => toggle({ entryId, kind: 'FILE', mimeType, sizeBytes, status }),
+    [toggle, entryId, mimeType, sizeBytes, status],
+  );
+  const openDelete = useCallback(() => {
+    if (selectionSnapshotId != null && items.size > 0) {
+      setDeletion({
+        snapshotId: selectionSnapshotId,
+        entryIds: [...items.keys()],
+      });
+    }
+  }, [selectionSnapshotId, items]);
+  const onDeleted = useCallback(
+    (result: DeletionResultDto) => {
+      removeIds(result.removedEntryIds);
+      if (result.removedEntryIds.includes(entryId)) {
+        setPreviewDeleted(true);
+      }
+    },
+    [removeIds, entryId],
+  );
+  const closeDelete = useCallback(() => {
+    setDeletion(null);
+    if (previewDeleted) {
+      navigation.goBack();
+    }
+  }, [previewDeleted, navigation]);
 
   const themed = useMemo(
     () =>
@@ -159,7 +216,8 @@ export function PreviewScreen({
 
   return (
     <SafeAreaView
-      edges={['bottom', 'left', 'right']}
+      // The selection bar pads itself by the bottom inset.
+      edges={isSelecting ? ['left', 'right'] : ['bottom', 'left', 'right']}
       style={[styles.screen, themed.screen]}
       testID="preview"
     >
@@ -174,8 +232,30 @@ export function PreviewScreen({
             testID="preview-mute"
           />
         ) : null}
+        {kind != null ? (
+          <Appbar.Action
+            accessibilityLabel={
+              selected ? 'Unselect this file' : 'Select this file'
+            }
+            accessibilityState={{ checked: selected }}
+            icon={selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            onPress={toggleSelected}
+            testID="preview-select"
+          />
+        ) : null}
       </Appbar.Header>
       {body}
+      {/* While the dialog is open its own Delete is the only one on screen. */}
+      <SelectionBar onDelete={deletion == null ? openDelete : undefined} />
+      {deletion != null ? (
+        <DeleteFlow
+          entryIds={deletion.entryIds}
+          onDeleted={onDeleted}
+          onDismiss={closeDelete}
+          snapshotId={deletion.snapshotId}
+          visible
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

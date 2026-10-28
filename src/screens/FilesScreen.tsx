@@ -240,8 +240,13 @@ export function FilesScreen({
   useSelectionMode(selectQuery, focused);
 
   const [deletion, setDeletion] = useState<DeletionTarget | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const { snapshotId: selectionSnapshotId, items, removeIds } = selection;
+  // Bumped by every finished deletion, here or in the preview (research R14).
+  const {
+    snapshotId: selectionSnapshotId,
+    items,
+    removeIds,
+    deletionKey: reloadKey,
+  } = selection;
   const openDelete = useCallback(() => {
     if (selectionSnapshotId != null && items.size > 0) {
       setDeletion({
@@ -254,7 +259,6 @@ export function FilesScreen({
   const onDeleted = useCallback(
     (result: DeletionResultDto) => {
       removeIds(result.removedEntryIds);
-      setReloadKey(key => key + 1);
     },
     [removeIds],
   );

@@ -28,6 +28,7 @@ import {
 import { FileRow, formatSize } from '../files/FileRow';
 import { folderRowLabel, placeholderLabel } from '../files/a11y';
 import { useFiles } from '../files/useFiles';
+import { useOpenPreview } from '../files/useOpenPreview';
 import { useListNavigation } from '../files/useListNavigation';
 import {
   isPlaceholder,
@@ -241,6 +242,7 @@ function PlaceholderRow(): React.JSX.Element {
  * Under a filter, every folder stays visible with its matching-file count.
  * File rows are selectable (FR-015); source and directory rows never are,
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
+ * With nothing selected, a tap on a media file opens its preview (009 R8).
  */
 export function ListScreen(props: ListScreenProps): React.JSX.Element {
   const {
@@ -343,6 +345,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
   );
 
   const { openFolder } = nav;
+  const openPreview = useOpenPreview(readSnapshot);
   const renderEntry = useCallback(
     ({ item }: { item: PagedRow }) =>
       isPlaceholder(item) ? (
@@ -357,12 +360,20 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
         <FileRow
           entry={item}
           onLongPress={longPress}
-          onPress={isSelecting ? toggle : undefined}
+          onPress={isSelecting ? toggle : openPreview}
           selected={isSelected(item.entryId)}
           snapshotId={readSnapshot}
         />
       ),
-    [openFolder, isSelected, isSelecting, longPress, readSnapshot, toggle],
+    [
+      openFolder,
+      isSelected,
+      isSelecting,
+      longPress,
+      openPreview,
+      readSnapshot,
+      toggle,
+    ],
   );
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({

@@ -348,6 +348,18 @@ describe('SelectionProvider', () => {
     expect(result.current.selection.isSelecting).toBe(false);
   });
 
+  it('bumps deletionKey on every finished deletion, so the Files views reload (009 T043)', () => {
+    const {result} = renderSelection();
+    expect(result.current.selection.deletionKey).toBe(0);
+
+    act(() => result.current.selection.removeIds(['a']));
+    expect(result.current.selection.deletionKey).toBe(1);
+
+    // A deletion that removed nothing still changed the device: reload too.
+    act(() => result.current.selection.removeIds([]));
+    expect(result.current.selection.deletionKey).toBe(2);
+  });
+
   it('throws outside a SelectionProvider', () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => renderHook(() => useSelection())).toThrow(

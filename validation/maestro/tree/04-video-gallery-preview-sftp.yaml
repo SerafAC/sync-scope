@@ -5,13 +5,22 @@
 # long, so it reads "0:02" (formatDuration).
 # Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
 #
-# This file holds the gallery and list-view steps (tasks.md T034). The
-# preview steps are added by T046, and the tree-row step by T061.
+# This file holds the gallery and list-view steps (tasks.md T034) and the
+# preview steps (T046). The tree-row step is added by T061.
 #
 # The thumbnail's parts are matched by testID under their tile or row:
 # gallery-tile-play and gallery-tile-duration in GalleryTile, and
 # file-row-thumbnail-image and file-row-thumbnail-play in FileRow
 # (src/files/MediaThumbnail.tsx prefixes each part with the given testID).
+#
+# The preview's controller is the platform MediaController
+# (SyncScopeVideoView.kt): its play/pause button is android:id/pause, whose
+# description reads "Pause" while playing and "Play" otherwise, rewind is
+# android:id/rew (back 5 s, so to 0:00 in a 2 s clip) and the elapsed time is
+# android:id/time_current, formatted "00:02" by the platform. The clip is
+# only 2 s long, so the steps first let it play to its end: from there the
+# state is known (stopped at 00:02, the button says "Play") and every later
+# change is a response to a tap, not to the clip running on.
 appId: com.syncscope
 name: tree/04-video-gallery-preview-sftp
 ---
@@ -80,3 +89,85 @@ name: tree/04-video-gallery-preview-sftp
 - assertNotVisible:
     id: "file-row-icon"
     childOf: "clip\\.mp4, .+"
+
+# 3. Preview (US1 sc. 4, SC-004): back in the gallery, tap the MP4 tile → the
+# video preview opens, muted, and plays the local file to its end.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- tapOn: "clip\\.mp4, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-video"
+    timeout: 15000
+- assertNotVisible: "This video can't be played"
+# Muted by default: the top-bar toggle offers to unmute.
+- assertVisible:
+    id: "preview-mute"
+    text: "Unmute"
+# The view shows the controller once prepared, and a tap on the video toggles
+# it: show it only if it is not on screen already.
+- runFlow:
+    when:
+      notVisible:
+        id: ".*:id/mediacontroller_progress"
+    commands:
+      - tapOn:
+          id: "preview-video"
+# Played: the elapsed time reaches the end of the 2 s clip, which stops there.
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/time_current"
+      text: "0?0:02"
+    timeout: 15000
+- runFlow:
+    when:
+      notVisible:
+        id: ".*:id/mediacontroller_progress"
+    commands:
+      - tapOn:
+          id: "preview-video"
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/pause"
+      text: "Play"
+    timeout: 5000
+
+# 4. Seek responds: rewind takes the stopped clip back to 00:00.
+- tapOn:
+    id: ".*:id/rew"
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/time_current"
+      text: "0?0:00"
+    timeout: 5000
+
+# 5. Play/pause responds: Play turns the button into Pause and the elapsed
+# time moves on from 00:00.
+- tapOn:
+    id: ".*:id/pause"
+    text: "Play"
+- assertVisible:
+    id: ".*:id/pause"
+    text: "Pause"
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/time_current"
+      text: "0?0:0[12]"
+    timeout: 5000
+- assertVisible:
+    id: "preview-mute"
+    text: "Unmute"
+
+# 6. Back returns to the gallery with the tile.
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: Gallery"
+- assertVisible: "clip\\.mp4, .+"
