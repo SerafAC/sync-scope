@@ -1,0 +1,18 @@
+# Probe only (T035): a cleared app's empty Repository form, SFTP selected.
+# Never run on its own; the d*.yaml diagnostics call it.
+appId: com.syncscope
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "No scan results yet"
+    timeout: 60000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Set up repository"
+    timeout: 30000
+- tapOn: "Set up repository"
+- extendedWaitUntil:
+    visible: "Protocol SFTP"
+    timeout: 30000
+- tapOn: "Protocol SFTP"

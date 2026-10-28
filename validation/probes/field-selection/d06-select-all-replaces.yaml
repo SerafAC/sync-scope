@@ -1,0 +1,20 @@
+# T035 diagnostic: does typing replace the whole selection after Select all
+# (ordinary text, cursor anywhere)? The value has separate words: a host name
+# is selected whole by the long press (smart selection, toolbar "Open"), which
+# then offers no Select all (first probe, probe-0d4fb092b2d1015674004889).
+appId: com.syncscope
+name: probe/d06-select-all-replaces
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.host"
+- inputText: "old host name"
+- hideKeyboard
+- longPressOn:
+    id: "repository.host"
+- tapOn: "Select all"
+- inputText: "new.invalid"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.host"
+- assertTrue: "${maestro.copiedText == 'new.invalid'}"

@@ -1,0 +1,22 @@
+# T035 diagnostic: the numeric port field: long press, Select all when it is
+# offered (a single number may be selected whole already), then replace.
+appId: com.syncscope
+name: probe/d07-numeric-replaces
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.port"
+- inputText: "2121"
+- hideKeyboard
+- longPressOn:
+    id: "repository.port"
+- runFlow:
+    when:
+      visible: "Select all"
+    commands:
+      - tapOn: "Select all"
+- inputText: "32122"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.port"
+- assertTrue: "${maestro.copiedText == '32122'}"

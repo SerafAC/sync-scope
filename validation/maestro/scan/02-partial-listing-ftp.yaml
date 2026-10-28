@@ -17,6 +17,9 @@ name: scan/02-partial-listing-ftp
       USER: "${FTP_USER}"
       PASSWORD: "${FTP_PASSWORD}"
       ROOT: "${(FTP_ROOT.endsWith('/') ? FTP_ROOT.slice(0, -1) : FTP_ROOT) + '/scan/partial'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow: ../subflows/add-scan-source.yaml
 - runFlow: ../subflows/open-scan.yaml
 - runFlow: ../subflows/start-scan.yaml

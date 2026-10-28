@@ -15,7 +15,11 @@
 # Expected names and labels come from scroll-manifest.sh (BAND_*), never
 # literals. Maestro reads the label after the release: it stays until the
 # scroller fades out, so the drags do not wait for the screen to settle
-# (which would also start the 1 s wait late). Story 2 sc. 6 (loading state) and sc. 7 (TalkBack) are
+# (which would also start the 1 s wait late). The 1.5 s fade can still hide
+# the thumb between showing it and reading it, so every thumb read retries
+# together with the scroll that shows it (show-scrollbar or the short first
+# scroll, which does not wait to settle either), twice at most, with the same
+# expected label: a wrong label still fails every attempt. Story 2 sc. 6 (loading state) and sc. 7 (TalkBack) are
 # recorded deviations proven by Jest (usePagedQuery, FastScroller).
 #
 # Track geometry (Pixel 5 AVDs, 1080 x 2340, API 31 and API 36): the gallery
@@ -43,6 +47,9 @@ name: polish/03-fast-scroll
       USER: "${WEBDAV_USER}"
       PASSWORD: "${WEBDAV_PASSWORD}"
       ROOT: "${(WEBDAV_ROOT.endsWith('/') ? WEBDAV_ROOT.slice(0, -1) : WEBDAV_ROOT) + '/gallery'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow:
     file: ../subflows/add-scan-source.yaml
     env:
@@ -66,12 +73,16 @@ name: polish/03-fast-scroll
 # 1. Date sort: scroll, and the scrollbar appears (sc. 1); drag its thumb to
 #    the bottom quarter and release (sc. 2): within 1 s the month band's
 #    first file is the first tile (SC-003).
-- swipe:
-    start: "50%, 60%"
-    end: "50%, 50%"
-    duration: 800
-- assertVisible:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - swipe:
+          start: "50%, 60%"
+          end: "50%, 50%"
+          duration: 800
+          waitToSettleTimeoutMs: 50
+      - assertVisible:
+          id: "files.scroller.thumb"
 - runFlow:
     when:
       true: "${API_LEVEL != '36'}"
@@ -93,10 +104,13 @@ name: polish/03-fast-scroll
 - extendedWaitUntil:
     visible: "${BAND_MONTH_FIRST + ', (Synced|Unsynced|Unknown).*'}"
     timeout: 1000
-- runFlow: ../subflows/show-scrollbar.yaml
-- assertVisible:
-    id: "files.scroller.thumb"
-    text: "${'Scrollbar, ' + BAND_MONTH_LABEL}"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - assertVisible:
+          id: "files.scroller.thumb"
+          text: "${'Scrollbar, ' + BAND_MONTH_LABEL}"
 - copyTextFrom:
     text: ".+\\.png, (Synced|Unsynced|Unknown).*"
     index: 0
@@ -112,12 +126,16 @@ name: polish/03-fast-scroll
     file: ../subflows/assert-first-file.yaml
     env:
       FIRST: "${FIRST_NAME_ASC}"
-- swipe:
-    start: "50%, 60%"
-    end: "50%, 50%"
-    duration: 800
-- assertVisible:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - swipe:
+          start: "50%, 60%"
+          end: "50%, 50%"
+          duration: 800
+          waitToSettleTimeoutMs: 50
+      - assertVisible:
+          id: "files.scroller.thumb"
 - runFlow:
     when:
       true: "${API_LEVEL != '36'}"
@@ -136,10 +154,13 @@ name: polish/03-fast-scroll
           end: "96%, 61%"
           duration: 1500
           waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- assertVisible:
-    id: "files.scroller.thumb"
-    text: "Scrollbar, M"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - assertVisible:
+          id: "files.scroller.thumb"
+          text: "Scrollbar, M"
 - runFlow:
     file: ../subflows/assert-first-file.yaml
     env:
@@ -183,9 +204,12 @@ name: polish/03-fast-scroll
     end: "96%, 36%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"
@@ -200,9 +224,12 @@ name: polish/03-fast-scroll
     end: "96%, 45%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"
@@ -217,9 +244,12 @@ name: polish/03-fast-scroll
     end: "96%, 54%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"
@@ -234,9 +264,12 @@ name: polish/03-fast-scroll
     end: "96%, 63%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"
@@ -251,9 +284,12 @@ name: polish/03-fast-scroll
     end: "96%, 72%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"
@@ -268,9 +304,12 @@ name: polish/03-fast-scroll
     end: "96%, 81%"
     duration: 1500
     waitToSettleTimeoutMs: 50
-- runFlow: ../subflows/show-scrollbar.yaml
-- copyTextFrom:
-    id: "files.scroller.thumb"
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: ../subflows/show-scrollbar.yaml
+      - copyTextFrom:
+          id: "files.scroller.thumb"
 - evalScript: "${output.labels.push(maestro.copiedText.replace('Scrollbar, ', ''))}"
 - tapOn: "Breadcrumb All folders"
 - tapOn: "Folder Narrow, .+"

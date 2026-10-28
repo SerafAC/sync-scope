@@ -27,8 +27,16 @@ class SourcePicker(
   private val currentActivity: () -> Activity?,
 ) : BaseActivityEventListener() {
 
-  /** The pending pick: completed with the picked tree URI, or null when the picker was closed. */
-  private val slot = AtomicReference<CompletableDeferred<Uri?>?>(null)
+  /**
+   * The pending pick: [Pending.result] is completed with the picked tree URI, or null when the
+   * picker was closed; [Pending.handled] once [launch] has finished with that result.
+   */
+  private class Pending {
+    val result = CompletableDeferred<Uri?>()
+    val handled = CompletableDeferred<Unit>()
+  }
+
+  private val slot = AtomicReference<Pending?>(null)
 
   /**
    * Opens the picker and handles the pick. A re-grant starts at [regrantSourceId]'s own folder; a new
@@ -41,21 +49,33 @@ class SourcePicker(
         operations.regrantTarget(it) ?: return envelope.sourceError(CloudSyncErrorCode.SOURCE_NOT_FOUND)
       }
     val activity = currentActivity() ?: return envelope.sourceError(CloudSyncErrorCode.PICKER_BUSY)
-    val pending = CompletableDeferred<Uri?>()
+    val pending = Pending()
     if (!slot.compareAndSet(null, pending)) return envelope.sourceError(CloudSyncErrorCode.PICKER_BUSY)
     try {
       @Suppress("DEPRECATION")
       activity.startActivityForResult(intent(initialUri), REQUEST_CODE)
-      val picked = pending.await() ?: return operations.cancelled()
+      val picked = pending.result.await() ?: return operations.cancelled()
       return operations.onPicked(picked.toString(), regrantSourceId)
     } finally {
       slot.compareAndSet(pending, null)
+      pending.handled.complete(Unit)
     }
+  }
+
+  /**
+   * Suspends until a pick the picker has already returned is persisted (or rejected). The result
+   * arrives before the activity resumes, and coming back from the picker starts the automatic
+   * local refresh (FR-003), which must read the source list after the new folder is saved, not
+   * before. Returns at once when no pick is pending or the picker is still open.
+   */
+  suspend fun awaitSettled() {
+    val pending = slot.get() ?: return
+    if (pending.result.isCompleted) pending.handled.await()
   }
 
   override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode != REQUEST_CODE) return
-    slot.get()?.complete(if (resultCode == Activity.RESULT_OK) data?.data else null)
+    slot.get()?.result?.complete(if (resultCode == Activity.RESULT_OK) data?.data else null)
   }
 
   private fun intent(initialUri: String?): Intent =

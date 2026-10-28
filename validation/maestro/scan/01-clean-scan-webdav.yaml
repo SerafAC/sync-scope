@@ -23,6 +23,9 @@ name: scan/01-clean-scan-webdav
       # the tap and the first wait can each spend 10 s before the card is
       # seen; a shorter run ends unobserved and PROGRESS=required fails.
       SCAN_DELAY_MS: "4000"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow: ../subflows/add-scan-source.yaml
 - runFlow: ../subflows/open-scan.yaml
 - assertNotVisible: "Scan summary"

@@ -1,0 +1,15 @@
+# T035 diagnostic: after a long press on a short value (the press lands past
+# its end), is the contextual "Select all" shown directly (no overflow)?
+appId: com.syncscope
+name: probe/d03-select-all-short
+---
+- runFlow: open-form.yaml
+- tapOn:
+    id: "repository.host"
+- inputText: "10.0.2.2"
+- hideKeyboard
+- longPressOn:
+    id: "repository.host"
+- extendedWaitUntil:
+    visible: "Select all"
+    timeout: 5000

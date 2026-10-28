@@ -92,9 +92,11 @@ function themedStyles(theme: MD3Theme) {
  * shows the label of the band under it (`bandLabel`); releasing it jumps to
  * that band's first file. For TalkBack the thumb is adjustable: its value is
  * the current band and increment / decrement jump to the next or previous
- * band. A new result (new bands) while dragging ends the drag where the
- * finger reached. After a release the label stays until the scroller fades,
- * so the band reached can still be read.
+ * band. The release maps the touch-up point, not the last processed move, so
+ * a fast drag lands on the band under the finger. A new result (new bands)
+ * while dragging does not end the drag: the release maps over the bands then
+ * shown. After a release the label stays until the scroller fades, so the
+ * band reached can still be read.
  */
 export function FastScroller({
   unit,
@@ -225,13 +227,23 @@ export function FastScroller({
           );
           setDragTop(drag.top);
         },
-        onPanResponderRelease: () => finishDrag(latest.current.bands),
+        onPanResponderRelease: (event, gesture) => {
+          const drag = dragging.current;
+          // The touch-up point: a last move may not have been processed.
+          const upY = event.nativeEvent.pageY;
+          if (drag != null) {
+            const dy = Number.isFinite(upY) ? upY - gesture.y0 : gesture.dy;
+            drag.top = clamp(drag.grantTop + dy, 0, latest.current.travel);
+          }
+          finishDrag(latest.current.bands);
+        },
         onPanResponderTerminate: () => finishDrag(latest.current.bands),
       }),
     [finishDrag, show],
   );
 
-  // A new result while dragging: the drag ends where the finger reached.
+  // A new result while dragging keeps the drag; its release maps over the
+  // new bands (`latest`).
   const shownBands = useRef(bands);
   useEffect(() => {
     if (shownBands.current === bands) {
@@ -239,8 +251,7 @@ export function FastScroller({
     }
     shownBands.current = bands;
     setStepBand(null);
-    finishDrag(bands);
-  }, [bands, finishDrag]);
+  }, [bands]);
 
   const positionBand = bandAt(
     bands,

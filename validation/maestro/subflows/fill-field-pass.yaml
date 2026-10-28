@@ -1,0 +1,35 @@
+# Subflow of fill-field.yaml only (feature 008, T036): one residue pass.
+# Entered right after a tap raised the keyboard. Hides it, reads the field
+# again and, when something is left (always on the first pass, then while the
+# read changes; an unchanged read is the hint of an empty field), taps the
+# field's right edge (the cursor lands at the end of what is shown) and erases
+# what was read. Sets output.fillResidue for the next pass.
+appId: com.syncscope
+---
+- hideKeyboard
+- evalScript: "${output.fillResidue = false}"
+- scrollUntilVisible:
+    element:
+      id: "${FIELD}"
+    direction: DOWN
+- runFlow:
+    when:
+      visible:
+        id: "${FIELD}"
+        text: ".+"
+    commands:
+      - copyTextFrom:
+          id: "${FIELD}"
+      - evalScript: "${output.fillResidue = output.fillPass == 0 || maestro.copiedText != output.fillText, output.fillText = maestro.copiedText}"
+- evalScript: "${output.fillPass = output.fillPass + 1}"
+- runFlow:
+    when:
+      true: "${output.fillResidue}"
+    commands:
+      - tapOn:
+          id: "${FIELD}"
+          point: "97%,50%"
+      - repeat:
+          times: "${Math.ceil(output.fillText.length / 32)}"
+          commands:
+            - eraseText: 32

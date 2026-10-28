@@ -12,6 +12,8 @@ flows:
   - "browse/*"
   - "mvp/*"
   - "polish/*"
+  # Feature 008 regressions, appended after every original flow.
+  - "performance/*"
 
 executionOrder:
   continueOnFailure: false
@@ -55,3 +57,5 @@ executionOrder:
     - polish/06-remote-browse-sftp
     - polish/07-results-updated-keeps-place
     - polish/08-add-large-folder
+    # Feature 008 (T034): appended after the 39 original flows, never instead.
+    - performance/01-field-replacement

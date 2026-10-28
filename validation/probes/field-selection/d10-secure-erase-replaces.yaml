@@ -1,0 +1,23 @@
+# T035 diagnostic: the candidate's secure path: a long press, then erasing 64
+# from the cursor leaves the password empty, and typing gives exactly the new
+# length (masked read-back only).
+appId: com.syncscope
+name: probe/d10-secure-erase-replaces
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.password"
+    direction: DOWN
+- tapOn:
+    id: "repository.password"
+- inputText: "probe1234"
+- hideKeyboard
+- longPressOn:
+    id: "repository.password"
+- eraseText: 64
+- inputText: "xy"
+- hideKeyboard
+- copyTextFrom:
+    id: "repository.password"
+- assertTrue: "${maestro.copiedText == '••'}"

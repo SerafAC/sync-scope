@@ -1,0 +1,505 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-10-10T21:40:12Z",
+  "constraints": [
+    "repetition count fixed at **3**, APIs fixed at **31 and 36**",
+    "All eight scenarios and both APIs must appear."
+  ],
+  "apis": [31, 36],
+  "repetitions": 3,
+  "authority": "specs/008-e2e-performance/contracts/acceptance.md",
+  "originalInputs": {
+    "revision": "fcdb8ca87ea43b0e52ab1f0c0ac40fe94f959191",
+    "trackedDirty": false,
+    "inputFingerprint": "422f2af74f2890513814df8482fac8a47a9d4e263a8db5b8202becaf44548b36",
+    "closure": [
+      {
+        "path": "validation/maestro/browse/01-gallery-thousands.yaml",
+        "sha256": "d323539b4299d1795be570f6366f82a85804e4cc06657a31d230fdb900a2e820"
+      },
+      {
+        "path": "validation/maestro/mvp/01-setup-sftp.yaml",
+        "sha256": "238a24f1253edb8ff1f9d0ce38f3646cc7041b8f23e1f953a492414094d587ad"
+      },
+      {
+        "path": "validation/maestro/mvp/02-setup-errors.yaml",
+        "sha256": "86c537f11173f5a5658deae85bbc8ec9ed222885c8143c6db5506cbcd91a6bb4"
+      },
+      {
+        "path": "validation/maestro/polish/03-fast-scroll.yaml",
+        "sha256": "c1458195696f3af35073143357a3f6dfbbf21f01da8d43927b89ad613b6644a0"
+      },
+      {
+        "path": "validation/maestro/scan/01-clean-scan-ftp.yaml",
+        "sha256": "d4b5e0afe2a809778b595a23495edc1b931b0ae6f0641bb762e367b8c893dc99"
+      },
+      {
+        "path": "validation/maestro/scan/04-reopen-refresh.yaml",
+        "sha256": "3cf6af3fdcb1f6c86de31d796be50a028c8999ead0a8aa35ae2a9eebb74f78d9"
+      },
+      {
+        "path": "validation/maestro/scan/05-background-discards.yaml",
+        "sha256": "c222f04aea5644bcee79746fe112e17bc5d7f44ac9e15a89d34a22b94eddef70"
+      },
+      {
+        "path": "validation/maestro/sources/01-add-internal.yaml",
+        "sha256": "704d50d1a5de6d1c0fd1991190c13b6b713501cae0d77a17cd73e925af8cef29"
+      },
+      {
+        "path": "validation/maestro/subflows/add-scan-source.yaml",
+        "sha256": "a850fc3f37ad1f6987b1fc96b70249bbfa1dc32be65417d3a44593d043d579c6"
+      },
+      {
+        "path": "validation/maestro/subflows/assert-first-file.yaml",
+        "sha256": "8945f6e914ab24046b5d1726735904223befa9731176c97629409fb8335ee60b"
+      },
+      {
+        "path": "validation/maestro/subflows/configure-repository.yaml",
+        "sha256": "42955597fabc7073e160968a0f9e7950a80bbaa4ce9014e25b441cd6ba4e7a55"
+      },
+      {
+        "path": "validation/maestro/subflows/fill-field.yaml",
+        "sha256": "2f9559244ecf3010b05bc5a19bd0662979626d2408af0f119c92ec5ebb21df74"
+      },
+      {
+        "path": "validation/maestro/subflows/open-files.yaml",
+        "sha256": "e168d6d38583513cfc4db1d2638a035ba38eb30aadf33781428d58681ba604c1"
+      },
+      {
+        "path": "validation/maestro/subflows/open-scan.yaml",
+        "sha256": "70a4cec2cc8e0440ac8e04070283fa87cf8a7c815e9a48a4717ce33dcbc00c46"
+      },
+      {
+        "path": "validation/maestro/subflows/open-sources.yaml",
+        "sha256": "6bafb91bca1651e2ac72b7b35ab6b0a735174dcad3757861a12ae962acd1c0f3"
+      },
+      {
+        "path": "validation/maestro/subflows/pick-folder.yaml",
+        "sha256": "f6fc2437b794b3f91df499a6e50e14e02baa33e01e7f043463b6c296f5e164b4"
+      },
+      {
+        "path": "validation/maestro/subflows/select-sort.yaml",
+        "sha256": "0e7533b63c99cc07016876a187180db4468a474933c99c4bcad0c5365c0bc21d"
+      },
+      {
+        "path": "validation/maestro/subflows/select-view.yaml",
+        "sha256": "4d3593c91b040a68c89921c08d09081f80da0eff10e068ad432043a757e6dda7"
+      },
+      {
+        "path": "validation/maestro/subflows/setup-repository.yaml",
+        "sha256": "9a1fbcd0f5d71d0da924e471be0529e8628a97aaf7c15f21fece599daa6863cf"
+      },
+      {
+        "path": "validation/maestro/subflows/show-scrollbar.yaml",
+        "sha256": "d04d74bea68434c6655781e6879b918bd49fdeb9b47724e7c6ebf91a49193937"
+      },
+      {
+        "path": "validation/maestro/subflows/start-scan.yaml",
+        "sha256": "156989f682a17c68e70a80d84f653f71cf659172bd9bfe0c5f26b34dece81e9f"
+      }
+    ]
+  },
+  "fixtureParameters": {
+    "bulkFiles": 20000,
+    "bulkDirectories": 200,
+    "galleryBulkFiles": 2000,
+    "scrollFiles": 5000,
+    "narrowFiles": 200,
+    "bigFiles": 10000,
+    "sdCardMiB": 512,
+    "fixtureMtimeSeconds": 1704067200
+  },
+  "fixtureAuthorities": [
+    "scripts/validation/device-fixtures.sh",
+    "scripts/validation/fixture-seed.sh",
+    "scripts/validation/fixture-images.sh",
+    "scripts/validation/scroll-manifest.sh"
+  ],
+  "orderedPrerequisites": [
+    {
+      "action": "claim-invocation-and-emulator-resources",
+      "boundary": "before-shared-setup",
+      "requires": "Phase 2 ownership implementation; do not use preflight as ownership"
+    },
+    {
+      "action": "prepare-live-ftp-sftp-webdav",
+      "authority": "scripts/validation/protocol-service.sh",
+      "preserve": "original seeding and live synthetic authentication"
+    },
+    {
+      "action": "start-metro",
+      "authority": "scripts/validation/metro-service.sh"
+    },
+    {
+      "action": "boot-target-api",
+      "authority": "scripts/validation/android-validator.sh",
+      "preserve": "verified original software cohort, guest resources and animation settings"
+    },
+    {
+      "action": "assemble-and-install-debug-apk",
+      "authority": "scripts/validation/android-flow.sh",
+      "preserve": "original per-API build frequency and --no-daemon policy until matched baselines exist"
+    },
+    {
+      "action": "seed-device-and-verify-mounted-public-volume",
+      "authority": "scripts/validation/device-fixtures.sh",
+      "preserve": "complete default datasets; real internal and removable storage"
+    },
+    {
+      "action": "derive-private-protocol-size-api-and-scroll-arguments",
+      "authority": "scripts/validation/android-flow.sh",
+      "preserve": "same parameter assembly as workspace; never serialize credential arguments"
+    }
+  ],
+  "comparisonPolicy": {
+    "wholeFlowOnly": true,
+    "externalPrerequisiteTime": "separate phase, included once in invocation wall accounting",
+    "failedSamples": "retain; cohort incomplete; diagnostic rerun never replaces scheduled sample",
+    "cohorts": "match actual CPU/GPU/renderer, host/API/image/tools, fixtures, resources, animations and cache policy; configuration experiments separate",
+    "sourceChanges": "declare app/helper changes independently of stable workload definition"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "H01",
+      "name": "Repository field correction",
+      "flow": "validation/maestro/mvp/02-setup-errors.yaml",
+      "subjects": [
+        "empty-and-prefilled-fields",
+        "secure-correction",
+        "unsaved-edits"
+      ],
+      "protocols": ["ftp"],
+      "fixtures": ["remote-gallery"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": []
+    },
+    {
+      "scenarioId": "H02",
+      "name": "SFTP form and trust navigation",
+      "flow": "validation/maestro/mvp/01-setup-sftp.yaml",
+      "subjects": [
+        "real-repository-form",
+        "server-fingerprint-trust",
+        "navigation"
+      ],
+      "protocols": ["sftp"],
+      "fixtures": ["remote-gallery"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": []
+    },
+    {
+      "scenarioId": "H03",
+      "name": "Launch and real SAF grant",
+      "flow": "validation/maestro/sources/01-add-internal.yaml",
+      "subjects": [
+        "launch-navigation",
+        "picker-cancellation",
+        "real-SAF-grant"
+      ],
+      "protocols": [],
+      "fixtures": [
+        "primary-Camera",
+        "primary-Camera-Nested",
+        "removable-Camera"
+      ],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": []
+    },
+    {
+      "scenarioId": "H04",
+      "name": "Reopen and local refresh",
+      "flow": "validation/maestro/scan/04-reopen-refresh.yaml",
+      "subjects": [
+        "intentional-stop-relaunch",
+        "new-generation",
+        "remote-timestamp-preserved"
+      ],
+      "protocols": ["sftp"],
+      "fixtures": ["device-Scan", "remote-scan-clean"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": []
+    },
+    {
+      "scenarioId": "H05",
+      "name": "Running FTP scan and completion",
+      "flow": "validation/maestro/scan/01-clean-scan-ftp.yaml",
+      "subjects": ["required-visible-progress", "clean-scan-completion"],
+      "protocols": ["ftp"],
+      "fixtures": ["device-Scan", "remote-scan-clean"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": [],
+      "requiredProgress": {
+        "parameter": "PROGRESS=required",
+        "scanDelayMs": 4000,
+        "transition": "visible progress then expected terminal result then progress absent"
+      }
+    },
+    {
+      "scenarioId": "H06",
+      "name": "Cancellation and background preservation",
+      "flow": "validation/maestro/scan/05-background-discards.yaml",
+      "subjects": [
+        "required-visible-progress",
+        "explicit-cancellation",
+        "Home-background-foreground",
+        "previous-summary-preserved"
+      ],
+      "protocols": ["sftp"],
+      "fixtures": ["device-Scan", "device-Bulk", "remote-scan-clean"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": [],
+      "requiredProgress": {
+        "transition": "visible progress for each explicit and Home cancellation; preserved completed summary and remote listing",
+        "initialFastScan": "original start-scan optional running observation is a known weakness, not affirmative start evidence"
+      }
+    },
+    {
+      "scenarioId": "H07",
+      "name": "Large gallery scrolling",
+      "flow": "validation/maestro/browse/01-gallery-thousands.yaml",
+      "subjects": [
+        "2000-images",
+        "15-gallery-scroll-gestures",
+        "paging-and-counts"
+      ],
+      "protocols": ["sftp"],
+      "fixtures": ["device-GalleryBulk", "remote-gallery"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": [],
+      "scrollGestures": 15
+    },
+    {
+      "scenarioId": "H08",
+      "name": "Gallery and scoped list fast scrolling",
+      "flow": "validation/maestro/polish/03-fast-scroll.yaml",
+      "subjects": [
+        "gallery-date-and-name-bands",
+        "list-scoped-size-bands",
+        "at-least-five-distinct-labels",
+        "short-gallery-no-scrollbar"
+      ],
+      "protocols": ["webdav"],
+      "fixtures": ["device-Scroll", "device-Narrow", "remote-gallery"],
+      "orderedPrerequisites": [
+        {
+          "action": "restore-independent-fixture-inputs",
+          "authority": "scripts/validation/device-fixtures.sh",
+          "policy": "restore all mutable device trees and remote recheck tree before each independent repetition; do not shrink immutable datasets"
+        },
+        {
+          "action": "supply-workspace-arguments",
+          "authority": "scripts/validation/android-flow.sh",
+          "parameters": "private live protocol credentials, derived byte sizes, API_LEVEL and complete scroll-manifest output"
+        }
+      ],
+      "resetPolicy": {
+        "app": "flow-owned launchApp clearState=true at the start of every repetition",
+        "inFlowSetup": "retain the complete existing form/seam, real picker, navigation and scan sequence",
+        "externalFixtureReset": "before repetition; not inside its measured flow",
+        "staged": "never apply independent reset between staged continuation parts"
+      },
+      "measurementBoundary": {
+        "kind": "whole-flow-wall",
+        "start": "immediately before the Maestro test process for this flow",
+        "end": "Maestro process exit, including all in-flow setup, helpers, waits and assertions",
+        "outcome": "whole-flow passed/failed/interrupted; missing artifacts fail evidence",
+        "externalPrerequisites": "excluded from sample, reported separately in invocation phases"
+      },
+      "diagnostics": [
+        {
+          "diagnosticId": "H08-gallery",
+          "view": "gallery",
+          "start": "first date-sort scroll after initial FIRST_TIME_DESC assertion",
+          "end": "end of name-band first-file/assertTrue checks, before adding Narrow",
+          "subjects": [
+            "month-band-first-tile",
+            "month-label",
+            "name-M-band-first-tile"
+          ],
+          "additiveToWholeFlow": false
+        },
+        {
+          "diagnosticId": "H08-list",
+          "view": "list",
+          "start": "select-view LIST after Narrow addition and rescan",
+          "end": "distinct-label checks before short-result Gallery switch",
+          "subjects": [
+            "Narrow-folder-breadcrumb",
+            "list-size-band-labels",
+            "at-least-five-distinct-labels"
+          ],
+          "additiveToWholeFlow": false
+        }
+      ]
+    }
+  ],
+  "definitionFingerprint": "03164a4022f16180c53b3a5dcd68a3033b06a6215373ecbadee430e0dc8676c7"
+}

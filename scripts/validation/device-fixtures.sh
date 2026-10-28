@@ -28,13 +28,25 @@
 # SyncScopeE2E/Scroll and
 # SyncScopeE2E/Narrow, generated from the scroll_* and narrow_* functions of
 # scroll-manifest.sh (padded PNGs, so every file is still a valid image); and
-# DCIM/Big, 10,000 empty .jpg files for the picker spike and flow 08. Scroll
-# and Big are slow to create, so they are kept when their file count is
-# already complete (once per emulator boot); the others are re-created.
+# DCIM/Big, 10,000 empty .jpg files for the picker spike and flow 08.
+#
+# Feature 008 (T043, research R9, data-model fixture states): the immutable
+# sets Bulk, GalleryBulk, Narrow, Scroll and DCIM/Big are reused only after
+# validation, never on file count alone. Each set's completion marker (in
+# /data/local/tmp/syncscope-fixtures, outside every scanned tree) records a
+# fingerprint of its generator (these scripts) and parameters (its file
+# count) and a digest of the tree taken right after a successful seed:
+# directory paths, file paths and sizes, required mtimes (GalleryBulk,
+# Narrow, Scroll) and the SHA-256 of every file's content. A set is
+# unknown -> validating -> valid (kept) or reseeded; the marker is removed
+# before a reseed and written only after it succeeded (seeding -> valid), so
+# a failed seed always reseeds next time. Every mutable tree (Scan,
+# TwoFolders, Gallery, GalleryTwin, Delete, Recheck, Offline, Select,
+# Changed) is still re-created on every run.
 #
 # Targets the device in ANDROID_SERIAL. Idempotent: directories use mkdir -p,
-# fixture files are overwritten and the bulk and gallery trees are regenerated
-# from scratch.
+# fixture files are overwritten, the mutable trees are regenerated from
+# scratch and an immutable set is kept only when it validates.
 # Fails loudly when no public removable volume is mounted (R10: never skip
 # removable-storage coverage).
 set -eu
@@ -87,6 +99,49 @@ seed_dir() {
   adb_shell "printf 'SyncScope e2e fixture\n' > $dir/$file"
 }
 
+# Immutable-set reuse (T043). The generator fingerprint covers every script
+# that defines a set's names, sizes, mtimes or bytes.
+marker_dir=/data/local/tmp/syncscope-fixtures
+generator=$(cat "$here/device-fixtures.sh" "$here/fixture-images.sh" "$here/scroll-manifest.sh" |
+  sha256sum | cut -c1-64)
+
+# set_digest <dir> <mtime|-> prints the digest of the tree in <dir> (empty
+# when it cannot be read): sorted directory paths, any other entry type
+# (symlinks, specials) by path, file paths with sizes (and mtimes for
+# `mtime`), and per-file content digests (the kind/path/size/content
+# semantics of fixture-manifest.mjs, on the device).
+set_digest() {
+  case "$2" in mtime) stat_format='%s %Y %n' ;; *) stat_format='%s %n' ;; esac
+  adb_shell "cd '$1' && { find . -type d | sort; find . ! -type d ! -type f | sed 's/^/other /' | sort; find . -type f -exec stat -c '$stat_format' {} + | sort; find . -type f -exec sha256sum {} + | sort -k 2; } | sha256sum" 900 |
+    tr -d '\r' | cut -c1-64
+}
+
+# immutable_set <name> <dir> <parameters> <mtime|-> <seed function>: keeps
+# <dir> when its marker matches the current fingerprint and the tree still
+# has the recorded digest; otherwise removes the marker, seeds and records the
+# new digest only after the seed succeeded.
+immutable_set() {
+  set_name=$1
+  set_dir=$2
+  fingerprint=$(printf '%s %s %s %s\n' "$generator" "$1" "$2" "$3" | sha256sum | cut -c1-64)
+  marker=$(adb_shell "cat $marker_dir/$set_name 2>/dev/null || true" | tr -d '\r')
+  recorded_fingerprint=$(printf '%s\n' "$marker" | sed -n 1p)
+  recorded_digest=$(printf '%s\n' "$marker" | sed -n 2p)
+  if [ -n "$recorded_digest" ] && [ "$recorded_fingerprint" = "$fingerprint" ]; then
+    current=$(set_digest "$set_dir" "$4") || current=
+    if [ "$current" = "$recorded_digest" ]; then
+      printf '%s\n' "Keeping $set_dir (validated $set_name)."
+      return 0
+    fi
+  fi
+  printf '%s\n' "Seeding $set_dir ($set_name)."
+  adb_shell "rm -f $marker_dir/$set_name"
+  "$5"
+  current=$(set_digest "$set_dir" "$4")
+  [ -n "$current" ] || { printf '%s\n' "Cannot read $set_dir after seeding." >&2; exit 1; }
+  adb_shell "mkdir -p $marker_dir && printf '%s\\n%s\\n' $fingerprint $current > $marker_dir/$set_name"
+}
+
 volumes=$(adb_shell "sm list-volumes public" | tr -d '\r')
 uuid=$(printf '%s\n' "$volumes" | awk '$2 == "mounted" && $3 != "" && $3 != "null" { print $3; exit }')
 if [ -z "$uuid" ]; then
@@ -135,7 +190,10 @@ seed_two_folders_file b/b-only-kept.jpg 'only in folder b, kept by flow 04'
 # Bulk source: one adb shell loop, no per-file fork. Adding 1000 or 100000 and
 # stripping the leading 1 zero-pads the directory and file numbers.
 bulk=/sdcard/SyncScopeE2E/Bulk
-adb_shell "rm -rf $bulk && i=0 && while [ \$i -lt 200 ]; do n=\$((i + 1000)); mkdir -p $bulk/d\${n#1}; i=\$((i + 1)); done && i=0 && while [ \$i -lt $bulk_files ]; do d=\$((i % 200 + 1000)); f=\$((i + 100000)); echo \"bulk \${f#1}\" > $bulk/d\${d#1}/f\${f#1}.txt; i=\$((i + 1)); done" 600
+seed_bulk() {
+  adb_shell "rm -rf $bulk && i=0 && while [ \$i -lt 200 ]; do n=\$((i + 1000)); mkdir -p $bulk/d\${n#1}; i=\$((i + 1)); done && i=0 && while [ \$i -lt $bulk_files ]; do d=\$((i % 200 + 1000)); f=\$((i + 100000)); echo \"bulk \${f#1}\" > $bulk/d\${d#1}/f\${f#1}.txt; i=\$((i + 1)); done" 600
+}
+immutable_set Bulk "$bulk" "files=$bulk_files" - seed_bulk
 
 # Gallery sources: images are pushed from a temp file (adb push does not keep
 # mtimes, so every file is touched afterwards).
@@ -176,13 +234,10 @@ push_png "$PNG_TWIN" "$twin/sunset.png"
 # GalleryBulk: one adb shell loop copying the pushed harbor.png. Adding 10000
 # and stripping the leading 1 zero-pads the file numbers to g0000…g9999.
 gallery_bulk=/sdcard/SyncScopeE2E/GalleryBulk
-adb_shell "rm -rf $gallery_bulk && mkdir -p $gallery_bulk && i=0 && while [ \$i -lt $gallery_bulk_files ]; do f=\$((i + 10000)); cp $gallery/harbor.png $gallery_bulk/g\${f#1}.png; i=\$((i + 1)); done && touch -d @1704067200 $gallery_bulk/*.png" 600
-
-# file_count <dir>: the number of entries in <dir> on the device (0 when it
-# does not exist).
-file_count() {
-  adb_shell "ls $1 2>/dev/null | wc -l" | tr -d '\r '
+seed_gallery_bulk() {
+  adb_shell "rm -rf $gallery_bulk && mkdir -p $gallery_bulk && i=0 && while [ \$i -lt $gallery_bulk_files ]; do f=\$((i + 10000)); cp $gallery/harbor.png $gallery_bulk/g\${f#1}.png; i=\$((i + 1)); done && touch -d @1704067200 $gallery_bulk/*.png" 600
 }
+immutable_set GalleryBulk "$gallery_bulk" "files=$gallery_bulk_files" mtime seed_gallery_bulk
 
 # seed_generated <dir> <scroll|narrow> <count>: re-creates <dir> with the
 # <count> files the manifest functions describe. One script is written on the
@@ -219,20 +274,18 @@ seed_generated() {
 }
 
 scroll=/sdcard/SyncScopeE2E/Scroll
-if [ "$(file_count "$scroll")" = "$SCROLL_COUNT" ]; then
-  printf '%s\n' "Keeping $scroll ($SCROLL_COUNT files)."
-else
-  seed_generated "$scroll" scroll "$SCROLL_COUNT"
-fi
-seed_generated /sdcard/SyncScopeE2E/Narrow narrow "$NARROW_COUNT"
+narrow=/sdcard/SyncScopeE2E/Narrow
+seed_scroll() { seed_generated "$scroll" scroll "$SCROLL_COUNT"; }
+seed_narrow() { seed_generated "$narrow" narrow "$NARROW_COUNT"; }
+immutable_set Scroll "$scroll" "files=$SCROLL_COUNT" mtime seed_scroll
+immutable_set Narrow "$narrow" "files=$NARROW_COUNT" mtime seed_narrow
 
 # DCIM/Big: 10,000 empty files in one adb shell loop (the picker spike, R15).
 big=/sdcard/DCIM/Big
 big_files=10000
-if [ "$(file_count "$big")" = "$big_files" ]; then
-  printf '%s\n' "Keeping $big ($big_files files)."
-else
+seed_big() {
   adb_shell "rm -rf $big && mkdir -p $big && for i in \$(seq 1 $big_files); do : > $big/IMG_\$i.jpg; done" 600
-fi
+}
+immutable_set Big "$big" "files=$big_files" - seed_big
 
 printf '%s\n' "Seeded SyncScopeE2E fixtures on primary storage and /storage/$uuid."

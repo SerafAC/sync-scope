@@ -1,0 +1,17 @@
+# T035 diagnostic: a long press on a password field offers no "Select all"
+# (TextView.canSelectAllText).
+appId: com.syncscope
+name: probe/d09-secure-no-select-all
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.password"
+    direction: DOWN
+- tapOn:
+    id: "repository.password"
+- inputText: "probe1234"
+- hideKeyboard
+- longPressOn:
+    id: "repository.password"
+- assertNotVisible: "Select all"

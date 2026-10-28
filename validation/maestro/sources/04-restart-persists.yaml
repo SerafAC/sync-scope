@@ -4,7 +4,9 @@ appId: com.syncscope
 name: sources/04-restart-persists
 ---
 - stopApp
-# open-sources launches the app without clearState.
+# A real restart without clearState. The flow relaunches MainActivity itself:
+# open-sources is navigation only (feature 008, R12).
+- launchApp
 - runFlow: ../subflows/open-sources.yaml
 - extendedWaitUntil:
     visible:

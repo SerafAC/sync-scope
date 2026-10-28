@@ -134,7 +134,7 @@ describe('FastScroller', () => {
   it('maps the dragged thumb to a band, shows its label and jumps there on release', () => {
     const { onJump } = setup();
 
-    const release = drag(0.8 * TRAVEL);
+    drag(0.8 * TRAVEL);
 
     expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('D');
     expect(opacityOf('files.scroller')).toBe(1);
@@ -149,7 +149,11 @@ describe('FastScroller', () => {
     });
     expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('B');
 
-    release();
+    fireEvent(
+      screen.getByTestId('files.scroller.thumb'),
+      'responderRelease',
+      touch(100 + 0.3 * TRAVEL),
+    );
 
     expect(onJump).toHaveBeenCalledTimes(1);
     expect(onJump).toHaveBeenCalledWith(250);
@@ -250,18 +254,49 @@ describe('FastScroller', () => {
     ).toEqual({ text: 'C' });
   });
 
-  it('ends a drag at the reached position when a new result arrives', () => {
+  it('releases at the touch-up point, not at the last processed move', () => {
+    const { onJump } = setup();
+    const thumb = screen.getByTestId('files.scroller.thumb');
+    fireEvent(thumb, 'responderGrant', touch(100));
+    fireEvent(thumb, 'responderMove', touch(100 + 0.3 * TRAVEL, 100));
+    expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('B');
+
+    // The finger went on to band d; its last move was never processed.
+    fireEvent(
+      thumb,
+      'responderRelease',
+      touch(100 + 0.8 * TRAVEL, 100 + 0.3 * TRAVEL),
+    );
+
+    expect(onJump).toHaveBeenCalledTimes(1);
+    expect(onJump).toHaveBeenCalledWith(750);
+    expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('D');
+  });
+
+  it('keeps dragging when a new result arrives and releases over the new bands', () => {
     const { onJump, rerender } = setup();
     const release = drag(0.8 * TRAVEL);
 
     rerender({ bands: letterBands(['x', 'y'], 500) });
 
-    expect(onJump).toHaveBeenCalledTimes(1);
-    expect(onJump).toHaveBeenCalledWith(500);
+    expect(onJump).not.toHaveBeenCalled();
     expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('Y');
+
+    fireEvent(
+      screen.getByTestId('files.scroller.thumb'),
+      'responderMove',
+      touch(100 + 0.2 * TRAVEL, 100 + 0.8 * TRAVEL),
+    );
+    expect(screen.getByTestId('files.scroller.label')).toHaveTextContent('X');
+    fireEvent(
+      screen.getByTestId('files.scroller.thumb'),
+      'responderMove',
+      touch(100 + 0.8 * TRAVEL, 100 + 0.2 * TRAVEL),
+    );
 
     release();
     expect(onJump).toHaveBeenCalledTimes(1);
+    expect(onJump).toHaveBeenCalledWith(500);
   });
 
   it('passes the a11y sweep', () => {

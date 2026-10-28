@@ -21,10 +21,13 @@ import com.syncscope.scan.remoteFile
 import com.syncscope.source.SourceAvailability
 import java.io.File
 import java.io.FileNotFoundException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -130,6 +133,43 @@ class ScanOperationsTest {
     assertEquals(1.0, result.getDouble("generation"), 0.0)
     coordinator.awaitIdle()
     assertEquals("FULL", h.store.run(runId)!!.mode)
+  }
+
+  @Test
+  fun startWaitsForAReturnedSourcePickToSettleBeforeReadingSources() = runBlocking<Unit> {
+    h.configure()
+    val gate = CompletableDeferred<Unit>()
+    var waited = 0
+    val gated =
+      ScanOperations(
+        coordinator = { coordinator },
+        store = { h.store },
+        sources = { h.db.sourceRootDao() },
+        repositories = { h.db.repositoryConfigDao() },
+        envelope = CloudSyncEnvelope({ JavaOnlyMap() }, { JavaOnlyArray() }),
+        images = { images },
+        awaitSourcesSettled = {
+          waited++
+          gate.await()
+        },
+      )
+
+    // A source that is still being persisted when the scan is asked for.
+    val started = async(Dispatchers.Default) { gated.start("FULL") }
+    delay(300)
+    assertFalse("the scan must not start before the pick settles", started.isCompleted)
+    assertNull(h.db.scanRunDao().latest())
+
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT)
+    gate.complete(Unit)
+
+    // Without the wait this would be NO_SOURCES_SELECTED: the source list is read after it settles.
+    assertEquals("ok", withTimeout(10_000) { started.await() }.getString("status"))
+    assertEquals(1, waited)
+    coordinator.awaitIdle()
+    assertError(gated.start("SIDEWAYS"), "INVALID_QUERY")
+    assertEquals("an invalid mode is refused without waiting", 1, waited)
   }
 
   // --- cancelScan ---

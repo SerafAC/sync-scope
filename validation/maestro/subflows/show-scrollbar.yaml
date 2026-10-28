@@ -5,11 +5,14 @@
 # not in the hierarchy. A short, slow scroll (about 25 px, less than a gallery
 # row or a list row) shows it again with the same first visible file, so its
 # accessibility value (`Scrollbar, <band label>`) is the band a drag reached.
+# Like the drag swipes, it must not wait for the screen to settle: under slow
+# rendering that wait alone can outlast the fade.
 appId: com.syncscope
 ---
 - swipe:
     start: "50%, 60%"
     end: "50%, 58%"
     duration: 800
+    waitToSettleTimeoutMs: 50
 - assertVisible:
     id: "files.scroller.thumb"

@@ -18,6 +18,9 @@ name: staged/06-recheck-removed-a
       USER: "${SFTP_USER}"
       PASSWORD: "${SFTP_PASSWORD}"
       ROOT: "${(SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/recheck'}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow:
     file: ../subflows/add-scan-source.yaml
     env:

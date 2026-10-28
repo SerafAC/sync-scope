@@ -9,12 +9,15 @@ name: sources/05-revoked-unavailable
 - stopApp
 - openLink: "syncscope-debug://release-grants"
 # openLink returns once the intent is sent. Give the seam activity time to
-# release the grants and finish before open-sources force-stops and
+# release the grants and finish before launchApp force-stops and
 # relaunches the app (a bounded pause; the element never appears).
 - extendedWaitUntil:
     visible: "syncscope-release-grants-settle"
     timeout: 3000
     optional: true
+# Back from the grant-release seam to a fresh MainActivity, which reads the
+# released grants; open-sources is navigation only (feature 008, R12).
+- launchApp
 - runFlow: ../subflows/open-sources.yaml
 - extendedWaitUntil:
     visible:

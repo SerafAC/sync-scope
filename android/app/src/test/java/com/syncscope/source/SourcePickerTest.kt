@@ -13,16 +13,19 @@ import com.facebook.react.bridge.WritableMap
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.persistence.SourceRootEntity
 import com.syncscope.persistence.SyncScopeDatabase
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -220,6 +223,58 @@ class SourcePickerTest {
     assertEquals(1, db.sourceRootDao().all().size)
   }
 
+  @Test
+  fun awaitSettledHoldsAReturnedPickUntilItIsPersisted() = runBlocking {
+    val persisting = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    saf.onTakeGrant = {
+      persisting.countDown()
+      release.await(TIMEOUT, TimeUnit.MILLISECONDS)
+    }
+    val result = launch(null)
+    activity.awaitStart()
+
+    // The result arrives before the app is resumed, so a scan the resume starts must wait for it.
+    picker.onActivityResult(activity, SourcePicker.REQUEST_CODE, Activity.RESULT_OK, Intent().setData(Uri.parse(camera)))
+    val settled = async(Dispatchers.IO) {
+      picker.awaitSettled()
+      db.sourceRootDao().all().size
+    }
+    assertTrue(persisting.await(TIMEOUT, TimeUnit.MILLISECONDS))
+    delay(SETTLE_PROBE)
+    assertFalse("a returned pick still being persisted is not settled", settled.isCompleted)
+
+    release.countDown()
+    assertEquals(1, withTimeout(TIMEOUT) { settled.await() })
+    assertEquals("ADDED", withTimeout(TIMEOUT) { result.await() }.getString("outcome"))
+  }
+
+  @Test
+  fun awaitSettledDoesNotWaitWithoutAReturnedPick() = runBlocking {
+    // Nothing launched.
+    withTimeout(TIMEOUT) { picker.awaitSettled() }
+
+    // The picker is still open: nothing has been returned yet, so there is nothing to wait for.
+    val result = launch(null)
+    activity.awaitStart()
+    withTimeout(TIMEOUT) { picker.awaitSettled() }
+
+    // A cancelled or rejected pick settles too.
+    picker.onActivityResult(activity, SourcePicker.REQUEST_CODE, Activity.RESULT_CANCELED, null)
+    assertCancelled(withTimeout(TIMEOUT) { result.await() })
+    withTimeout(TIMEOUT) { picker.awaitSettled() }
+    val rejected = launch(null)
+    activity.awaitStart()
+    saf.onTakeGrant = { throw SecurityException("no persistable grant") }
+    picker.onActivityResult(activity, SourcePicker.REQUEST_CODE, Activity.RESULT_OK, Intent().setData(Uri.parse("content://elsewhere/tree/x")))
+    withTimeout(TIMEOUT) { runCatching { rejected.await() } }
+    withTimeout(TIMEOUT) { picker.awaitSettled() }
+
+    // An unrelated request code never makes a pick look pending.
+    picker.onActivityResult(activity, SourcePicker.REQUEST_CODE + 1, Activity.RESULT_OK, Intent().setData(Uri.parse(camera)))
+    withTimeout(TIMEOUT) { picker.awaitSettled() }
+  }
+
   private fun CoroutineScope.launch(regrantSourceId: String?): Deferred<WritableMap> =
     async(Dispatchers.IO) { picker.launch(regrantSourceId) }
 
@@ -236,6 +291,7 @@ class SourcePickerTest {
 
   private companion object {
     const val TIMEOUT = 10_000L
+    const val SETTLE_PROBE = 300L
   }
 }
 

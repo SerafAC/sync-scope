@@ -59,6 +59,14 @@ appId: com.syncscope
 - extendedWaitUntil:
     visible: "Settings"
     timeout: 15000
+# The repository card and the source rows can still be loading: a scroll that
+# stops on that frame is undone when they arrive (decision 2026-10-18).
+- extendedWaitUntil:
+    notVisible: "Loading repository"
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible: "Loading folders"
+    timeout: 30000
 - scrollUntilVisible:
     element:
       id: "sources.add"

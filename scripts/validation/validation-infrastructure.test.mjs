@@ -50,6 +50,32 @@ test('pins loopback-only read-only protocol services', async () => {
   assert.doesNotMatch(compose, /validation-only|password\s*:/i);
 });
 
+test('FTP restarts on failure; the other protocol services keep restart "no"', async () => {
+  const compose = await text('validation/services/compose.yaml');
+  const services = compose.split(/\nsecrets:\n/)[0];
+  const block = name => {
+    const match = services.match(new RegExp(`\\n  ${name}:\\n((?:    .*\\n?|      .*\\n?)+)`));
+    assert.ok(match, `${name} service must exist`);
+    return match[1];
+  };
+  // The pinned vsftpd image segfaults intermittently; Docker restarts only a failed FTP.
+  assert.match(block('ftp'), /^    restart: on-failure$/m);
+  assert.doesNotMatch(block('ftp'), /restart: "no"/);
+  for (const name of ['sftp', 'webdav']) {
+    assert.match(block(name), /^    restart: "no"$/m, name);
+  }
+});
+
+test('a restarted FTP container keeps its account and appends to the scoped audit log', async () => {
+  const entrypoint = await text('validation/services/runtime-entrypoint.sh');
+  const ftp = entrypoint.match(/\n  ftp\)\n([\s\S]*?)\n    ;;/)[1];
+  // Docker reuses the container on restart: a second useradd would fail under set -e and
+  // loop the restart, and reinstalling the log would erase the audit before the crash.
+  assert.match(ftp, /id -u "\$username" >\/dev\/null 2>&1 \|\|\s+useradd --system --home-dir \/srv\/fixtures --shell \/bin\/sh "\$username"/);
+  assert.match(ftp, /\[ -f \/var\/log\/syncscope\/vsftpd\.log \] \|\|\s+install -o root -g root -m 0644 \/dev\/null\s+\\?\s*\/var\/log\/syncscope\/vsftpd\.log/);
+  assert.match(ftp, /exec \/usr\/sbin\/vsftpd \/etc\/syncscope-vsftpd\.conf/);
+});
+
 test('generates deterministic representative fixture metadata', async t => {
   const state = await mkdtemp(
     join(tmpdir(), 'cloud-sync-checker-fixture-test-'),
@@ -542,7 +568,8 @@ test('exposes bounded owned service and serial validator entry points', async ()
     assert.equal(typeof packageJson.scripts[script], 'string', script);
   }
 
-  assert.match(source, /cloud-sync-checker-validator\.lock/);
+  assert.match(source, /validation_state validator\.lock/);
+  assert.match(await text('scripts/validation/validation-lifecycle.sh'), /\/tmp\/cloud-sync-checker-%s/);
   assert.match(source, /flock/);
   assert.match(source, /timeout/);
   assert.match(source, /MemAvailable/);
@@ -559,9 +586,12 @@ test('validator stops llkd after boot and gives the shell back to the normal use
 
   // llkd kills adbd once Maestro's driver shell has been a zombie for 600 s,
   // so any maestro run over ten minutes lost the device mid-flow.
-  assert.match(source, /setprop ctl\.stop llkd-0; setprop ctl\.stop llkd-1/);
+  assert.match(source, /for watchdog_service in 0 1; do[\s\S]*if ! adb_command -s "\$serial" shell setprop ctl\.stop "llkd-\$watchdog_service"/);
   assert.match(source, /root >\/dev\/null[\s\S]*await_shell_uid 0[\s\S]*unroot >\/dev\/null[\s\S]*await_shell_uid 2000/);
-  assert.match(source, /getprop init\.svc\.llkd-1/);
+  assert.match(source, /getprop "init\.svc\.llkd-\$watchdog_service"/);
+  assert.match(source, /await_llkd_stopped \|\| watchdog_status=1/);
+  assert.match(source, /stopped\)[\s\S]*running\|restarting\)[\s\S]*shutdown failed/);
+  assert.match(start, /stop_llkd \|\|[\s\S]*until serial_ready[\s\S]*owned_serial \|\|/);
   assert.ok(start.includes('stop_llkd ||'), 'start must stop llkd once the emulator is ready');
   assert.ok(
     start.indexOf('stop_llkd ||') > start.indexOf('until serial_ready'),
@@ -732,12 +762,20 @@ test('resolves the SDK before any script dereferences ANDROID_HOME', async () =>
 });
 
 // fileCounts maps a device directory to the entry count the fake reports for
-// `ls <dir> 2>/dev/null | wc -l` (feature 007: Scroll and Big are kept when
-// complete). Unlisted directories report nothing, as if they did not exist.
+// `ls <dir> 2>/dev/null | wc -l`. Unlisted directories report nothing, as if
+// they did not exist. Feature 008 (T043): immutable sets are kept only by a
+// validated marker, never by count. The fake keeps the completion markers of
+// /data/local/tmp/syncscope-fixtures in <home>/markers (written, read and
+// removed by the script's own commands) and answers a tree digest
+// (`cd '<dir>' && … | sha256sum`) with the content of <home>/digests/<dir with
+// / as _>, or a fixed digest when that file is absent.
 async function fakeAdbSdk(t, publicVolumes, fileCounts = {}) {
   const {home, sdk} = await fakeSdk(t);
   const log = join(home, 'adb.log');
   const pushed = join(home, 'pushed');
+  const markers = join(home, 'markers');
+  const digests = join(home, 'digests');
+  await mkdir(digests, {recursive: true});
   const counts = Object.entries(fileCounts)
     .map(
       ([dir, count]) => `  *"ls ${dir} 2>/dev/null | wc -l"*)
@@ -754,6 +792,19 @@ case "$*" in
   *"sm list-volumes public"*)
     printf '%b' '${publicVolumes}'
     ;;
+  *"/data/local/tmp/syncscope-fixtures"*)
+    sh -c "$(printf '%s' "$4" | sed "s#/data/local/tmp/syncscope-fixtures#${markers}#g")"
+    ;;
+  "-s "*" shell cd '"*"| sha256sum")
+    dir=\${4#cd \\'}
+    dir=\${dir%%\\'*}
+    digest_file='${digests}'/$(printf '%s' "$dir" | tr / _)
+    if [ -f "$digest_file" ]; then
+      printf '%s  -\r\n' "$(cat "$digest_file")"
+    else
+      printf '%s  -\r\n' 1111111111111111111111111111111111111111111111111111111111111111
+    fi
+    ;;
 ${counts}esac
 if [ "$3" = push ]; then
   mkdir -p '${pushed}'
@@ -762,7 +813,7 @@ fi
 exit 0
 `,
   );
-  return {home, sdk, log, pushed};
+  return {home, sdk, log, pushed, markers, digests};
 }
 
 function runDeviceFixtures(env) {
@@ -889,7 +940,8 @@ test('device fixture script generates the bulk source in one adb shell loop', as
   const {seeded, calls} = await seededDeviceCommands(t);
   assert.equal(seeded.status, 0, seeded.stderr);
 
-  const bulk = calls.filter(call => call.includes('SyncScopeE2E/Bulk'));
+  // Feature 008 (T043): the tree digest read after the seed is not a seed call.
+  const bulk = calls.filter(call => call.includes('SyncScopeE2E/Bulk') && !call.includes('sha256sum'));
   assert.equal(bulk.length, 1, 'the bulk tree is generated in one adb call');
   assert.match(bulk[0], /while /);
   assert.match(bulk[0], /\b20000\b/, 'BULK_FILES defaults to 20000');
@@ -901,7 +953,7 @@ test('device fixture script generates the bulk source in one adb shell loop', as
   const custom = await seededDeviceCommands(t, {BULK_FILES: '37'});
   assert.equal(custom.seeded.status, 0, custom.seeded.stderr);
   const customBulk = custom.calls.filter(call =>
-    call.includes('SyncScopeE2E/Bulk'),
+    call.includes('SyncScopeE2E/Bulk') && !call.includes('sha256sum'),
   );
   assert.equal(customBulk.length, 1);
   assert.match(customBulk[0], /\b37\b/);
@@ -1096,7 +1148,7 @@ test('device fixture script generates the gallery bulk source in one adb shell l
   assert.equal(seeded.status, 0, seeded.stderr);
 
   const bulk = calls.filter(
-    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call),
+    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call) && !call.includes('sha256sum'),
   );
   assert.equal(bulk.length, 1, 'GalleryBulk is generated in one adb call');
   assert.match(bulk[0], new RegExp(`rm -rf ${DEVICE_GALLERY_BULK}\\b`));
@@ -1115,7 +1167,7 @@ test('device fixture script generates the gallery bulk source in one adb shell l
   const custom = await seededDeviceCommands(t, {GALLERY_BULK_FILES: '37'});
   assert.equal(custom.seeded.status, 0, custom.seeded.stderr);
   const customBulk = custom.calls.filter(
-    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call),
+    call => call.includes(DEVICE_GALLERY_BULK) && / shell /.test(call) && !call.includes('sha256sum'),
   );
   assert.equal(customBulk.length, 1);
   assert.match(customBulk[0], /\b37\b/);
@@ -1450,7 +1502,7 @@ test('device fixture script creates DCIM/Big with one adb shell loop', async t =
   const {seeded, calls} = await seededDeviceCommands(t);
   assert.equal(seeded.status, 0, seeded.stderr);
 
-  const big = calls.filter(call => call.includes('/sdcard/DCIM/Big') && !/\bls /.test(call));
+  const big = calls.filter(call => call.includes('/sdcard/DCIM/Big') && !/\bls /.test(call) && !call.includes('sha256sum'));
   assert.equal(big.length, 1, 'DCIM/Big is created in one adb call');
   assert.ok(
     big[0].includes('for i in $(seq 1 10000); do : > /sdcard/DCIM/Big/IMG_$i.jpg; done'),
@@ -1458,39 +1510,57 @@ test('device fixture script creates DCIM/Big with one adb shell loop', async t =
   );
 });
 
-test('device fixture script keeps a complete Scroll and Big within one boot', async t => {
-  const complete = await seededDeviceCommands(t, {}, {
+test('device fixture script keeps Scroll and Big only when validated, never by count (feature 008)', async t => {
+  // Feature 008 (T043): a complete file count no longer keeps a set; only a
+  // marker of the current generator/parameters plus an unchanged tree digest.
+  const {sdk, log, digests} = await fakeAdbSdk(t, 'public:179,1 mounted 1A2B-3C4D\\n', {
     '/sdcard/SyncScopeE2E/Scroll': SCROLL_COUNT,
     '/sdcard/DCIM/Big': 10000,
   });
-  assert.equal(complete.seeded.status, 0, complete.seeded.stderr);
-  assert.ok(
-    !complete.calls.some(call => call.includes('syncscope-scroll.sh')),
-    'a complete Scroll is not re-created',
-  );
-  assert.ok(
-    !complete.calls.some(call => call.includes('/sdcard/DCIM/Big') && !/\bls /.test(call)),
-    'a complete Big is not re-created',
-  );
-  assert.ok(
-    complete.calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-narrow.sh')),
-    'Narrow is re-created on every run',
-  );
+  const env = {...process.env, ANDROID_HOME: sdk, ANDROID_SERIAL: 'emulator-5554'};
+  delete env.BULK_FILES;
+  delete env.GALLERY_BULK_FILES;
+  const run = async () => {
+    await writeFile(log, '');
+    const seeded = runDeviceFixtures(env);
+    assert.equal(seeded.status, 0, seeded.stderr);
+    return {calls: (await readFile(log, 'utf8')).trim().split('\n'), stdout: seeded.stdout};
+  };
+  const scrollSeeded = calls => calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-scroll.sh'));
+  const bigSeeded = calls => calls.some(call => call.includes('seq 1 10000'));
 
-  const partial = await seededDeviceCommands(t, {}, {
-    '/sdcard/SyncScopeE2E/Scroll': SCROLL_COUNT - 1,
-    '/sdcard/DCIM/Big': 9999,
-  });
-  assert.equal(partial.seeded.status, 0, partial.seeded.stderr);
-  assert.ok(partial.calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-scroll.sh')));
-  assert.ok(partial.calls.some(call => call.includes('seq 1 10000')));
+  // No marker: a complete count is still seeded.
+  const first = await run();
+  assert.ok(scrollSeeded(first.calls), 'a complete count alone does not keep Scroll');
+  assert.ok(bigSeeded(first.calls), 'a complete count alone does not keep Big');
+
+  // Marker written after the seed, tree unchanged: every immutable set is kept.
+  const second = await run();
+  assert.ok(!scrollSeeded(second.calls), 'a validated Scroll is not re-created');
+  assert.ok(!bigSeeded(second.calls), 'a validated Big is not re-created');
+  assert.ok(!second.calls.some(call => call.endsWith('shell sh /data/local/tmp/syncscope-narrow.sh')));
+  assert.match(second.stdout, /Keeping \/sdcard\/SyncScopeE2E\/Scroll \(validated Scroll\)/);
+  // Mutable trees are still re-created on every run.
+  assert.ok(second.calls.some(call => call.endsWith('shell rm -rf /sdcard/SyncScopeE2E/Gallery')),
+    'the mutable Gallery tree is re-created');
+
+  // Same count, different content: Scroll is reseeded, Big is kept.
+  await writeFile(join(digests, '_sdcard_SyncScopeE2E_Scroll'), '2'.repeat(64));
+  const third = await run();
+  assert.ok(scrollSeeded(third.calls), 'same count with a changed digest is reseeded');
+  assert.ok(!bigSeeded(third.calls));
 });
 
 test('e2e mode replaces a release-signed install only on a signature mismatch', async () => {
   const source = await text('scripts/validation/android-flow.sh');
-  const start = source.indexOf('debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"');
-  assert.ok(start !== -1, 'e2e mode must name the debug APK once');
-  const block = source.slice(start, source.indexOf('\n  fi\n', start));
+  const naming = 'debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"';
+  assert.ok(source.includes(naming), 'e2e mode must name the debug APK');
+  assert.equal(source.indexOf(naming), source.lastIndexOf(naming), 'e2e mode names the debug APK once');
+  // Feature 008 (T041): the APK is built once before the API loop; each API
+  // installs it in its own install phase.
+  const start = source.indexOf('validation_phase_begin "$api" install', source.indexOf('elif [ "$mode" = e2e ]'));
+  assert.ok(start !== -1, 'e2e mode installs the debug APK per API');
+  const block = source.slice(start, source.indexOf('\n    fi\n', start));
 
   assert.match(block, /install -r "\$debug_apk"/);
   assert.match(block, /INSTALL_FAILED_UPDATE_INCOMPATIBLE\*\)\s*\n\s*adb uninstall com\.syncscope/);
@@ -1554,7 +1624,7 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
   assert.match(block, /_HOST=10\.0\.2\.2"/);
   assert.match(block, /sed -n 's\/\^username=\/\/p'/);
   assert.match(block, /sed -n 's\/\^password=\/\/p'/);
-  assert.match(source, /^maestro_bin=\S+\/maestro\/bin\/maestro$/m);
+  assert.match(source, /^maestro_bin=\$\{SYNCSCOPE_MAESTRO_BIN:-"\$HOME\/\.cache\/cloud-sync-checker-toolchain\/maestro-2\.10\.0\/maestro\/bin\/maestro"\}$/m);
   assert.match(source, /"\$maestro_bin" \\\n\s+test "\$@" "\$repo\/validation\/maestro"/);
 
   assert.doesNotMatch(source, /set -[a-z]*x/, 'tracing would log the password');
@@ -1574,7 +1644,7 @@ test('android-flow accepts the release-smoke mode and still rejects unknown mode
   const source = await text('scripts/validation/android-flow.sh');
   assert.match(
     source,
-    /case "\$mode" in connected\|e2e\|release-smoke\) ;; \*\) exit 64 ;; esac/,
+    /case "\$mode" in connected\|e2e\|release-smoke\|measure\) ;; \*\) exit 64 ;; esac/,
   );
 
   const {home, sdk} = await fakeSdk(t);
@@ -1592,6 +1662,24 @@ test('android-flow accepts the release-smoke mode and still rejects unknown mode
     packageJson.scripts['e2e:android:release-smoke'],
     'scripts/validation/android-flow.sh release-smoke --api 31',
   );
+  // Feature 008 T046: normal validation uses the ranked automatic graphics
+  // profile on both APIs; a bare android-flow.sh call keeps the legacy launch.
+  assert.equal(
+    packageJson.scripts['e2e:android'],
+    'scripts/validation/android-flow.sh e2e --api 31 --api 36 --graphics auto',
+  );
+  const runner = await text('scripts/validation/android-flow.sh');
+  assert.match(runner, /^graphics_profile=legacy$/m);
+});
+
+test('the e2e workspace cap leaves headroom above the 40-flow workspace on both APIs', async () => {
+  // Feature 008 T045 (us1-regressions/rerun5): with performance/01-field-replacement
+  // appended, the software workspace took 4996 s on API 31 and API 36 was cut
+  // off by the old 5400 s cap after 39 of 40 flows. One cap, both APIs.
+  const runner = await text('scripts/validation/android-flow.sh');
+  const caps = [...runner.matchAll(/setsid timeout --signal=TERM --kill-after=10 (\d+) \\\n\s+"\$maestro_bin" \\\n\s+test "\$@" "\$repo\/validation\/maestro"/g)];
+  assert.equal(caps.length, 1, 'exactly one workspace Maestro invocation');
+  assert.equal(Number(caps[0][1]), 7200);
 });
 
 test('every staged pairs line alternates existing flows and executable hooks', async () => {
@@ -1633,6 +1721,83 @@ test('every staged pairs line alternates existing flows and executable hooks', a
 test('the Maestro workspace never lists the staged flows', async () => {
   const config = await text('validation/maestro/config.yaml');
   assert.doesNotMatch(config, /staged/);
+});
+
+// Feature 008 (T034): the original ordered workspace stays a strict prefix;
+// regressions are appended after it, never in its place.
+const ORIGINAL_WORKSPACE = [
+  'sources/01-add-internal', 'sources/02-add-removable', 'sources/03-reject-overlap',
+  'sources/04-restart-persists', 'sources/05-revoked-unavailable', 'sources/06-regrant',
+  'sources/07-remove', 'scan/01-clean-scan-ftp', 'scan/01-clean-scan-sftp',
+  'scan/01-clean-scan-webdav', 'scan/02-partial-listing-ftp', 'scan/02-partial-listing-sftp',
+  'scan/02-partial-listing-webdav', 'scan/03-rescan', 'scan/04-reopen-refresh',
+  'scan/05-background-discards', 'scan/06-unreachable-fails', 'scan/07-revoked-source',
+  'browse/01-gallery-thousands', 'browse/02-gallery-filters', 'browse/03-gallery-issues-unknown',
+  'browse/04-list-browse', 'mvp/01-setup-ftp', 'mvp/01-setup-sftp', 'mvp/01-setup-webdav',
+  'mvp/02-setup-errors', 'mvp/03-first-run', 'mvp/04-select-size', 'mvp/05-delete-synced',
+  'mvp/90-release-smoke', 'mvp/91-release-update', 'polish/01-sort', 'polish/02-sort-persists',
+  'polish/03-fast-scroll', 'polish/04-remote-folders-webdav', 'polish/05-remote-folder-unread-ftp',
+  'polish/06-remote-browse-sftp', 'polish/07-results-updated-keeps-place',
+  'polish/08-add-large-folder',
+];
+const APPENDED_REGRESSIONS = ['performance/01-field-replacement'];
+
+test('the workspace keeps the 39 original flows in order, then appends the regressions (feature 008)', async () => {
+  const config = await text('validation/maestro/config.yaml');
+  const ordered = [...config.matchAll(/^ {4}- ([a-z0-9/-]+)$/gm)].map(match => match[1]);
+  assert.equal(ORIGINAL_WORKSPACE.length, 39);
+  assert.deepEqual(ordered.slice(0, 39), ORIGINAL_WORKSPACE);
+  assert.deepEqual(ordered.slice(39), APPENDED_REGRESSIONS);
+  const globs = [...config.matchAll(/^ {2}- "([a-z]+)\/\*"$/gm)].map(match => match[1]);
+  assert.deepEqual(globs, ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance']);
+  assert.match(config, /continueOnFailure: false/);
+  for (const flow of ordered) {
+    const source = await text(`validation/maestro/${flow}.yaml`);
+    assert.match(source, new RegExp(`^name: ${flow}$`, 'm'), `${flow} declares its name`);
+  }
+  const hotspots = JSON.parse(await text('validation/performance/hotspots.json'));
+  assert.ok(hotspots.scenarios.every(s => !s.flow.includes('/performance/')),
+    'the frozen H01-H08 subjects stay original flows');
+});
+
+test('the field replacement regression covers the real-form matrix with real authentication (feature 008)', async () => {
+  const flow = await text('validation/maestro/performance/01-field-replacement.yaml');
+  const body = flow.slice(flow.indexOf('\n---\n'));
+  assert.match(body, /- launchApp:\n {4}clearState: true/);
+  assert.doesNotMatch(body, /optional:\s*true/);
+  assert.doesNotMatch(body, /syncscope-debug:\/\//, 'no seam: the form and the server are real');
+  // Real setup and authentication through the form, with this run's SFTP account.
+  assert.match(body, /file: \.\.\/subflows\/setup-repository\.yaml\n {4}env:\n {6}PROTOCOL: "SFTP"/);
+  assert.match(body, /PASSWORD: "\$\{SFTP_PASSWORD\}"/);
+  // Every field goes through the shared helper, ordinary values read back exactly.
+  for (const field of ['repository.host', 'repository.port', 'repository.username',
+    'repository.password', 'repository.remoteRoots.0']) {
+    assert.match(body, new RegExp(`FIELD: "${field.replace(/\./g, '\\.')}"`), field);
+  }
+  const fills = [...body.matchAll(/FIELD: "(repository\.[a-zA-Z.0-9]+)"/g)].map(match => match[1]);
+  const exact = [...body.matchAll(/copyTextFrom:\n {4}id: "(repository\.[a-zA-Z.0-9]+)"\n- assertTrue: "\$\{maestro\.copiedText == /g)]
+    .map(match => match[1]);
+  assert.equal(exact.filter(field => field !== 'repository.password').length,
+    fills.filter(field => field !== 'repository.password').length + 4,
+    'each ordinary replacement, and every field after the save, is compared exactly');
+  assert.doesNotMatch(body, /copyTextFrom:\n {4}id: "repository\.password"/, 'a secret is never read back');
+  // Cursor start, middle and end; a partial selection; roots over 128 characters.
+  for (const point of ['4%,70%', '50%,70%', '96%,70%']) {
+    assert.ok(body.includes(`point: "${point}"`), point);
+  }
+  assert.match(body, /- longPressOn:\n {4}id: "repository\.username"/);
+  // T045: a long press alone may leave the keyboard closed, and a following
+  // hideKeyboard then acts as Back and leaves the form (rerun6, API 36); after
+  // a tap and a long press, hideKeyboard only closes the selection toolbar
+  // (rerun7, API 31). Focus with a tap first and go straight to the helper.
+  assert.match(body, /- tapOn:\n {4}id: "repository\.username"\n- longPressOn:\n {4}id: "repository\.username"\n- runFlow:\n {4}file: \.\.\/subflows\/fill-field\.yaml/);
+  assert.match(body, /assertTrue: "\$\{output\.longRoot\.length > 128 && output\.otherLongRoot\.length > 128\}"/);
+  // Secure: a wrong value fails authentication before the right one connects.
+  const wrong = body.indexOf("TEXT: \"${SFTP_PASSWORD + 'wrong'}\"");
+  const failed = body.indexOf('element: "Connection failed: .+"', wrong);
+  const right = body.indexOf('TEXT: "${SFTP_PASSWORD}"', failed);
+  const connected = body.indexOf('element: "Connected"', right);
+  assert.ok(wrong > 0 && failed > wrong && right > failed && connected > right);
 });
 
 test('the Maestro workspace runs the polish flows after mvp (feature 007)', async () => {
@@ -1941,7 +2106,7 @@ test('release-smoke mode follows the contract steps in order', async () => {
   // Release-smoke never starts Metro.
   assert.match(
     source,
-    /if \[ "\$mode" = e2e \]; then\n\s+"\$repo\/scripts\/validation\/metro-service\.sh" start/,
+    /if \[ "\$mode" = e2e \] \|\| \[ "\$mode" = measure \]; then\n\s+validation_phase_begin shared services\n\s+SYNCSCOPE_RESOURCE_RECEIPT="\$claims\/metro" "\$repo\/scripts\/validation\/metro-service\.sh" start/,
   );
 });
 

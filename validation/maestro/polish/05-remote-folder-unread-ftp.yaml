@@ -27,6 +27,9 @@ name: polish/05-remote-folder-unread-ftp
       PASSWORD: "${FTP_PASSWORD}"
       ROOT: "${output.root + '/scan/clean/a'}"
       ROOT_2: "${output.restricted}"
+# The seam leaves ConfigureRepositoryActivity open; return to MainActivity
+# before navigating (open-sources is navigation only, feature 008 R12).
+- launchApp
 - runFlow:
     file: ../subflows/add-scan-source.yaml
     env:

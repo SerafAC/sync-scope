@@ -14,7 +14,8 @@ compose_service() {
       ;;
   esac
   repo=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
-  SYNCSCOPE_STATE_ROOT="/tmp/cloud-sync-checker-syncscope-$protocol"
+  . "$repo/scripts/validation/validation-lifecycle.sh"
+  SYNCSCOPE_STATE_ROOT=$(validation_state "syncscope-$protocol")
   SYNCSCOPE_CREDENTIALS_FILE="$SYNCSCOPE_STATE_ROOT/credentials"
   export SYNCSCOPE_STATE_ROOT SYNCSCOPE_CREDENTIALS_FILE
   timeout 120 docker compose -p "syncscope-$protocol" \

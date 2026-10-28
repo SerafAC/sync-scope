@@ -43,6 +43,7 @@ class ScanOperations(
   private val repositories: () -> RepositoryConfigDao,
   private val envelope: CloudSyncEnvelope,
   private val images: () -> LocalImageStore,
+  private val awaitSourcesSettled: suspend () -> Unit = {},
 ) {
 
   /** `StartScanResult`; a null [mode] means FULL. */
@@ -56,6 +57,8 @@ class ScanOperations(
           "Use FULL or LOCAL_REFRESH.",
           field = "mode",
         )
+    // A folder the picker just returned is saved before the source list is read.
+    awaitSourcesSettled()
     return try {
       val run = coordinator().start(parsed)
       envelope.ok().apply {

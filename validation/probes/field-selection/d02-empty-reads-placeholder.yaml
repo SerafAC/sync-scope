@@ -1,0 +1,12 @@
+# T035 diagnostic: does an empty field read back as its placeholder?
+appId: com.syncscope
+name: probe/d02-empty-reads-placeholder
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- copyTextFrom:
+    id: "repository.remoteRoots.0"
+- assertTrue: "${maestro.copiedText == '/photos'}"

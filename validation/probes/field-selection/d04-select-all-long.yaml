@@ -1,0 +1,19 @@
+# T035 diagnostic: after a long press on a value longer than 128 characters
+# (the press lands on a word), is "Select all" shown directly?
+appId: com.syncscope
+name: probe/d04-select-all-long
+---
+- runFlow: open-form.yaml
+- scrollUntilVisible:
+    element:
+      id: "repository.remoteRoots.0"
+    direction: DOWN
+- tapOn:
+    id: "repository.remoteRoots.0"
+- inputText: "/srv/fixtures/gallery/replacement-long-folder/replacement-long-folder/replacement-long-folder/replacement-long-folder/replacement-long-folder/end"
+- hideKeyboard
+- longPressOn:
+    id: "repository.remoteRoots.0"
+- extendedWaitUntil:
+    visible: "Select all"
+    timeout: 5000

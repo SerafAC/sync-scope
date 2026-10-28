@@ -34,10 +34,14 @@ case "${1:-}" in
     exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
     ;;
   ftp)
-    useradd --system --home-dir /srv/fixtures --shell /bin/sh "$username"
+    # restart: on-failure reuses this container. Keep the account and append to
+    # the scoped audit log rather than failing useradd or truncating the log.
+    id -u "$username" >/dev/null 2>&1 ||
+      useradd --system --home-dir /srv/fixtures --shell /bin/sh "$username"
     printf '%s:%s\n' "$username" "$password" | chpasswd
-    install -o root -g root -m 0644 /dev/null \
-      /var/log/syncscope/vsftpd.log
+    [ -f /var/log/syncscope/vsftpd.log ] ||
+      install -o root -g root -m 0644 /dev/null \
+        /var/log/syncscope/vsftpd.log
     install -o root -g root -m 0600 \
       /opt/syncscope/vsftpd.conf /etc/syncscope-vsftpd.conf
     exec /usr/sbin/vsftpd /etc/syncscope-vsftpd.conf
