@@ -35,6 +35,13 @@ import { a11ySweep } from '../../test-utils/a11ySweep';
 import { density } from '../../theme/spacing';
 import { GalleryScreen } from '../GalleryScreen';
 
+const mockNavigation = { navigate: jest.fn(), setOptions: jest.fn() };
+
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => mockNavigation,
+}));
+
 jest.mock('../../native/CloudSync', () => ({
   getBrowsePreferences: jest.fn(),
   setBrowsePreferences: jest.fn(),
@@ -434,12 +441,69 @@ describe('GalleryScreen', () => {
       );
     });
 
-    it('does nothing on a tap before anything is selected', async () => {
+    it('opens the preview on a tap of a media file before anything is selected (009 research R8)', async () => {
       renderGallery();
       fireEvent.press(await screen.findByLabelText('beach.png, Synced'));
 
+      expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('Preview', {
+        snapshotId: 'snap-1',
+        entryId: 'e-1',
+        name: 'beach.png',
+        mimeType: 'image/png',
+        sizeBytes: 10,
+        status: 'SYNCED',
+      });
+      // The tap opened the preview; it did not select.
       expect(screen.getByLabelText('beach.png, Synced')).not.toBeSelected();
       expect(screen.queryByLabelText(/, selected$/)).toBeNull();
+    });
+
+    it('opens the preview of a video with its params', async () => {
+      queryFilesMock.mockResolvedValue(
+        page([
+          file('v-1', 'clip.mp4', {
+            mimeType: 'video/mp4',
+            sizeBytes: 4096,
+            status: 'UNSYNCED',
+          }),
+        ]),
+      );
+      renderGallery();
+      fireEvent.press(await screen.findByLabelText(/^clip\.mp4, Unsynced/));
+
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('Preview', {
+        snapshotId: 'snap-1',
+        entryId: 'v-1',
+        name: 'clip.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 4096,
+        status: 'UNSYNCED',
+      });
+    });
+
+    it('does nothing on a tap of a non-media file', async () => {
+      queryFilesMock.mockResolvedValue(
+        page([file('d-1', 'notes.pdf', { mimeType: 'application/pdf' })]),
+      );
+      renderGallery();
+      fireEvent.press(await screen.findByLabelText(/^notes\.pdf, Synced/));
+
+      expect(mockNavigation.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText(/, selected$/)).toBeNull();
+    });
+
+    it('toggles on a tap while selecting and does not open the preview', async () => {
+      renderGallery();
+      fireEvent(await screen.findByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      fireEvent.press(screen.getByLabelText('sunset.png, Synced'));
+
+      expect(
+        await screen.findByLabelText('sunset.png, Synced, selected'),
+      ).toBeSelected();
+      expect(mockNavigation.navigate).not.toHaveBeenCalled();
     });
 
     it('starts the selection on a long-press, then toggles tiles on a tap', async () => {
@@ -473,7 +537,7 @@ describe('GalleryScreen', () => {
       );
       await screen.findByLabelText('beach.png, Synced');
 
-      // Not selecting any more: a tap no longer selects.
+      // Not selecting any more: a tap no longer selects (it opens the preview).
       fireEvent.press(screen.getByLabelText('sunset.png, Synced'));
       expect(screen.queryByLabelText(/, selected$/)).toBeNull();
     });

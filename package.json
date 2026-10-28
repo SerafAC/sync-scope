@@ -71,7 +71,7 @@
   },
   "codegenConfig": {
     "name": "NativeCloudSyncSpec",
-    "type": "modules",
+    "type": "all",
     "jsSrcsDir": "src/native/specs",
     "android": {
       "javaPackageName": "com.syncscope.codegen"

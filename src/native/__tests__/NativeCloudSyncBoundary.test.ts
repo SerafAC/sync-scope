@@ -23,10 +23,19 @@ function listTsFiles(dir: string): string[] {
 describe('typed native boundary', () => {
   it('has exactly one codegen TurboModule spec', () => {
     const specs = listTsFiles(SPECS_DIR).filter(file =>
-      /Native[A-Z].*\.tsx?$/.test(path.basename(file)),
+      /^Native[A-Z].*\.tsx?$/.test(path.basename(file)),
     );
     expect(specs.map(file => path.basename(file))).toEqual([
       'NativeCloudSync.ts',
+    ]);
+  });
+
+  it('has exactly one codegen native component spec, the video view (009 research R7)', () => {
+    const components = listTsFiles(SPECS_DIR).filter(file =>
+      /NativeComponent\.tsx?$/.test(path.basename(file)),
+    );
+    expect(components.map(file => path.basename(file))).toEqual([
+      'SyncScopeVideoViewNativeComponent.ts',
     ]);
   });
 
