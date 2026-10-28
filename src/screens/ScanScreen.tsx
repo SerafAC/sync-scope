@@ -41,6 +41,7 @@ const PHASE_TEXT: Record<ScanPhase, string> = {
   CONNECTING: 'Connecting to the server',
   LISTING_REMOTE: 'Listing the backup',
   COPYING_REMOTE: 'Reusing the last backup listing',
+  RECHECKING_REMOTE: 'Checking the server for new backups',
   ENUMERATING_LOCAL: 'Checking the files on this device',
   PUBLISHING: 'Saving the results',
   PUBLISHED: 'Completed',

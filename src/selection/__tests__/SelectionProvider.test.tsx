@@ -97,7 +97,7 @@ function selectable(
       entryIds: rows.map(r => r[0]),
       sizes: rows.map(r => r[1]),
       statuses: rows.map(r => r[2]),
-      images: rows.map(r => r[3]),
+      media: rows.map(r => r[3]),
     },
   };
 }
@@ -133,8 +133,19 @@ describe('SelectionProvider', () => {
     expect(result.current.selection.items.get('a')).toEqual({
       sizeBytes: null,
       status: 'UNKNOWN',
-      isImage: true,
+      isMedia: true,
     });
+  });
+
+  it('marks a video as media and a document as not media', () => {
+    const {result} = renderSelection();
+    act(() => result.current.selection.longPress(file('v', {mimeType: 'video/mp4'})));
+    act(() => result.current.selection.toggle(file('t', {mimeType: 'text/plain'})));
+    act(() => result.current.selection.toggle(file('n', {mimeType: null})));
+
+    expect(result.current.selection.items.get('v')?.isMedia).toBe(true);
+    expect(result.current.selection.items.get('t')?.isMedia).toBe(false);
+    expect(result.current.selection.items.get('n')?.isMedia).toBe(false);
   });
 
   it('toggles a file on tap while selecting', () => {
@@ -202,13 +213,13 @@ describe('SelectionProvider', () => {
     expect(result.current.selection.items.get('c')).toEqual({
       sizeBytes: 30,
       status: 'UNSYNCED',
-      isImage: false,
+      isMedia: false,
     });
     expect(result.current.selection.summary).toEqual({
       count: 4,
       knownBytes: 105,
       unknownSizeCount: 1,
-      // c is not an image and the gallery is open.
+      // c is not media and the gallery is open.
       hiddenByFilterCount: 1,
     });
   });

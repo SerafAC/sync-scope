@@ -73,12 +73,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesSix() {
+  fun contractVersionResolvesSeven() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(6, promise.resolved)
+    assertEquals(7, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -119,7 +119,7 @@ class CloudSyncModuleTest {
 
     val first = resolve { module.getBrowsePreferences(it) }
     assertEquals("ok", first.getString("status"))
-    assertEquals(6, first.getInt("contractVersion"))
+    assertEquals(7, first.getInt("contractVersion"))
     assertEquals("GALLERY", first.getMap("preferences")!!.getString("view"))
     assertEquals("TIME_DESC", first.getMap("preferences")!!.getString("gallerySort"))
     assertEquals("NAME_ASC", first.getMap("preferences")!!.getString("listSort"))
@@ -140,7 +140,7 @@ class CloudSyncModuleTest {
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(6, empty.getInt("contractVersion"))
+    assertEquals(7, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -269,7 +269,7 @@ class CloudSyncModuleTest {
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 6, result.getInt("contractVersion"))
+        assertEquals(method, 7, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
@@ -502,7 +502,7 @@ class CloudSyncModuleTest {
       )
       for (include in listOf(false, true)) {
         val result = resolve { deletions.executeLocalDeletion("plan", include, it) }
-        assertEquals(6, result.getInt("contractVersion"))
+        assertEquals(7, result.getInt("contractVersion"))
         assertEquals("PLAN_NOT_FOUND", result.getMap("error")!!.getString("code"))
       }
     } finally {

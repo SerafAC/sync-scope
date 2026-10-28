@@ -656,7 +656,7 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const { entryIds, sizes, statuses, images } = value as Record<
+  const { entryIds, sizes, statuses, media } = value as Record<
     string,
     unknown
   >;
@@ -664,7 +664,7 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
     !Array.isArray(entryIds) ||
     !Array.isArray(sizes) ||
     !Array.isArray(statuses) ||
-    !Array.isArray(images)
+    !Array.isArray(media)
   ) {
     return null;
   }
@@ -672,11 +672,11 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (
     sizes.length !== count ||
     statuses.length !== count ||
-    images.length !== count ||
+    media.length !== count ||
     !entryIds.every(id => typeof id === 'string') ||
     !sizes.every(size => typeof size === 'number' && Number.isFinite(size)) ||
     !statuses.every(status => FILE_STATUSES.includes(status)) ||
-    !images.every(image => typeof image === 'boolean')
+    !media.every(isMedia => typeof isMedia === 'boolean')
   ) {
     return null;
   }
@@ -684,7 +684,7 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
     entryIds: entryIds as string[],
     sizes: (sizes as number[]).map(size => (size < 0 ? null : size)),
     statuses: statuses as FileStatus[],
-    images: images as boolean[],
+    media: media as boolean[],
   };
 }
 

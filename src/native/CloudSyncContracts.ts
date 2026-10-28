@@ -8,7 +8,12 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 6;
+/**
+ * Version 7 (feature 009): the `RECHECKING_REMOTE` scan phase and
+ * `SelectableEntries.media` (was `images`), plus the later 009 additions
+ * (`durationMillis`, `carrySelection`).
+ */
+export const CLOUD_SYNC_CONTRACT_VERSION = 7;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -681,7 +686,8 @@ export interface SelectableEntriesDto {
   /** Same order as entryIds; -1 = size unknown. */
   sizes: number[];
   statuses: FileStatus[];
-  images: boolean[];
+  /** Same order as entryIds; true for an image or a video (contract v7). */
+  media: boolean[];
 }
 
 export interface ListSelectableEntriesOk {
@@ -702,7 +708,8 @@ export interface SelectableEntries {
   entryIds: string[];
   sizes: Array<number | null>;
   statuses: FileStatus[];
-  images: boolean[];
+  /** Same order as entryIds; true for an image or a video (contract v7). */
+  media: boolean[];
 }
 
 export interface SelectableEntriesOk {
@@ -781,6 +788,8 @@ export type ScanPhase =
   | 'CONNECTING'
   | 'LISTING_REMOTE'
   | 'COPYING_REMOTE'
+  /** LOCAL_REFRESH only: listing server folders for unsynced files (v7). */
+  | 'RECHECKING_REMOTE'
   | 'ENUMERATING_LOCAL'
   | 'PUBLISHING'
   | 'PUBLISHED'

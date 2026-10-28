@@ -681,18 +681,19 @@ class ScanOperationsTest {
   private fun spec(pageSize: Double? = null): ReadableMap =
     JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC").apply { pageSize?.let { putDouble("pageSize", it) } }
 
-  /** The `selectable` arrays of an ok result as entryId → (size, status, image), checking they are parallel. */
+  /** The `selectable` arrays of an ok result as entryId → (size, status, media), checking they are parallel. */
   private fun selectable(result: ReadableMap): Map<String, Triple<Double, String, Boolean>> {
     assertEquals("ok", result.getString("status"))
     val dto = result.getMap("selectable")!!
-    assertEquals(setOf("entryIds", "sizes", "statuses", "images"), dto.toHashMap().keys)
+    // Contract v7 renamed the wire field `images` to `media`.
+    assertEquals(setOf("entryIds", "sizes", "statuses", "media"), dto.toHashMap().keys)
     val ids = dto.getArray("entryIds")!!
     val sizes = dto.getArray("sizes")!!
     val statuses = dto.getArray("statuses")!!
-    val images = dto.getArray("images")!!
-    for (array in listOf(sizes, statuses, images)) assertEquals(ids.size(), array.size())
+    val media = dto.getArray("media")!!
+    for (array in listOf(sizes, statuses, media)) assertEquals(ids.size(), array.size())
     return (0 until ids.size()).associate {
-      ids.getString(it)!! to Triple(sizes.getDouble(it), statuses.getString(it)!!, images.getBoolean(it))
+      ids.getString(it)!! to Triple(sizes.getDouble(it), statuses.getString(it)!!, media.getBoolean(it))
     }
   }
 

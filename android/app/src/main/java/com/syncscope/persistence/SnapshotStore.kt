@@ -5,6 +5,7 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import com.syncscope.deletion.DeletionOutcome
 import com.syncscope.deletion.DeletionRow
 import com.syncscope.deletion.DeletionSnapshots
+import com.syncscope.media.MediaKind
 import com.syncscope.bridge.ScrollUnit
 import com.syncscope.scan.ScrollBand
 import com.syncscope.scan.ScrollBands
@@ -38,7 +39,7 @@ class SelectableEntries(
   val entryIds: List<String>,
   val sizes: LongArray,
   val statuses: List<String>,
-  val images: BooleanArray,
+  val media: BooleanArray,
 )
 
 /** A bounded page of entries, mirroring `FilePageDto` on the JS side. */
@@ -499,14 +500,14 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
       // Counts ride along with the first page so rows and totals share a read. They are scoped by
       // view and source only, never by filter, parent or search, so the chips stay stable.
       counts =
-        if (cursor == null) db.localNodeDao().statusCounts(snapshotId, imagesOnly = gallery, sourceId = query.sourceId)
+        if (cursor == null) db.localNodeDao().statusCounts(snapshotId, mediaOnly = gallery, sourceId = query.sourceId)
         else null,
     )
   }
 
   /**
    * "Select all" (`listSelectableEntries`): every `FILE` row [query] would show, in one read. GALLERY
-   * follows `queryFiles` (the filter applies to every row, images only, `sourceId`/`parentId` narrow
+   * follows `queryFiles` (the filter applies to every row, media only, `sourceId`/`parentId` narrow
    * when given). LIST follows `queryTreeChildren` for one folder: the direct children of
    * `query.parentId` (the source's top level when null) in `query.sourceId`, which is required.
    * Directories are never returned; `pageSize`, `sort` and `search` are ignored. Throws
@@ -522,20 +523,20 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     val (where, args) = scopeOf(snapshotId, query.copy(search = null), topLevelOnly = list && query.parentId == null)
     where.append(" AND kind = 'FILE'")
     val sql =
-      "SELECT entryId, sizeBytes, status, COALESCE(mimeType LIKE 'image/%', 0) AS isImage" +
+      "SELECT entryId, sizeBytes, status, COALESCE(${MediaKind.SQL_MEDIA}, 0) AS isMedia" +
         " FROM local_node WHERE $where"
     val rows = db.localNodeDao().selectable(SimpleSQLiteQuery(sql, args.toTypedArray()))
     val sizes = LongArray(rows.size)
-    val images = BooleanArray(rows.size)
+    val media = BooleanArray(rows.size)
     rows.forEachIndexed { index, row ->
       sizes[index] = row.sizeBytes ?: UNKNOWN_SIZE
-      images[index] = row.isImage
+      media[index] = row.isMedia
     }
     return SelectableEntries(
       entryIds = rows.map { it.entryId },
       sizes = sizes,
       statuses = rows.map { it.status },
-      images = images,
+      media = media,
     )
   }
 
@@ -673,16 +674,17 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
   }
 
   /**
-   * The local document of [entryId] in a published snapshot, for `getLocalImageHandle`: its
-   * `documentUri` and `mimeType`, or null when the entry is unknown or is a `DIRECTORY`. Throws
+   * The local document of the media file [entryId] (an image or a video) in a published snapshot, for
+   * `getLocalImageHandle`: its `documentUri` and `mimeType`, or null when the entry is unknown, a
+   * `DIRECTORY` or not a media file. Throws
    * [SnapshotNotFoundException] when the snapshot is missing or still staged.
    */
-  suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry? {
+  suspend fun mediaEntry(snapshotId: String, entryId: String): MediaEntry? {
     val snapshot = db.snapshotDao().byId(snapshotId)
     if (snapshot == null || !snapshot.publishable) {
       throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
     }
-    return db.localNodeDao().imageEntry(snapshotId, entryId)
+    return db.localNodeDao().mediaEntry(snapshotId, entryId)
   }
 
   companion object {
@@ -708,8 +710,9 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
   /**
    * The row scope of a browse read, shared by [queryFilePage] and [selectableEntries] so the filter,
    * view and parent rules are defined once: the snapshot, the filter (directories always pass while
-   * browsing a folder, research R3), GALLERY's image-only rule, the source, the parent (or the top
-   * level), the kind (research R3) and the search. Returns the `WHERE` clause and its bind arguments.
+   * browsing a folder, research R3), GALLERY's media-only rule ([MediaKind.SQL_MEDIA]), the source, the
+   * parent (or the top level), the kind (research R3) and the search. Returns the `WHERE` clause and its
+   * bind arguments.
    */
   private fun scopeOf(
     snapshotId: String,
@@ -733,7 +736,7 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
       where.append(if (browsing) " AND (kind = 'DIRECTORY' OR $filterClause)" else " AND $filterClause")
     }
     if (query.view == FileView.GALLERY) {
-      where.append(" AND kind = 'FILE' AND mimeType LIKE 'image/%'")
+      where.append(" AND ${MediaKind.SQL_MEDIA}")
     }
     query.kind?.let {
       where.append(" AND kind = ?")

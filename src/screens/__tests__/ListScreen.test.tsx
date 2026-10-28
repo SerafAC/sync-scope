@@ -706,7 +706,7 @@ describe('ListScreen', () => {
       listSelectableEntriesMock.mockResolvedValue({
         contractVersion: 6,
         status: 'ok',
-        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
+        selectable: { entryIds: [], sizes: [], statuses: [], media: [] },
       });
       renderList();
       await openGallery();

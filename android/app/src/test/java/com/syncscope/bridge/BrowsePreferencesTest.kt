@@ -36,7 +36,7 @@ class BrowsePreferencesTest {
     val result = preferences.get()
 
     assertEquals("ok", result.getString("status"))
-    assertEquals(6, result.getInt("contractVersion"))
+    assertEquals(7, result.getInt("contractVersion"))
     assertEquals(mapOf("view" to "GALLERY", "gallerySort" to "TIME_DESC", "listSort" to "NAME_ASC"), valuesOf(result))
     // Reading writes nothing.
     assertTrue(prefs.all.isEmpty())

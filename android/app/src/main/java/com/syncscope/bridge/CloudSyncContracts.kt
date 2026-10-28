@@ -8,7 +8,11 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 6
+  /**
+   * Version 7 (feature 009): the `RECHECKING_REMOTE` scan phase and `SelectableEntries.media` (was
+   * `images`), plus the later 009 additions (`durationMillis`, `carrySelection`).
+   */
+  const val CONTRACT_VERSION = 7
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200

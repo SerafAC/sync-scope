@@ -805,7 +805,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     entryIds: ['e-1', 'e-2', 'e-3'],
     sizes: [70, -1, 0],
     statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
-    images: [true, true, false],
+    media: [true, true, false],
   };
 
   it('passes the snapshot and query through and maps -1 to null', async () => {
@@ -826,7 +826,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
         entryIds: ['e-1', 'e-2', 'e-3'],
         sizes: [70, null, 0],
         statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
-        images: [true, true, false],
+        media: [true, true, false],
       },
     });
   });
@@ -836,7 +836,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
       listSelectableEntries: jest.fn().mockResolvedValue({
         contractVersion: v,
         status: 'ok',
-        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
+        selectable: { entryIds: [], sizes: [], statuses: [], media: [] },
       }),
     });
 
@@ -879,7 +879,16 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
       'statuses longer than entryIds',
       { ...wire, statuses: [...wire.statuses, 'SYNCED'] },
     ],
-    ['images shorter than entryIds', { ...wire, images: [true] }],
+    ['media shorter than entryIds', { ...wire, media: [true] }],
+    [
+      'the contract 6 images field instead of media',
+      {
+        entryIds: wire.entryIds,
+        sizes: wire.sizes,
+        statuses: wire.statuses,
+        images: wire.media,
+      },
+    ],
     [
       'a missing array',
       { entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses },
@@ -890,7 +899,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     ],
     ['a non-numeric size', { ...wire, sizes: [70, '1', 0] }],
     ['a non-string entryId', { ...wire, entryIds: ['e-1', 2, 'e-3'] }],
-    ['a non-boolean image flag', { ...wire, images: [true, 1, false] }],
+    ['a non-boolean media flag', { ...wire, media: [true, 1, false] }],
     ['no selectable payload', undefined],
   ])('turns %s into a typed INTERNAL_ERROR', async (_label, selectable) => {
     mockNative({

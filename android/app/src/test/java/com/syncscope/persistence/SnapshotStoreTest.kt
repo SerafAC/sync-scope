@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.syncscope.deletion.DeletionOutcome
 import com.syncscope.deletion.DeletionRow
 import com.syncscope.deletion.DeletionState
+import com.syncscope.media.MediaKind
 import kotlin.random.Random
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -497,14 +498,16 @@ class SnapshotStoreTest {
   }
 
   @Test
-  fun galleryReturnsImageFilesOnly() = runBlocking {
+  fun galleryReturnsMediaFilesOnlyImagesAndVideos() = runBlocking {
     seedBrowseFixture()
 
     val gallery =
       store.queryFilePage("snap-1", SnapshotQuery(view = FileView.GALLERY, sort = FileSort.TIME_DESC), null)
 
-    assertEquals(setOf("f3", "f6", "f7", "f8", "g1", "g2"), gallery.entries.map { it.entryId }.toSet())
-    assertTrue(gallery.entries.all { it.kind == "FILE" && it.mimeType!!.startsWith("image/") })
+    // f5 clip.mp4 is a video and belongs to the gallery (FR-004); the text files do not.
+    assertEquals(setOf("f3", "f5", "f6", "f7", "f8", "g1", "g2"), gallery.entries.map { it.entryId }.toSet())
+    assertTrue(gallery.entries.all { it.kind == "FILE" && MediaKind.of(it.mimeType) != null })
+    assertEquals("video/mp4", gallery.entries.single { it.entryId == "f5" }.mimeType)
   }
 
   @Test
@@ -518,10 +521,10 @@ class SnapshotStoreTest {
       everyFile,
       countsOf(SnapshotQuery(filter = FileFilter.SYNCED, parentId = "d1", search = "zzz")),
     )
-    // GALLERY: images only.
-    val images = mapOf("SYNCED" to 3L, "UNSYNCED" to 1L, "UNKNOWN" to 2L)
-    assertEquals(images, countsOf(SnapshotQuery(view = FileView.GALLERY)))
-    assertEquals(images, countsOf(SnapshotQuery(view = FileView.GALLERY, filter = FileFilter.UNSYNCED)))
+    // GALLERY: media only, images and videos (f5 clip.mp4 is the second UNSYNCED).
+    val media = mapOf("SYNCED" to 3L, "UNSYNCED" to 2L, "UNKNOWN" to 2L)
+    assertEquals(media, countsOf(SnapshotQuery(view = FileView.GALLERY)))
+    assertEquals(media, countsOf(SnapshotQuery(view = FileView.GALLERY, filter = FileFilter.UNSYNCED)))
     // sourceId narrows the counts.
     assertEquals(mapOf("SYNCED" to 1L, "UNKNOWN" to 1L), countsOf(SnapshotQuery(view = FileView.GALLERY, sourceId = "src-2")))
     assertEquals(
@@ -541,7 +544,7 @@ class SnapshotStoreTest {
     val twin = gallery.entries.associate { it.entryId to it.nameInOtherSource }
     assertEquals(
       // a.png is in both sources; dup.png only twins inside src-1; Case.png vs case.png differ in case.
-      mapOf("f3" to true, "g1" to true, "f6" to false, "f7" to false, "f8" to false, "g2" to false),
+      mapOf("f3" to true, "g1" to true, "f5" to false, "f6" to false, "f7" to false, "f8" to false, "g2" to false),
       twin,
     )
 
@@ -594,42 +597,48 @@ class SnapshotStoreTest {
   }
 
   @Test
-  fun imageEntryReturnsTheDocumentOfAPublishedFileOnly() = runBlocking {
+  fun mediaEntryReturnsTheDocumentOfAPublishedMediaFileOnly() = runBlocking {
     seedBrowseFixture()
 
     assertEquals(
-      ImageEntry(documentUri = "content://provider/doc/f3", mimeType = "image/png"),
-      store.imageEntry("snap-1", "f3"),
+      MediaEntry(documentUri = "content://provider/doc/f3", mimeType = "image/png"),
+      store.mediaEntry("snap-1", "f3"),
     )
-    // A directory and an unknown entry have no image.
-    assertNull(store.imageEntry("snap-1", "d1"))
-    assertNull(store.imageEntry("snap-1", "no-such-entry"))
+    // A video is a media entry too.
+    assertEquals(
+      MediaEntry(documentUri = "content://provider/doc/f5", mimeType = "video/mp4"),
+      store.mediaEntry("snap-1", "f5"),
+    )
+    // A directory, a non-media file and an unknown entry have no media.
+    assertNull(store.mediaEntry("snap-1", "d1"))
+    assertNull(store.mediaEntry("snap-1", "f1"))
+    assertNull(store.mediaEntry("snap-1", "no-such-entry"))
     // An entry of another snapshot is unknown here.
     seedRun("run-2", 2L, "snap-2")
     store.stageLocalNodes(listOf(localNode("snap-2", "src-1", "s2", "staged.png", mimeType = "image/png")))
     // A staged (unpublished) or missing snapshot is not readable.
-    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("snap-2", "s2") } }
-    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.imageEntry("missing", "f3") } }
-    assertNull(store.imageEntry("snap-1", "s2"))
+    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.mediaEntry("snap-2", "s2") } }
+    assertThrows(SnapshotNotFoundException::class.java) { runBlocking { store.mediaEntry("missing", "f3") } }
+    assertNull(store.mediaEntry("snap-1", "s2"))
   }
 
   // --- Feature 006: selectableEntries ("Select all", contracts/cloudsync-mvp.md) ----------------
 
   @Test
-  fun selectableEntriesInGalleryAreImageFilesUnderEveryFilter() = runBlocking {
+  fun selectableEntriesInGalleryAreMediaFilesUnderEveryFilter() = runBlocking {
     seedBrowseFixture()
     val expected =
       mapOf(
-        FileFilter.ALL to setOf("f3", "f6", "f7", "f8", "g1", "g2"),
+        FileFilter.ALL to setOf("f3", "f5", "f6", "f7", "f8", "g1", "g2"),
         FileFilter.SYNCED to setOf("f3", "f7", "g1"),
-        FileFilter.UNSYNCED to setOf("f8"),
+        FileFilter.UNSYNCED to setOf("f5", "f8"),
         FileFilter.ISSUES_UNKNOWN to setOf("f6", "g2"),
       )
     for ((filter, ids) in expected) {
       val selectable = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, filter = filter))
       assertEquals("gallery $filter", ids, selectable.entryIds.toSet())
       assertEquals("gallery $filter", selectable.entryIds.size, ids.size)
-      assertTrue("gallery $filter images only", selectable.images.all { it })
+      assertTrue("gallery $filter media only", selectable.media.all { it })
     }
     // sourceId narrows the gallery as it narrows queryFiles.
     val src2 = store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY, sourceId = "src-2"))
@@ -654,8 +663,11 @@ class SnapshotStoreTest {
     assertEquals(setOf("f1", "f7", "f8"), top.entryIds.toSet())
     assertEquals(
       mapOf("f1" to false, "f7" to true, "f8" to true),
-      top.entryIds.zip(top.images.toList()).toMap(),
+      top.entryIds.zip(top.media.toList()).toMap(),
     )
+    // A video is media, a text file is not.
+    val inD2 = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1", parentId = "d2"))
+    assertEquals(mapOf("f4" to false, "f5" to true), inD2.entryIds.zip(inD2.media.toList()).toMap())
     val unsyncedTop =
       store.selectableEntries("snap-1", SnapshotQuery(filter = FileFilter.UNSYNCED, sourceId = "src-1"))
     assertEquals(setOf("f1", "f8"), unsyncedTop.entryIds.toSet())
@@ -706,15 +718,15 @@ class SnapshotStoreTest {
     val list = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"))
     assertEquals(3, list.sizes.size)
     assertEquals(3, list.statuses.size)
-    assertEquals(3, list.images.size)
+    assertEquals(3, list.media.size)
     assertEquals(
       mapOf("known" to 70L, "unknown" to -1L, "untyped" to 5L),
       list.entryIds.zip(list.sizes.toList()).toMap(),
     )
-    // A file without a MIME type is not an image.
+    // A file without a MIME type is not media.
     assertEquals(
       mapOf("known" to true, "unknown" to true, "untyped" to false),
-      list.entryIds.zip(list.images.toList()).toMap(),
+      list.entryIds.zip(list.media.toList()).toMap(),
     )
   }
 

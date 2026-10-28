@@ -1,19 +1,14 @@
 package com.syncscope.deletion
 
 import android.util.Log
-import com.syncscope.bridge.CloudSyncErrorCode
-import com.syncscope.bridge.RepositoryOperations
-import com.syncscope.bridge.connectRepository
-import com.syncscope.bridge.toRemoteConfig
 import com.syncscope.credential.CredentialStore
 import com.syncscope.persistence.RepositoryConfigEntity
 import com.syncscope.persistence.SnapshotStore
-import com.syncscope.remote.RemoteClient
+import com.syncscope.remote.FolderListing
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
+import com.syncscope.remote.ServerFolderLister
 import com.syncscope.scan.MatchIndex
-import com.syncscope.scan.RemoteSession
-import com.syncscope.scan.listWithRetry
 
 /** Why the re-check moved a `SYNCED` row out of `toDelete` (research R12). */
 enum class RecheckReason {
@@ -48,9 +43,9 @@ data class RecheckResult(
  *
  * Each `SYNCED` row is keyed with the scan's own rules ([MatchIndex.nfc], [MatchIndex.bucketOf] at the
  * snapshot's precision) and looked up in the snapshot's match keys for the server directories that held
- * it. One session is opened for the saved repository, and each distinct directory is listed once, in
- * order, with the walk's retry policy ([listWithRetry]). A row stays in `toDelete` when any of its
- * directories still lists a regular file with the same key.
+ * it. [ServerFolderLister] opens one session for the saved repository and lists each distinct directory
+ * once, in order, with the walk's retry policy. A row stays in `toDelete` when any of its directories
+ * still lists a regular file with the same key.
  *
  * A failure to connect (credentials, authentication, connection, TLS, an SFTP host key) propagates as the
  * [RemoteClientException] it is, before anything is listed, and no result exists. Only codes and counts
@@ -58,10 +53,15 @@ data class RecheckResult(
  */
 class DeletionRecheck(
   private val store: SnapshotStore,
-  private val credentials: CredentialStore,
-  private val clients: RemoteClientFactory,
-  private val delay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+  private val lister: ServerFolderLister,
 ) : ServerRecheck {
+
+  constructor(
+    store: SnapshotStore,
+    credentials: CredentialStore,
+    clients: RemoteClientFactory,
+    delay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+  ) : this(store, ServerFolderLister(credentials, clients, delay))
 
   override suspend fun recheck(snapshotId: String, repository: RepositoryConfigEntity, synced: List<DeletionRow>): RecheckResult {
     val precision = store.precisionOf(snapshotId)
@@ -85,7 +85,12 @@ class DeletionRecheck(
       }
     }
 
-    val listings = if (pending.isEmpty() || precision == null) emptyMap() else listAll(repository, precision, pending)
+    val listings =
+      if (pending.isEmpty() || precision == null) {
+        emptyMap()
+      } else {
+        lister.listFolders(repository, precision, pending.flatMap { it.directories })
+      }
 
     val toDelete = ArrayList<DeletionRow>()
     val unsynced = ArrayList<RecheckedRow>()
@@ -93,9 +98,9 @@ class DeletionRecheck(
     for (item in pending) {
       val results = item.directories.map { listings.getValue(it) }
       when {
-        results.any { it is Listing.Present && it.index.containsExact(item.nfcName, item.sizeBytes, item.bucket) } ->
+        results.any { it is FolderListing.Listed && it.keys.containsExact(item.nfcName, item.sizeBytes, item.bucket) } ->
           toDelete += item.row
-        results.any { it is Listing.Unchecked } -> {
+        results.any { it is FolderListing.Unchecked } -> {
           refused += RecheckedRow(item.row, RecheckReason.RECHECK_FAILED)
           moved++
         }
@@ -120,44 +125,6 @@ class DeletionRecheck(
     )
   }
 
-  /** Connects once and lists every distinct directory of [pending] once, in first-seen order. */
-  private suspend fun listAll(repository: RepositoryConfigEntity, precision: Long, pending: List<Pending>): Map<String, Listing> {
-    val config =
-      repository.toRemoteConfig()
-        ?: throw RemoteClientException(
-          CloudSyncErrorCode.REPOSITORY_NOT_CONFIGURED,
-          RepositoryOperations.NOT_CONFIGURED_MESSAGE,
-          RepositoryOperations.NOT_CONFIGURED_ACTION,
-        )
-    val connect: suspend () -> RemoteClient = { connectRepository(clients, credentials, config, repository.credentialVersion) }
-    val initial =
-      try {
-        connect()
-      } catch (failure: RemoteClientException) {
-        Log.w(TAG, "deletion recheck: connect failed code=${failure.code} reply=${failure.replyCode}")
-        throw failure
-      }
-    val listings = LinkedHashMap<String, Listing>()
-    RemoteSession(initial, connect).use { session ->
-      for (directory in pending.asSequence().flatMap { it.directories }.distinct()) {
-        listings[directory] =
-          try {
-            val index = MatchIndex(precision)
-            listWithRetry(session, directory, delay).forEach { index.add(it, directory) }
-            Listing.Present(index)
-          } catch (failure: RemoteClientException) {
-            if (failure.code in GONE_CODES) {
-              Listing.Gone
-            } else {
-              Log.w(TAG, "deletion recheck: listing failed code=${failure.code} reply=${failure.replyCode}")
-              Listing.Unchecked
-            }
-          }
-      }
-    }
-    return listings
-  }
-
   private class Pending(
     val row: DeletionRow,
     val nfcName: String,
@@ -166,22 +133,7 @@ class DeletionRecheck(
     val directories: List<String>,
   )
 
-  /** What one directory's listing says about the files keyed to it. */
-  private sealed interface Listing {
-    /** Listed: [index] keys its regular files with the scan's rules. */
-    class Present(val index: MatchIndex) : Listing
-
-    /** The directory no longer exists. */
-    data object Gone : Listing
-
-    /** It could not be listed, so nothing in it can be confirmed or ruled out. */
-    data object Unchecked : Listing
-  }
-
   private companion object {
     const val TAG = "CloudSync"
-
-    /** "Not found" answers: the directory, and so every file keyed to it, is gone (WebDAV 404 included). */
-    val GONE_CODES = setOf(CloudSyncErrorCode.REMOTE_ROOT_NOT_FOUND, CloudSyncErrorCode.DIRECTORY_UNREADABLE)
   }
 }

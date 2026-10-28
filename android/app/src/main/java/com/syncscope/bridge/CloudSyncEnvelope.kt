@@ -225,19 +225,19 @@ class CloudSyncEnvelope(
   }
 
   /**
-   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for
+   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, media}}` for
    * `listSelectableEntries`: four parallel arrays in the same order; a size of `-1` is unknown.
    */
   fun selectable(entries: SelectableEntries): WritableMap {
     val ids = newArray()
     val sizes = newArray()
     val statuses = newArray()
-    val images = newArray()
+    val media = newArray()
     for (i in entries.entryIds.indices) {
       ids.pushString(entries.entryIds[i])
       sizes.pushDouble(entries.sizes[i].toDouble())
       statuses.pushString(entries.statuses[i])
-      images.pushBoolean(entries.images[i])
+      media.pushBoolean(entries.media[i])
     }
     return ok(
       "selectable",
@@ -245,7 +245,7 @@ class CloudSyncEnvelope(
         putArray("entryIds", ids)
         putArray("sizes", sizes)
         putArray("statuses", statuses)
-        putArray("images", images)
+        putArray("media", media)
       },
     )
   }

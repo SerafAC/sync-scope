@@ -44,6 +44,8 @@ enum class ScanPhase {
   CONNECTING,
   LISTING_REMOTE,
   COPYING_REMOTE,
+  /** `LOCAL_REFRESH` only (contract v7): lists the server folders of unsynced files' neighbours. */
+  RECHECKING_REMOTE,
   ENUMERATING_LOCAL,
   PUBLISHING,
   PUBLISHED,

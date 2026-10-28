@@ -10,6 +10,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.syncscope.media.MediaKind
 
 /**
  * Inserts use ABORT everywhere: uniqueness and foreign-key violations are
@@ -152,7 +153,7 @@ interface LocalNodeDao {
   @RawQuery suspend fun rows(query: SupportSQLiteQuery): List<LocalNodeRow>
 
   /**
-   * "Select all" rows: `SELECT entryId, sizeBytes, status, mimeType LIKE 'image/%' AS isImage`, scoped by
+   * "Select all" rows: `SELECT entryId, sizeBytes, status, COALESCE(<MediaKind.SQL_MEDIA>, 0) AS isMedia`, scoped by
    * [SnapshotStore]'s shared where-clause builder (contracts/cloudsync-mvp.md "listSelectableEntries").
    */
   @RawQuery suspend fun selectable(query: SupportSQLiteQuery): List<SelectableRow>
@@ -203,18 +204,22 @@ interface LocalNodeDao {
   )
   suspend fun decrementDescendantCounts(snapshotId: String, directoryIds: List<String>, status: String): Int
 
-  /** The document behind a `FILE` row, for local image handles; null for a directory or an unknown entry. */
+  /**
+   * The document behind a media `FILE` row (an image or a video, [MediaKind.SQL_MEDIA]), for local image
+   * handles; null for a directory, a non-media file or an unknown entry.
+   */
   @Query(
-    "SELECT documentUri, mimeType FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND kind = 'FILE'"
+    "SELECT documentUri, mimeType FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND " +
+      MediaKind.SQL_MEDIA
   )
-  suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry?
+  suspend fun mediaEntry(snapshotId: String, entryId: String): MediaEntry?
 }
 
 /** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
-data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isImage: Boolean)
+data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isMedia: Boolean)
 
-/** The local document of one `FILE` row. Never crosses the bridge. */
-data class ImageEntry(val documentUri: String, val mimeType: String?)
+/** The local document of one media `FILE` row. Never crosses the bridge. */
+data class MediaEntry(val documentUri: String, val mimeType: String?)
 
 /** Scroll index: `FILE` rows per letter band (`#` or `a`…`z`). */
 data class LetterCount(val letter: String, val count: Int)
@@ -236,13 +241,13 @@ data class LocalNodeRow(
 
 /**
  * First-page counts (data-model.md "Read rules"): `FILE` rows of [snapshotId] by status, narrowed to
- * `image/` MIME types when [imagesOnly] (GALLERY) and to [sourceId] when given. Never narrowed by filter, parent
+ * media files ([MediaKind.SQL_MEDIA]) when [mediaOnly] (GALLERY) and to [sourceId] when given. Never narrowed by filter, parent
  * or search.
  */
-suspend fun LocalNodeDao.statusCounts(snapshotId: String, imagesOnly: Boolean, sourceId: String?): List<StatusCount> {
+suspend fun LocalNodeDao.statusCounts(snapshotId: String, mediaOnly: Boolean, sourceId: String?): List<StatusCount> {
   val args = mutableListOf<Any?>(snapshotId)
   val where = StringBuilder("snapshotId = ? AND kind = 'FILE'")
-  if (imagesOnly) where.append(" AND mimeType LIKE 'image/%'")
+  if (mediaOnly) where.append(" AND ${MediaKind.SQL_MEDIA}")
   if (sourceId != null) {
     where.append(" AND sourceId = ?")
     args += sourceId

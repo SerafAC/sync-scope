@@ -771,7 +771,7 @@ describe('FilesScreen', () => {
           entryIds: ['snap-1-e1', 'e-2', 'e-3'],
           sizes: [10, 20, null],
           statuses: ['SYNCED', 'SYNCED', 'UNSYNCED'],
-          images: [true, true, true],
+          media: [true, true, true],
         },
       });
       await startSelecting();
@@ -800,7 +800,7 @@ describe('FilesScreen', () => {
           entryIds: ['l-1'],
           sizes: [5],
           statuses: ['UNSYNCED'],
-          images: [false],
+          media: [false],
         },
       });
       await startSelecting();

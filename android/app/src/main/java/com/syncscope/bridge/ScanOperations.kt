@@ -203,7 +203,7 @@ class ScanOperations(
   suspend fun imageHandle(snapshotId: String, entryId: String, spec: ReadableMap): WritableMap {
     val entry =
       try {
-        store().imageEntry(snapshotId, entryId)
+        store().mediaEntry(snapshotId, entryId)
       } catch (_: SnapshotNotFoundException) {
         return snapshotNotFound()
       }

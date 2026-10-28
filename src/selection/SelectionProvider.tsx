@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 
+import {isMediaMime} from '../files/media';
 import {useFiles} from '../files/useFiles';
 import {listSelectableEntries} from '../native/CloudSync';
 import type {
@@ -83,7 +84,7 @@ function itemOf(row: SelectableRow): SelectionItem {
   return {
     sizeBytes: row.sizeBytes,
     status: row.status,
-    isImage: row.mimeType?.startsWith('image/') === true,
+    isMedia: isMediaMime(row.mimeType),
   };
 }
 
@@ -164,14 +165,14 @@ export function SelectionProvider({
         ) {
           return prev;
         }
-        const {entryIds, sizes, statuses, images} = result.selectable;
+        const {entryIds, sizes, statuses, media} = result.selectable;
         const items = new Map(prev.items);
         // The wrapper checked that the arrays are parallel; the fallbacks only satisfy the index type.
         entryIds.forEach((entryId, i) => {
           items.set(entryId, {
             sizeBytes: sizes[i] ?? null,
             status: statuses[i] ?? 'UNKNOWN',
-            isImage: images[i] === true,
+            isMedia: media[i] === true,
           });
         });
         return withItems(snapshotId, items);
