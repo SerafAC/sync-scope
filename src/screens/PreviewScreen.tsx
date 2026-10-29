@@ -1,13 +1,25 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Appbar, Button, Text, useTheme } from 'react-native-paper';
-import type { DeletionResultDto } from '../native/CloudSyncContracts';
+import { carrySelection } from '../native/CloudSync';
+import type {
+  CarrySelectionResult,
+  DeletionResultDto,
+  FileStatus,
+} from '../native/CloudSyncContracts';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { mediaKindOf } from '../files/media';
 import { useLocalImage } from '../files/useLocalImage';
 import type { RootStackParamList } from '../navigation/AppNavigator';
+import { useScan } from '../scan/useScan';
 import {
   GALLERY_THUMBNAIL_EDGE_PX,
   clampImageEdge,
@@ -21,6 +33,8 @@ import { spacing } from '../theme/spacing';
 export const FILE_GONE_TEXT = 'This file is no longer on the device';
 export const VIDEO_UNPLAYABLE_TEXT = "This video can't be played";
 export const NOT_PREVIEWABLE_TEXT = "This file can't be previewed";
+export const FILE_CHANGED_TEXT =
+  'This file changed. Go back to see the latest results.';
 
 export type PreviewScreenProps = NativeStackScreenProps<
   RootStackParamList,
@@ -102,6 +116,79 @@ function ImagePreview({
   );
 }
 
+/**
+ * The previewed file in the snapshot the preview currently shows. It starts
+ * as the tapped row and moves to the carried ID when a new snapshot arrives.
+ */
+interface PreviewedFile {
+  snapshotId: string;
+  entryId: string;
+  status: FileStatus;
+}
+
+/**
+ * Follows the previewed file into each new active snapshot (research R8, R9):
+ * `carrySelection` moves it to its new `entryId`; when it is not carried (it
+ * changed or is gone) or the carry fails, `changed` is set and the preview
+ * shows [FILE_CHANGED_TEXT] instead.
+ */
+function usePreviewedFile(initial: PreviewedFile): {
+  file: PreviewedFile;
+  changed: boolean;
+} {
+  const activeSnapshotId = useScan().active?.snapshotId ?? null;
+  const [file, setFile] = useState<PreviewedFile>(initial);
+  const [changed, setChanged] = useState(false);
+
+  const fileRef = useRef(file);
+  fileRef.current = file;
+  const activeRef = useRef(activeSnapshotId);
+  activeRef.current = activeSnapshotId;
+  const changedRef = useRef(changed);
+  changedRef.current = changed;
+
+  useEffect(() => {
+    const from = fileRef.current;
+    if (
+      changedRef.current ||
+      activeSnapshotId == null ||
+      activeSnapshotId === from.snapshotId
+    ) {
+      return;
+    }
+    const to = activeSnapshotId;
+    let cancelled = false;
+    (async () => {
+      let result: CarrySelectionResult | null | undefined;
+      try {
+        result = await carrySelection(from.snapshotId, to, [from.entryId]);
+      } catch {
+        result = null;
+      }
+      // Unmounted, or a newer snapshot replaced this one: its own carry applies.
+      if (cancelled || activeRef.current !== to) {
+        return;
+      }
+      const entry =
+        result?.status === 'ok'
+          ? result.carried.find(c => c.from === from.entryId)
+          : undefined;
+      if (entry == null) {
+        setChanged(true);
+        return;
+      }
+      const next = { snapshotId: to, entryId: entry.to, status: entry.status };
+      fileRef.current = next;
+      setFile(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSnapshotId]);
+
+  return { file, changed };
+}
+
 /** The selection being deleted: fixed when Delete is pressed, as in Files. */
 interface DeletionTarget {
   snapshotId: string;
@@ -121,13 +208,22 @@ interface DeletionTarget {
  * something is selected, and its Delete opens the existing `DeleteFlow` for
  * the whole selection. When a finished deletion removed the previewed file,
  * the preview closes as the dialog is dismissed.
+ *
+ * When a new snapshot becomes active while the preview is open (an automatic
+ * refresh), the preview stays on the open file under its carried `entryId`,
+ * or shows [FILE_CHANGED_TEXT] when the file changed or is gone.
  */
 export function PreviewScreen({
   navigation,
   route,
 }: PreviewScreenProps): React.JSX.Element {
-  const { snapshotId, entryId, name, mimeType, sizeBytes, status } =
-    route.params;
+  const { name, mimeType, sizeBytes } = route.params;
+  const { file, changed } = usePreviewedFile({
+    snapshotId: route.params.snapshotId,
+    entryId: route.params.entryId,
+    status: route.params.status,
+  });
+  const { snapshotId, entryId, status } = file;
   const theme = useTheme();
   const selection = useSelection();
   const {
@@ -185,10 +281,17 @@ export function PreviewScreen({
     [theme.colors.background],
   );
 
+  // A changed file is not in the active results: nothing to show or select.
+  const previewable = kind != null && !changed;
+
   let body: React.JSX.Element;
-  if (kind === 'image') {
+  if (changed) {
+    body = <PreviewMessage onBack={goBack} text={FILE_CHANGED_TEXT} />;
+  } else if (kind === 'image') {
     body = (
       <ImagePreview
+        // A carried file is a new entry: start its reads afresh.
+        key={`${snapshotId}/${entryId}`}
         entryId={entryId}
         name={name}
         onBack={goBack}
@@ -224,7 +327,7 @@ export function PreviewScreen({
       <Appbar.Header>
         <Appbar.BackAction accessibilityLabel="Back" onPress={goBack} />
         <Appbar.Content title={name} />
-        {kind === 'video' && !videoFailed ? (
+        {kind === 'video' && !videoFailed && !changed ? (
           <Appbar.Action
             accessibilityLabel={muted ? 'Unmute' : 'Mute'}
             icon={muted ? 'volume-off' : 'volume-high'}
@@ -232,7 +335,7 @@ export function PreviewScreen({
             testID="preview-mute"
           />
         ) : null}
-        {kind != null ? (
+        {previewable ? (
           <Appbar.Action
             accessibilityLabel={
               selected ? 'Unselect this file' : 'Select this file'

@@ -15,4 +15,5 @@ staged/06-recheck-removed-a.yaml|remove-recheck-file.sh|staged/06-recheck-remove
 staged/07-delete-offline-a.yaml|pause-service.sh sftp|staged/07-delete-offline-b.yaml|resume-service.sh sftp|staged/07-delete-offline-c.yaml
 staged/08-changed-a.yaml|change-device-files.sh|staged/08-changed-b.yaml
 staged/09-resync-a.yaml|remove-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-b.yaml|restore-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-c.yaml
+staged/10-selection-survives-a.yaml|change-device-files.sh scan/tree/Album/2024/a4.jpg|staged/10-selection-survives-b.yaml
 staged/11-toolbar-halves-a.yaml|assert-equal-halves.sh|staged/11-toolbar-halves-b.yaml

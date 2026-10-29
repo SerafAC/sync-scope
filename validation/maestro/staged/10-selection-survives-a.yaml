@@ -1,0 +1,54 @@
+# Selection survives an automatic refresh (SFTP), part a of a staged pair
+# (feature 009, research R9, contracts/maestro-tree-preview.md): scans the
+# tree set, opens ScanTree/Album/2024 in list view and selects a4.jpg and
+# a5.jpg (tree/05 earlier in the API run touches only a1-a3). The flow ends
+# with the app open and the selection held in memory. The host hook
+# change-device-files.sh scan/tree/Album/2024/a4.jpg then gives a4.jpg a new
+# mtime on the device; part b sends the same process to the background and
+# brings it back.
+# Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/10-selection-survives-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+
+# List view → ScanTree → Album → 2024.
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder 2024(, .+)?"
+    timeout: 15000
+- tapOn: "Folder 2024(, .+)?"
+- extendedWaitUntil:
+    visible: "Breadcrumb 2024"
+    timeout: 15000
+
+# Select a4.jpg and a5.jpg.
+- extendedWaitUntil:
+    visible: "a4\\.jpg, (Synced|Unsynced|Unknown)"
+    timeout: 15000
+- longPressOn: "a4\\.jpg, (Synced|Unsynced|Unknown)"
+- extendedWaitUntil:
+    visible: "a4\\.jpg, (Synced|Unsynced|Unknown), selected"
+    timeout: 15000
+- tapOn: "a5\\.jpg, (Synced|Unsynced|Unknown)"
+- extendedWaitUntil:
+    visible: "a5\\.jpg, (Synced|Unsynced|Unknown), selected"
+    timeout: 15000
+- assertVisible: "Selection 2 selected, .+"
