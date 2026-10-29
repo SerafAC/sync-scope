@@ -178,6 +178,13 @@ Before a plan is made, every selected SYNCED file is checked again on the server
 
 UNSYNCED files are not re-checked, and UNKNOWN files are refused without one.
 
+**A carried-over selection is re-checked the same way.** Since feature 009 a selection survives a new
+snapshot: each selected file that is unchanged (same source, document, size and modified time) is carried
+to the new results with its **new** status, and the others are dropped with a notice. This changes nothing
+here: the plan is always prepared on the active snapshot, from the statuses in it, and every selected
+SYNCED file is re-checked on the server as above. A file the refresh promoted to SYNCED is therefore
+re-checked before it is deleted, like any other.
+
 ### Per-file outcomes
 
 Execute checks each file on the device just before deleting it, and reports one outcome per file. One
@@ -219,7 +226,22 @@ rescan (R015, [D009](./decisions/0009-foreground-scan-and-freshness.md)).
 - The refresh is a `LOCAL_REFRESH` run: it copies the active snapshot's remote match keys **and its
   remote-side failures** into a new snapshot, then enumerates and matches the local side again. An
   incomplete listing therefore stays incomplete after a refresh: an unmatched file stays UNKNOWN and never
-  turns UNSYNCED. Only a full rescan lists the remote again.
+  turns UNSYNCED. Only a full rescan lists the remote again in full.
+- **The refresh can promote, and never demotes** (feature 009,
+  [D023](./decisions/0023-refresh-recheck-of-unsynced-files.md)). Before it re-reads the device, the
+  refresh lists, read-only, the server folders where the backed-up neighbours of not-backed-up files are
+  stored: device folders holding at least one UNSYNCED (or server-side UNKNOWN) file and one SYNCED file,
+  at most 32 server folders, within 20 s. Keys it finds are added to the copied ones, and the unchanged
+  rule table decides, so a file the sync app uploaded since the scan becomes SYNCED on an exact match.
+  A file that is not found keeps its verdict, because a capped, partial listing cannot prove absence; a
+  SYNCED file is never turned UNSYNCED by the refresh, and an UNKNOWN file never turns UNSYNCED. A
+  connection or listing failure skips the re-check, and the refresh publishes as before.
+  `remoteListedAtMillis`, the listing age shown near delete, is unchanged: the listing as a whole is
+  still the last full scan's.
+- **Limitation: no backed-up neighbour, no re-check.** A not-backed-up file in a device folder with no
+  SYNCED file (a brand-new folder, or a backup whose server folder moved) has no server folder to list,
+  so it stays not backed up until a full scan. The scan summary keeps its "Rescan to check new folders"
+  hint.
 - The refresh is skipped when there is no active snapshot or the repository configuration changed since
   it was taken, because the cached listing belongs to another repository; the user runs a full scan.
 

@@ -14,9 +14,11 @@ const INTERACTIVE_ROLES = new Set([
 ]);
 
 function isInteractive(node: ReactTestInstance): boolean {
-  const {onPress, accessibilityRole, role} = node.props;
+  const {onPress, onLongPress, accessibilityRole, role} = node.props;
   return (
     typeof onPress === 'function' ||
+    // Feature 009: a file row that is not selecting has only a long-press.
+    typeof onLongPress === 'function' ||
     INTERACTIVE_ROLES.has(accessibilityRole) ||
     INTERACTIVE_ROLES.has(role)
   );
@@ -51,7 +53,8 @@ function textOf(node: ReactTestInstance): string {
 
 /**
  * Fails when any interactive element in a rendered tree has no accessibility
- * label (FR-004, SC-003; 007 FR-017): every node with `onPress`, or with a
+ * label (FR-004, SC-003; 007 FR-017): every node with `onPress` or
+ * `onLongPress`, or with a
  * button, link, checkbox, togglebutton, tab, adjustable or menuitem role,
  * must carry a non-empty
  * `accessibilityLabel`, either itself or on the native element it renders

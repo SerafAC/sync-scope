@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Added
 
+- Tree view; image and video preview; videos in the gallery; thumbnails in list and tree rows (feature
+  009). The view drop-down gains **Tree**: every device folder as an expandable tree, folders first,
+  files in the list's sort, folders with no matching file dimmed but expandable, and the expanded folders
+  and the place kept when results update. Tapping a photo or video in any view, when nothing is
+  selected, opens a full preview: photos at screen size after the cached thumbnail, videos playing the
+  local file muted, with play/pause and seek, through the new native view `SyncScopeVideoView`
+  ([D024](./docs/decisions/0024-video-preview-native-view.md)); files can be selected from the preview.
+  The gallery shows videos with a play badge and their duration, and list and tree rows show a 40 dp
+  thumbnail. Selection works in tree view, and its **Select all** selects every matching file of every
+  folder. New flows `validation/maestro/tree/` (5) and staged lines `09-resync`, `10-selection-survives`
+  and `11-toolbar-halves`, with the hook `assert-equal-halves.sh`; decisions D023 and D024.
+
 - Verified emulator acceleration for the validation runner (feature 008, US2):
   `scripts/validation/android-flow.sh --graphics auto|host-opengl|software` discovers the exposed Intel
   host GPU and the emulator's software modes, and requires KVM. It verifies the actual renderer after
@@ -97,6 +109,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
 
 ### Changed
 
+- The app-open refresh re-checks not-backed-up files on the server folders of their backed-up neighbours
+  (feature 009, FR-003, [D023](./docs/decisions/0023-refresh-recheck-of-unsynced-files.md)): it lists, read-only,
+  at most 32 such folders within 20 s, and a file found there becomes SYNCED with no full scan; nothing is
+  demoted, a failure never fails the refresh, and with nothing to re-check it does not connect. The
+  scan summary says "Re-checked N server folders, M files now backed up". A file in a device folder with
+  no backed-up file still needs a full scan. Your selection is kept when results update: unchanged
+  files stay selected with their new status, and a notice names how many changed files were unselected.
+- CloudSync contract version 7 (feature 009): `carrySelection`, `getLocalImageHandle` for videos with
+  `durationMillis`, the gallery and `SelectableEntries.media` covering `image/*` and `video/*`,
+  `QuerySpec.wholeSource`, the `RECHECKING_REMOTE` scan phase, the run's `recheckedFolders` and
+  `promotedFiles`, and the `TREE` view; scan store schema version 6: the `local_node`
+  `(snapshotId, sourceId, documentId)` index and the nullable `scan_run.recheckedFolders` and
+  `promotedFiles`, added by a Room auto-migration.
+
 - The validation runner builds the debug APK once per invocation, for x86_64 only
   (`-PreactNativeArchitectures=x86_64`, `--no-daemon`), and installs that same APK on API 31 and API 36.
   Release, signing, update and connected builds are unchanged. Daemon reuse was measured and not
@@ -164,6 +190,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
   for where each GSD artifact went.
 
 ### Fixed
+
+- The sort and view drop-downs each take half the row on the device (feature 009, FR-006); the staged
+  line `11-toolbar-halves` measures it.
 
 - The validation field helper (`validation/maestro/subflows/fill-field.yaml`) now replaces long
   values completely, for example remote roots longer than 128 characters. It erases the measured length

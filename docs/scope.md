@@ -70,12 +70,15 @@ Out of scope by design.
   SSHJ SSH-agent caveat that would need a Java 16+ runtime (see
   [D005](./decisions/0005-protocol-client-libraries.md)).
 
-### R029 — No non-image preview: no video, no documents
+### R029 — No document preview
 
 - **Class**: anti-feature
-- **Why it matters**: Video and document rendering each bring their own decoding and viewer stack for no gain
-  on the primary photo-clearing loop.
-- **Rationale**: The user specified "Preview a file (image only)".
+- **Why it matters**: Document rendering brings its own viewer stack for no gain on the primary
+  photo-clearing loop.
+- **Rationale**: The user first specified "Preview a file (image only)". Feature 009 (clarification 2)
+  narrowed the item: photos and videos now have an in-app preview, videos playing the local file muted
+  with play/pause and seek ([D024](./decisions/0024-video-preview-native-view.md)). Documents and other
+  non-media files still have no preview, and tapping one does nothing.
 
 ### R030 — No Play Store distribution, signing pipeline or CI
 

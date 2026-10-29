@@ -16,6 +16,16 @@ describe('a11ySweep', () => {
     expect(() => a11ySweep(result)).toThrow(/"Open sunset"/);
   });
 
+  it('fails on an unlabeled element that only has a long-press (009 file rows)', () => {
+    const result = render(
+      <Pressable onLongPress={() => {}}>
+        <Text>a1.jpg</Text>
+      </Pressable>,
+    );
+
+    expect(() => a11ySweep(result)).toThrow(/"a1.jpg"/);
+  });
+
   it('fails on an empty label', () => {
     const result = render(
       <Pressable accessibilityLabel="  " onPress={() => {}}>

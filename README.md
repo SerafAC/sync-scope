@@ -13,8 +13,7 @@ your server, pick folders, scan, browse the results and free up space by deletin
 up. Each of these steps is proven against live FTP, SFTP and WebDAV test servers on Android 12 (API 31)
 and Android 16 (API 36) emulators.
 
-**Not available yet:** the tree view of the results, image preview, and the setting to include hidden
-files. What changes from one version to the next is listed in [CHANGELOG.md](./CHANGELOG.md).
+**Not available yet:** the setting to include hidden files, and a preview of documents. What changes from one version to the next is listed in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Install the app
 
@@ -151,8 +150,10 @@ When a scan fails because something needs fixing, the message says where, with a
   remote repository again and checks every file anew. Use it whenever the backup may have changed, and
   before you delete anything.
 - **When you reopen the app**, SyncScope checks your folders again by itself, so new photos show up, but
-  it reuses the last listing of the remote repository instead of listing it again. Only a rescan lists it
-  again.
+  it reuses the last listing of the remote repository instead of listing it again in full. It does
+  check the server for files that were not backed up yet; see
+  [Files your sync app has uploaded since](#files-your-sync-app-has-uploaded-since). Only a rescan lists
+  everything again.
 - **Several server folders** are all listed in one scan. If some of them cannot be read (for example a
   share that is offline or a folder that was renamed), the scan still finishes; see
   [Unread server folders](#unread-server-folders). Only when none of them can be read does the scan
@@ -189,6 +190,23 @@ that could not be read; its reason reads "A backup folder could not be read, so 
 up there." and names the folder. Fix the folder (or its access on the server) and tap **Rescan from
 scratch**. Until then the warning stays, also after the app checks your device folders again on reopen.
 
+### Files your sync app has uploaded since
+
+You take a photo after a scan, and your sync app uploads it a minute later. When you come back to
+SyncScope, the automatic check of your folders also looks on the server for the files that are **not
+backed up**: it lists the server folders where the other, backed-up files of the same device folder are
+stored (for a camera folder, where your earlier photos went). A file found there now shows as **SYNCED**,
+without a rescan. While this runs, the Scan tab reads **Checking the server for new backups**, and
+afterwards the **Scan summary** says, for example, **Re-checked 1 server folder, 3 files now backed up**.
+
+- It only ever turns files into backed up. A file it does not find keeps its status, and a backed-up file
+  never turns into not backed up this way.
+- It takes at most about 20 seconds, usually much less. If the server cannot be reached, the check is
+  skipped and your results update as before.
+- **Brand-new folders are not checked.** A file in a device folder where nothing is backed up yet (a new
+  folder, or one your sync app now uploads somewhere else) stays **not backed up** until you tap
+  **Rescan from scratch**. The summary reminds you: **Rescan to check new folders**.
+
 ### How old the result is
 
 The summary shows when the remote repository was last listed, for example **Remote listing from … (2 days
@@ -205,17 +223,42 @@ a scan, the scan is cancelled and its partial result is thrown away. The screen 
 ## Browse your files
 
 The **Files** tab shows the result of your last scan, file by file. Before your first scan it says that
-results appear after a scan, with a **Go to Scan** button. Choose one of two views with the **View**
+results appear after a scan, with a **Go to Scan** button. Choose one of three views with the **View**
 drop-down at the top:
 
-- **Gallery** shows the photos in your folders as a grid of thumbnails, newest first unless you sort it
-  otherwise. Only images are shown here. Each photo carries its status (**Synced**, **Unsynced** or **Unknown**).
+- **Gallery** shows the photos and videos in your folders as a grid of thumbnails, newest first unless you
+  sort it otherwise. Videos have a play badge and their length, for example **0:42**. Each tile carries
+  its status (**Synced**, **Unsynced** or **Unknown**).
 - **List** shows your folders by name. Tap a folder to open it, and keep going down into its subfolders.
-  Each file shows its size, date and status. The path at the top (**All folders › Camera › 2024**) takes
-  you back up: tap any part of it.
+  Each file shows a small thumbnail (for photos and videos), its size, date and status. The path at the
+  top (**All folders › Camera › 2024**) takes you back up: tap any part of it.
+- **Tree** shows all your folders at once, as a tree; see [Browse as a tree](#browse-as-a-tree).
 
-Thumbnails are made from the photos on your device. SyncScope never downloads anything from the remote
-repository to show them.
+Thumbnails are made from the photos and videos on your device. SyncScope never downloads anything from
+the remote repository to show them.
+
+### Browse as a tree
+
+In **Tree** view each of your device folders is a top-level row. Tap a folder (or the arrow next to it) to
+expand it, and again to collapse it; inside, subfolders come first, then the files in the order of the **Sort**
+drop-down. Each folder shows how many files inside it match the filter, and a folder with none is
+dimmed, not hidden, and can still be expanded. File rows look like the list's: a thumbnail, size, date
+and status. A long folder loads more as you scroll. Tree view has no scrollbar.
+
+The folders you expanded stay expanded while the app is open, also when you switch to another view and
+back, and when results update.
+
+### Preview photos and videos
+
+Tap a photo or a video, in any view, to see it full screen. A photo shows its thumbnail at once and the
+full picture a moment later. A video plays right away, **muted**: tap the speaker at the top to turn the
+sound on (**Unmute**), and tap the video to show the controls to pause, play and move through it. The back
+arrow returns to where you were.
+
+From the preview you can **Select this file**; see [Free up space safely](#free-up-space-safely). If the
+file was deleted from the phone since the scan, the preview says **This file is no longer on the device**;
+a video the phone cannot play shows **This video can't be played**. Other files, such as documents, have
+no preview; tapping them does nothing. The preview, too, reads only the file on your device.
 
 ### Sort and jump through your files
 
@@ -251,7 +294,8 @@ matches (in the gallery, how many photos):
 - **Issues or unknown**: files SyncScope could not check (see [What the results mean](#what-the-results-mean)).
   These are never offered for deletion.
 
-The filter you choose stays selected when you switch between Gallery and List, until you close the app.
+The filter you choose stays selected when you switch between Gallery, List and Tree, until you close the
+app.
 
 ### Origin badges
 
@@ -275,14 +319,21 @@ you were scrolled to: the file at the top stays at the top. If that file is gone
 have been. If the folder you were in no longer exists, you are taken to the closest folder above it that
 does.
 
+**Your selection is kept.** If you were selecting files when the results update, the files you selected
+stay selected, as long as they did not change. A file that changed (a different size or date) or that is
+gone is unselected, and a short message says how many, for example **1 selected file changed or was
+removed, so it was unselected.** A file the update found on the server now counts as backed up in the
+selection too.
+
 ## Free up space safely
 
 Delete files from your phone that are safely on your server.
 
-1. **Select.** On the **Files** tab, in Gallery or List, long-press a file. Tap more files to add or
-   remove them; a selected file shows a check mark. Folders cannot be selected; tapping one still opens
-   it. **Select all** at the top selects every file the current view shows, including ones you have not
-   scrolled to: all photos under the chosen filter in Gallery, or the files of the open folder in List.
+1. **Select.** On the **Files** tab, in Gallery, List or Tree, long-press a file, or tap **Select this
+   file** in its preview. Tap more files to add or remove them; a selected file shows a check mark. Folders
+   cannot be selected; tapping one still opens it. **Select all** at the top selects every file the current
+   view shows, including ones you have not scrolled to: all photos and videos under the chosen filter in
+   Gallery, the files of the open folder in List, or every matching file of every folder in Tree.
    The **✕** at the top, or the back button, ends selecting.
 2. **See the size.** While you select, a bar replaces the tabs at the bottom. Its left side shows how many
    files are selected and how much space they take, for example **37 selected · 1.2 GB**, in the units

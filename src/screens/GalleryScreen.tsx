@@ -148,7 +148,7 @@ function PlaceholderTile({ size }: { size: number }): React.JSX.Element {
 
 /**
  * The gallery (FR-001): a virtualized three-column grid of the active
- * snapshot's images in the gallery's own sort (007 FR-003, newest first on
+ * snapshot's photos and videos (009 FR-004) in the gallery's own sort (007 FR-003, newest first on
  * first run), read through `queryFiles` under the shared filter.
  * A sort change reloads from page 1 and keeps the filter and the selection. A long-press starts the
  * selection; while selecting, a tap toggles a tile (FR-015). Otherwise a tap on

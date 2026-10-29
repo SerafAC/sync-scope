@@ -73,7 +73,8 @@ lost the file, it is treated as gone, which errs towards "not backed up".
 - A per-file `stat` on the server: not every client exposes it, and N round trips cost more than a few
   listings.
 - Re-checking UNSYNCED files to promote them: not needed; the user is told they are not backed up, and a
-  scan promotes them.
+  scan promotes them. (Amended by [D023](./0023-refresh-recheck-of-unsynced-files.md): deletion still does
+  not re-check them, but the automatic refresh now does.)
 
 ## Related
 
