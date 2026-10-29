@@ -1,0 +1,4 @@
+
+## 2026-10-29 — Phase 6: Tree view, with selection (part 2/2) [T055-T061]
+**Q:** Select all in tree view: should it select the filtered files across all scanned sources (as research.md R11 says), or be unavailable in tree view (which is what the committed T050 test enforces)?
+**A:** Implement R11 by calling once per source (recommended) — When the view is TREE, Select all runs listSelectableEntries once per source with the filter and no folder, and merges the results (TREE-specific path in FilesScreen/SelectionProvider). Update the T050 selectAllQuery test to expect one root LIST query per source. No native change. Also amend the T060 task text in tasks.md to match the flow's working step order (select through the preview first, then long-press a1 and tap a2), since a tap toggles selection while selecting (R11). Chosen automatically per the user's standing "take recommended" rule.
