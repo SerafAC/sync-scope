@@ -24,6 +24,9 @@ object CloudSyncContracts {
   /** A deletion plan expires this long after prepareLocalDeletion made it (`MAX_DELETION_PLAN_AGE_MILLIS`). */
   const val MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000L
 
+  /** `carrySelection` takes at most this many entry IDs (`MAX_CARRY_SELECTION_IDS`, contract version 7). */
+  const val MAX_CARRY_SELECTION_IDS = 50_000
+
   /**
    * Scroll index band bounds (`SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX`, contract version 6): a date scrollbar
    * uses the coarsest unit with at least [SCROLL_BANDS_MIN] bands (research R6); a size scrollbar has

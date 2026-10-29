@@ -316,6 +316,37 @@ suspend fun LocalNodeDao.statusCounts(snapshotId: String, mediaOnly: Boolean, so
   )
 }
 
+/**
+ * Selection carry-over (009 research R9, data-model "Selection carry-over"): the query that pairs each `FILE` of
+ * [fromSnapshotId] among [entryIds] (at most [SnapshotStore.MAX_CARRY_IDS_PER_QUERY] per read) with the `FILE` of
+ * [toSnapshotId] that has the same `(sourceId, documentId)`, size and modified time (`IS`, so two nulls match). Its
+ * columns are `fromEntryId`, `toEntryId` and that row's `status`; never a document ID.
+ *
+ * The plan is pinned: `f` is read by its primary key (the `+` keeps SQLite off the `(snapshotId, kind, …)` indexes,
+ * which walk the whole snapshot) and `t` through the schema 6 `(snapshotId, sourceId, documentId)` index. Left to
+ * itself SQLite took ≈ 1.5 s for 50 000 IDs (SnapshotQueryPerformanceTest). [SnapshotStore.carrySelection] reads
+ * it through a plain cursor: a suspending DAO read per batch added ≈ 60 ms over 50 000 IDs.
+ */
+fun carryQuery(fromSnapshotId: String, toSnapshotId: String, entryIds: List<String>): SimpleSQLiteQuery {
+  require(entryIds.isNotEmpty() && entryIds.size <= SnapshotStore.MAX_CARRY_IDS_PER_QUERY) {
+    "1 to ${SnapshotStore.MAX_CARRY_IDS_PER_QUERY} IDs per read"
+  }
+  val sql =
+    "SELECT f.entryId AS fromEntryId, t.entryId AS toEntryId, t.status AS status FROM local_node f " +
+      "CROSS JOIN local_node t INDEXED BY $CARRY_INDEX " +
+      "WHERE f.entryId IN (${entryIds.joinToString(",") { "?" }}) AND +f.snapshotId = ? AND +f.kind = 'FILE' " +
+      "AND t.snapshotId = ? AND t.sourceId = f.sourceId AND t.documentId = f.documentId " +
+      "AND t.kind = 'FILE' AND t.sizeBytes IS f.sizeBytes AND t.modifiedUtcMillis IS f.modifiedUtcMillis"
+  val args = ArrayList<Any?>(entryIds.size + 2)
+  args.addAll(entryIds)
+  args += fromSnapshotId
+  args += toSnapshotId
+  return SimpleSQLiteQuery(sql, args.toTypedArray())
+}
+
+/** Room's name for `Index(snapshotId, sourceId, documentId)` on `local_node` (schema 6.json). */
+private const val CARRY_INDEX = "index_local_node_snapshotId_sourceId_documentId"
+
 @Dao
 interface RemoteNodeDao {
   @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAll(nodes: List<RemoteNodeEntity>)

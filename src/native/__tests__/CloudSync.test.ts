@@ -4,6 +4,7 @@ import {
   CloudSync,
   approveSftpHostKey,
   cancelScan,
+  carrySelection,
   executeLocalDeletion,
   getBrowsePreferences,
   getLocalImageHandle,
@@ -32,6 +33,7 @@ import {
   LOCAL_IMAGE_MAX_EDGE_PX,
   LOCAL_IMAGE_MIN_EDGE_PX,
   MAX_PAGE_SIZE,
+  type CarrySelectionResult,
 } from '../CloudSyncContracts';
 import type { Spec } from '../specs/NativeCloudSync';
 
@@ -2054,6 +2056,104 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
       'NATIVE_MODULE_UNAVAILABLE',
     );
     expect(executed.status === 'error' && executed.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
+  });
+});
+
+describe('CloudSync carrySelection wrapper (contract v7, research R9)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const carried = [
+    { from: 'old-1', to: 'new-1', status: 'SYNCED' },
+    { from: 'old-2', to: 'new-2', status: 'UNSYNCED' },
+  ];
+
+  it('passes both snapshots and a copy of the IDs through and returns what was carried', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      carried: carried.map(c => ({ ...c, stray: 1 })),
+      dropped: 3,
+    });
+    mockNative({ carrySelection: native });
+    const ids = ['old-1', 'old-2', 'old-3'];
+
+    const result: CarrySelectionResult = await carrySelection(
+      'snap-1',
+      'snap-2',
+      ids,
+    );
+
+    expect(native).toHaveBeenCalledWith('snap-1', 'snap-2', ids);
+    expect(native.mock.calls[0][2]).not.toBe(ids);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      carried,
+      dropped: 3,
+    });
+    expect(CloudSync.carrySelection).toBe(carrySelection);
+  });
+
+  it('normalises SNAPSHOT_NOT_FOUND and INVALID_QUERY', async () => {
+    for (const [code, field] of [
+      ['SNAPSHOT_NOT_FOUND', undefined],
+      ['INVALID_QUERY', 'entryIds'],
+    ] as const) {
+      mockNative({
+        carrySelection: jest.fn().mockResolvedValue({
+          contractVersion: v,
+          status: 'error',
+          error: { code, message: 'No.', action: null, field },
+        }),
+      });
+
+      const result = await carrySelection('snap-1', 'snap-2', ['old-1']);
+
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe(code);
+      }
+    }
+  });
+
+  it.each([
+    ['no carried array', { carried: undefined, dropped: 0 }],
+    ['a carried entry without to', { carried: [{ from: 'a', status: 'SYNCED' }], dropped: 0 }],
+    ['a non-string from', { carried: [{ from: 1, to: 'b', status: 'SYNCED' }], dropped: 0 }],
+    ['an unknown status', { carried: [{ from: 'a', to: 'b', status: 'GONE' }], dropped: 0 }],
+    ['a null entry', { carried: [null], dropped: 0 }],
+    ['a negative dropped', { carried, dropped: -1 }],
+    ['a fractional dropped', { carried, dropped: 1.5 }],
+    ['a missing dropped', { carried, dropped: undefined }],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, payload) => {
+    mockNative({
+      carrySelection: jest
+        .fn()
+        .mockResolvedValue({ contractVersion: v, status: 'ok', ...payload }),
+    });
+
+    const result = await carrySelection('snap-1', 'snap-2', ['a']);
+
+    expect(result.status === 'error' && result.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+  });
+
+  it('turns a rejected call into INTERNAL_ERROR and a missing module into NATIVE_MODULE_UNAVAILABLE', async () => {
+    mockNative({ carrySelection: jest.fn().mockRejectedValue(new Error('boom')) });
+    const rejected = await carrySelection('snap-1', 'snap-2', ['a']);
+    expect(rejected.status === 'error' && rejected.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+    const missing = await carrySelection('snap-1', 'snap-2', ['a']);
+    expect(missing.status === 'error' && missing.error.code).toBe(
       'NATIVE_MODULE_UNAVAILABLE',
     );
   });

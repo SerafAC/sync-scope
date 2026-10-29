@@ -10,8 +10,9 @@ import React, {
 
 import { isMediaMime } from '../files/media';
 import { useFiles } from '../files/useFiles';
-import { listSelectableEntries } from '../native/CloudSync';
+import { carrySelection, listSelectableEntries } from '../native/CloudSync';
 import type {
+  CarrySelectionResult,
   CloudSyncError,
   FileEntryDto,
   QuerySpec,
@@ -23,9 +24,19 @@ import {
   type SelectionSummary,
 } from './summary';
 
-/** The snackbar text when a new scan result replaced the selected one. */
+/**
+ * The snackbar text when a new scan result replaced the selected one and the
+ * selection could not be carried over to it.
+ */
 export const SELECTION_CLEARED_NOTICE =
   'Results were updated, so the selection was cleared.';
+
+/** The snackbar text when [count] selected files were not carried to a new scan result (R9). */
+export function selectionDroppedNotice(count: number): string {
+  return count === 1
+    ? '1 selected file changed or was removed, so it was unselected.'
+    : `${count} selected files changed or were removed, so they were unselected.`;
+}
 
 /** The fields of an on-screen row the selection reads (data-model "Selection"). */
 export type SelectableRow = Pick<
@@ -45,7 +56,7 @@ export interface SelectionState {
   selectingAll: boolean;
   /** The last `selectAll` error, until dismissed. */
   error: CloudSyncError | null;
-  /** Set when the selection was cleared because the active snapshot changed. */
+  /** Set when selected files were unselected because the active snapshot changed. */
   notice: string | null;
   isSelected: (entryId: string) => boolean;
   /** Long-press: enters selection mode with [row]; while selecting, toggles it. */
@@ -107,9 +118,12 @@ function withItems(
 
 /**
  * Holds the Files tab selection in memory (research R9): an explicit set of
- * entry IDs of one snapshot, kept across view and filter changes and cleared
- * with a notice when `useScan`'s active snapshot changes. Mounted inside
- * `FilesProvider`, whose view and filter the summary follows.
+ * entry IDs of one snapshot, kept across view and filter changes. When
+ * `useScan`'s active snapshot changes, `carrySelection` moves it to the new
+ * snapshot's IDs; the files that changed or are gone are unselected with a
+ * notice that counts them, and a failed carry clears it with
+ * [SELECTION_CLEARED_NOTICE]. Mounted inside `FilesProvider`, whose view and
+ * filter the summary follows.
  */
 export function SelectionProvider({
   children,
@@ -132,10 +146,63 @@ export function SelectionProvider({
 
   useEffect(() => {
     const current = selectionRef.current;
-    if (current.items.size > 0 && current.snapshotId !== activeSnapshotId) {
+    const from = current.snapshotId;
+    if (current.items.size === 0 || from === activeSnapshotId) {
+      return;
+    }
+    const cleared = () => {
       setSelection(EMPTY);
       setNotice(SELECTION_CLEARED_NOTICE);
+    };
+    if (from == null || activeSnapshotId == null) {
+      cleared();
+      return;
     }
+    const to = activeSnapshotId;
+    const requested = [...current.items.keys()];
+    (async () => {
+      let result: CarrySelectionResult | null | undefined;
+      try {
+        result = await carrySelection(from, to, requested);
+      } catch {
+        result = null;
+      }
+      // A newer snapshot replaced this one meanwhile: its own carry applies.
+      if (activeRef.current !== to) {
+        return;
+      }
+      const latest = selectionRef.current;
+      // Cleared, or emptied by a deletion, while the carry ran.
+      if (latest.snapshotId !== from) {
+        return;
+      }
+      if (result?.status !== 'ok') {
+        cleared();
+        return;
+      }
+      const moved = new Map(result.carried.map(c => [c.from, c]));
+      const asked = new Set(requested);
+      const items = new Map<string, SelectionItem>();
+      let dropped = 0;
+      latest.items.forEach((item, entryId) => {
+        const entry = moved.get(entryId);
+        if (entry != null) {
+          // Same size and time by the match rule; the status is the new row's.
+          items.set(entry.to, { ...item, status: entry.status });
+        } else if (asked.has(entryId)) {
+          dropped += 1;
+        } else {
+          // Selected while the carry ran, from rows of the new results.
+          items.set(entryId, item);
+        }
+      });
+      const next = withItems(to, items);
+      selectionRef.current = next;
+      setSelection(next);
+      if (dropped > 0) {
+        setNotice(selectionDroppedNotice(dropped));
+      }
+    })();
   }, [activeSnapshotId]);
 
   const toggle = useCallback((row: SelectableRow) => {

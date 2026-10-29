@@ -774,6 +774,89 @@ class SnapshotStoreTest {
     Unit
   }
 
+  // --- carrySelection (009 research R9, data-model "Selection carry-over") ---
+
+  @Test
+  fun carrySelectionKeepsUnchangedFilesUnderTheirNewIdsAndDropsTheRest() = runBlocking {
+    seedCarryFixture()
+
+    val result =
+      store.carrySelection(
+        "snap-1",
+        "snap-2",
+        listOf("a1", "b1", "c1", "d1", "e1", "n1", "m1", "dir1", "x1", "s1", "ghost", "a1"),
+      )
+
+    // Same (sourceId, documentId), same size and time (null IS null), FILE on both sides.
+    assertEquals(
+      listOf(CarriedEntry("a1", "a2", "SYNCED"), CarriedEntry("e1", "e2", "SYNCED"), CarriedEntry("n1", "n2", "UNKNOWN")),
+      result.carried,
+    )
+    // b1 size, c1 time, d1 moved, m1 null size → known, dir1 a directory, x1 a directory now, s1 another
+    // source, ghost unknown: 8 distinct IDs dropped. The repeated a1 counts once.
+    assertEquals(8, result.dropped)
+  }
+
+  @Test
+  fun aStatusChangeIsStillCarriedWithTheNewStatus() = runBlocking {
+    seedCarryFixture()
+
+    val result = store.carrySelection("snap-1", "snap-2", listOf("e1"))
+
+    // e1 was UNSYNCED; the refresh re-check promoted it (research R5). It is carried, with the new status.
+    assertEquals(listOf(CarriedEntry("e1", "e2", "SYNCED")), result.carried)
+    assertEquals(0, result.dropped)
+  }
+
+  @Test
+  fun carryingIntoTheSameSnapshotKeepsEveryExistingFileEntry() = runBlocking {
+    seedCarryFixture()
+
+    val result = store.carrySelection("snap-2", "snap-2", listOf("a2", "b2", "dir2", "x2", "ghost", "e2"))
+
+    assertEquals(
+      listOf(CarriedEntry("a2", "a2", "SYNCED"), CarriedEntry("b2", "b2", "SYNCED"), CarriedEntry("e2", "e2", "SYNCED")),
+      result.carried,
+    )
+    assertEquals(3, result.dropped)
+  }
+
+  @Test
+  fun carrySelectionNeedsBothSnapshotsPublished() = runBlocking {
+    seedCarryFixture()
+    seedRun("run-3", 3L, "snap-3")
+    store.stageLocalNodes(listOf(localNode("snap-3", "src-1", "a3", "a.png").copy(documentId = "A")))
+
+    for ((from, to) in listOf("missing" to "snap-2", "snap-1" to "missing", "snap-1" to "snap-3", "snap-3" to "snap-2")) {
+      assertThrows("$from → $to", SnapshotNotFoundException::class.java) {
+        runBlocking { store.carrySelection(from, to, listOf("a1")) }
+      }
+    }
+    Unit
+  }
+
+  @Test
+  fun carrySelectionReadsTheIdsInBatchesOfNineHundred() = runBlocking {
+    assertEquals(900, SnapshotStore.MAX_CARRY_IDS_PER_QUERY)
+    val count = SnapshotStore.MAX_CARRY_IDS_PER_QUERY * 2 + 5
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes((1..count).map { localNode("snap-1", "src-1", "old-$it", "f$it.png").copy(documentId = "doc-$it") })
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    seedRun("run-2", 2L, "snap-2")
+    // Every third file changed size.
+    store.stageLocalNodes(
+      (1..count).map { localNode("snap-2", "src-1", "new-$it", "f$it.png", sizeBytes = if (it % 3 == 0) 11L else 10L).copy(documentId = "doc-$it") }
+    )
+    store.publish("run-2", 2L, 1L, "COMPLETED", 6_000L)
+
+    val ids = (count downTo 1).map { "old-$it" }
+    val result = store.carrySelection("snap-1", "snap-2", ids)
+
+    val kept = (count downTo 1).filter { it % 3 != 0 }
+    assertEquals(kept.map { "old-$it" to "new-$it" }, result.carried.map { it.from to it.to })
+    assertEquals(count - kept.size, result.dropped)
+  }
+
   // --- deletionRows (data-model "Deletion plan") ---
 
   @Test
@@ -1326,6 +1409,72 @@ class SnapshotStoreTest {
       )
     )
     store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+  }
+
+  /**
+   * Two published snapshots of the same files (research R9), each row's `documentId` set apart from its
+   * entry ID, which is new in every scan:
+   *
+   * ```
+   * snap-1                                    snap-2
+   * a1 A  10 B  t2000  SYNCED                 a2 A  10 B  t2000  SYNCED      unchanged
+   * b1 B  10 B  t2000  SYNCED                 b2 B  11 B  t2000  SYNCED      size changed
+   * c1 C  10 B  t2000  SYNCED                 c2 C  10 B  t3000  SYNCED      time changed
+   * d1 D  10 B  t2000  SYNCED                 d2 D2 10 B  t2000  SYNCED      moved (new documentId)
+   * e1 E  10 B  t2000  UNSYNCED               e2 E  10 B  t2000  SYNCED      promoted
+   * n1 N  ?    ?       UNKNOWN                n2 N  ?    ?       UNKNOWN     unknown size and time on both
+   * m1 M  ?    t2000   UNKNOWN                m2 M  5 B  t2000   UNKNOWN     size now known
+   * dir1 DIR  directory                       dir2 DIR  directory
+   * x1 X  ?    ?       UNKNOWN (FILE)         x2 X  directory                no longer a file
+   * s1 S  10 B (src-1)                        s2 S  10 B (src-2)             same documentId, other source
+   * ```
+   */
+  private suspend fun seedCarryFixture() {
+    db.sourceRootDao().upsert(sourceRoot("src-2"))
+    fun node(
+      snapshotId: String,
+      id: String,
+      documentId: String,
+      size: Long? = 10L,
+      at: Long? = 2_000L,
+      status: String = "SYNCED",
+      kind: String = "FILE",
+      sourceId: String = "src-1",
+    ) =
+      localNode(snapshotId, sourceId, id, "$id.png", kind = kind, sizeBytes = size, modifiedUtcMillis = at, mimeType = "image/png", status = status)
+        .copy(documentId = documentId)
+    seedRun("run-1", 1L, "snap-1")
+    store.stageLocalNodes(
+      listOf(
+        node("snap-1", "a1", "A"),
+        node("snap-1", "b1", "B"),
+        node("snap-1", "c1", "C"),
+        node("snap-1", "d1", "D"),
+        node("snap-1", "e1", "E", status = "UNSYNCED"),
+        node("snap-1", "n1", "N", size = null, at = null, status = "UNKNOWN"),
+        node("snap-1", "m1", "M", size = null, status = "UNKNOWN"),
+        node("snap-1", "dir1", "DIR", size = null, at = null, kind = "DIRECTORY"),
+        node("snap-1", "x1", "X", size = null, at = null, status = "UNKNOWN"),
+        node("snap-1", "s1", "S"),
+      )
+    )
+    store.publish("run-1", 1L, 1L, "COMPLETED", 5_000L)
+    seedRun("run-2", 2L, "snap-2")
+    store.stageLocalNodes(
+      listOf(
+        node("snap-2", "a2", "A"),
+        node("snap-2", "b2", "B", size = 11L),
+        node("snap-2", "c2", "C", at = 3_000L),
+        node("snap-2", "d2", "D2"),
+        node("snap-2", "e2", "E"),
+        node("snap-2", "n2", "N", size = null, at = null, status = "UNKNOWN"),
+        node("snap-2", "m2", "M", size = 5L, status = "UNKNOWN"),
+        node("snap-2", "dir2", "DIR", size = null, at = null, kind = "DIRECTORY"),
+        node("snap-2", "x2", "X", size = null, at = null, kind = "DIRECTORY"),
+        node("snap-2", "s2", "S", sourceId = "src-2"),
+      )
+    )
+    store.publish("run-2", 2L, 1L, "COMPLETED", 6_000L)
   }
 
   private suspend fun countsOf(query: SnapshotQuery, topLevelOnly: Boolean = false): Map<String, Long> =

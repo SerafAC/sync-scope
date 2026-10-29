@@ -270,6 +270,7 @@ class CloudSyncModuleTest {
           "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
           "getScrollIndex" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
           "getScrollIndex(anchor)" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
+          "carrySelection" to { scans.carrySelection("snap", "snap-2", JavaOnlyArray.of("entry"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
@@ -299,6 +300,18 @@ class CloudSyncModuleTest {
           resolve { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY"), anchor, it) }.getMap("error")!!.getString("code"),
         )
       }
+      // carrySelection (009 R9): either snapshot missing, and a bad ID list, resolve typed errors.
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { scans.carrySelection("snap", "snap-2", JavaOnlyArray.of("entry"), it) }.getMap("error")!!.getString("code"),
+      )
+      for (ids in listOf(JavaOnlyArray.of("entry", 1.0), JavaOnlyArray.from((0..50_000).map { "e$it" }))) {
+        val error = resolve { scans.carrySelection("snap", "snap-2", ids, it) }.getMap("error")!!
+        assertEquals("INVALID_QUERY", error.getString("code"))
+        assertEquals("entryIds", error.getString("field"))
+      }
+      // It never connects to the server.
+      assertTrue(h.remote.created.isEmpty())
       val state = resolve { scans.getScanState(it) }
       assertEquals("ok", state.getString("status"))
       assertTrue(state.isNull("run"))
@@ -350,6 +363,14 @@ class CloudSyncModuleTest {
       val selectable = resolve { scans.listSelectableEntries(active.getString("snapshotId")!!, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1"), it) }
       assertEquals("ok", selectable.getString("status"))
       assertEquals(2, selectable.getMap("selectable")!!.getArray("entryIds")!!.size())
+
+      // carrySelection into the same snapshot keeps every selected file under its own ID (009 R9).
+      val snapshotId = active.getString("snapshotId")!!
+      val ids = selectable.getMap("selectable")!!.getArray("entryIds")!!
+      val carried = resolve { scans.carrySelection(snapshotId, snapshotId, ids, it) }
+      assertEquals("ok", carried.getString("status"))
+      assertEquals(2, carried.getArray("carried")!!.size())
+      assertEquals(0, carried.getInt("dropped"))
     } finally {
       scans.invalidate()
       h.close()

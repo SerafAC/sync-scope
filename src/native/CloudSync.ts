@@ -12,6 +12,8 @@ import {
   type CloudSyncError,
   type DeletionFailureDto,
   type DeletionFailureReason,
+  type CarriedEntry,
+  type CarrySelectionResult,
   type DeletionPlanDto,
   type DeletionResultDto,
   type ExecuteLocalDeletionResult,
@@ -163,6 +165,8 @@ type NativeEnvelope = {
   preferences?: unknown;
   remoteFolders?: unknown;
   scrollIndex?: unknown;
+  carried?: unknown;
+  dropped?: unknown;
 };
 
 type NativeErrorShape = {
@@ -856,6 +860,66 @@ function deletionResultOf(value: unknown): DeletionResultDto | null {
 }
 
 /**
+ * Carries the selected [entryIds] of [fromSnapshotId] to [toSnapshotId]
+ * (contract v7, research R9): each unchanged file (same source, document,
+ * size and time) under its new entry ID with its new status; the rest count
+ * as `dropped`. Reads only. A malformed result is INTERNAL_ERROR, never a
+ * partial carry.
+ */
+export async function carrySelection(
+  fromSnapshotId: string,
+  toSnapshotId: string,
+  entryIds: readonly string[],
+): Promise<CarrySelectionResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    m => m.carrySelection(fromSnapshotId, toSnapshotId, [...entryIds]),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const carried = carriedEntriesOf(result.carried);
+  if (carried == null || !isCount(result.dropped)) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    carried,
+    dropped: result.dropped,
+  };
+}
+
+function carriedEntriesOf(value: unknown): CarriedEntry[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const entries: CarriedEntry[] = [];
+  for (const item of value) {
+    if (item == null || typeof item !== 'object') {
+      return null;
+    }
+    const { from, to, status } = item as Record<string, unknown>;
+    if (
+      typeof from !== 'string' ||
+      typeof to !== 'string' ||
+      !FILE_STATUSES.includes(status)
+    ) {
+      return null;
+    }
+    entries.push({ from, to, status: status as FileStatus });
+  }
+  return entries;
+}
+
+/**
  * Re-checks the selected [entryIds] of the active snapshot on the server and
  * returns a single-use plan (contract v5). Nothing is deleted. A malformed plan
  * is INTERNAL_ERROR, never a partial one.
@@ -1267,6 +1331,7 @@ export const CloudSync = {
   getLocalImageHandle,
   listSelectableEntries,
   getScrollIndex,
+  carrySelection,
   prepareLocalDeletion,
   executeLocalDeletion,
   getRepositorySummary,

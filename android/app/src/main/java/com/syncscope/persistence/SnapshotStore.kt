@@ -42,6 +42,12 @@ class SelectableEntries(
   val media: BooleanArray,
 )
 
+/** One selected file carried to a new snapshot (009 research R9): its old and new entry ID and its new status. */
+data class CarriedEntry(val from: String, val to: String, val status: String)
+
+/** The result of [SnapshotStore.carrySelection], mirroring `CarrySelectionResult` on the JS side. */
+data class SelectionCarry(val carried: List<CarriedEntry>, val dropped: Int)
+
 /** A bounded page of entries, mirroring `FilePageDto` on the JS side. */
 data class FilePage(
   val entries: List<FileEntry>,
@@ -570,6 +576,42 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
   }
 
   /**
+   * Carries a selection from [fromSnapshotId] to [toSnapshotId] (009 research R9, data-model "Selection
+   * carry-over"): each `FILE` among [entryIds] maps to the `FILE` of the new snapshot with the same
+   * `(sourceId, documentId)`, the same `sizeBytes` and the same `modifiedUtcMillis` (`IS`, so two nulls match).
+   * A status change is still carried, with the new status. Every other distinct ID (changed, moved, gone, a
+   * directory or unknown) counts as `dropped`. With [fromSnapshotId] equal to [toSnapshotId] every existing
+   * `FILE` entry matches itself, so it is carried under its own ID. The IDs are read in batches of [MAX_CARRY_IDS_PER_QUERY]; `carried`
+   * follows the order of [entryIds]. Reads only. Throws [SnapshotNotFoundException] when either snapshot is
+   * missing or still staged.
+   */
+  suspend fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: Collection<String>): SelectionCarry {
+    for (snapshotId in setOf(fromSnapshotId, toSnapshotId)) {
+      val snapshot = db.snapshotDao().byId(snapshotId)
+      if (snapshot == null || !snapshot.publishable) {
+        throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
+      }
+    }
+    val ids = entryIds.distinct()
+    val found = HashMap<String, CarriedEntry>(ids.size * 2)
+    // One read transaction for every batch: one connection, and one consistent view of both snapshots.
+    db.withTransaction {
+      for (chunk in ids.chunked(MAX_CARRY_IDS_PER_QUERY)) {
+        db.query(carryQuery(fromSnapshotId, toSnapshotId, chunk)).use { cursor ->
+          while (cursor.moveToNext()) {
+            val entry = CarriedEntry(from = cursor.getString(0), to = cursor.getString(1), status = cursor.getString(2))
+            // One (sourceId, documentId) per snapshot; should a scan ever repeat one, a row's own match (the same
+            // snapshot on both sides), else the first, wins.
+            if (entry.from == entry.to) found[entry.from] = entry else found.putIfAbsent(entry.from, entry)
+          }
+        }
+      }
+    }
+    val carried = ids.mapNotNull { found[it] }
+    return SelectionCarry(carried = carried, dropped = ids.size - carried.size)
+  }
+
+  /**
    * The scroll index of [query]'s `FILE` rows (research R4, contracts/cloudsync-polish.md "getScrollIndex"): their
    * bands in the sort's order, cut by [ScrollBands] (letters for name sorts, years, months or days in [zone] for
    * time sorts, sizes for size sorts), with a final `unknown` band for files without a size or time. The scope is
@@ -722,6 +764,12 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
 
     /** IDs bound in one `IN (…)` read; well under SQLite's 999-variable limit on old builds. */
     const val MAX_IDS_PER_QUERY = 500
+
+    /**
+     * IDs bound in one [carrySelection] read (009 data-model "Selection carry-over"): with the two snapshot IDs,
+     * still under SQLite's 999-variable limit on old builds.
+     */
+    const val MAX_CARRY_IDS_PER_QUERY = 900
 
     /** `sizes[i]` of a [SelectableEntries] row whose size is unknown. */
     private const val UNKNOWN_SIZE = -1L

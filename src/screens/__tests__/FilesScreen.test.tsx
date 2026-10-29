@@ -15,6 +15,7 @@ import { galleryTileSize } from '../../files/GalleryTile';
 import { density } from '../../theme/spacing';
 import { useSourceAliases } from '../../files/useSourceAliases';
 import {
+  carrySelection,
   executeLocalDeletion,
   getBrowsePreferences,
   getLocalImageHandle,
@@ -68,6 +69,7 @@ jest.mock('../../native/CloudSync', () => ({
   listSelectableEntries: jest.fn(),
   prepareLocalDeletion: jest.fn(),
   executeLocalDeletion: jest.fn(),
+  carrySelection: jest.fn(),
 }));
 jest.mock('../../scan/useScan', () => ({ useScan: jest.fn() }));
 jest.mock('../../files/useSourceAliases', () => ({
@@ -92,6 +94,9 @@ const prepareLocalDeletionMock = prepareLocalDeletion as jest.MockedFunction<
 >;
 const executeLocalDeletionMock = executeLocalDeletion as jest.MockedFunction<
   typeof executeLocalDeletion
+>;
+const carrySelectionMock = carrySelection as jest.MockedFunction<
+  typeof carrySelection
 >;
 const getBrowsePreferencesMock = getBrowsePreferences as jest.MockedFunction<
   typeof getBrowsePreferences
@@ -873,7 +878,66 @@ describe('FilesScreen', () => {
       ).toBeOnTheScreen();
     });
 
-    it('clears with a snackbar when a new scan result replaces the snapshot', async () => {
+    it('keeps the selection with no snackbar when a new scan result carries it over (R9)', async () => {
+      carrySelectionMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        carried: [{ from: 'snap-1-e1', to: 'snap-2-e1', status: 'SYNCED' }],
+        dropped: 0,
+      });
+      const { rerender } = await startSelecting();
+
+      useScanMock.mockReturnValue(scanState('snap-2'));
+      rerender(ui());
+
+      expect(
+        await screen.findByLabelText('snap-2.png, Synced, selected'),
+      ).toBeOnTheScreen();
+      expect(carrySelectionMock).toHaveBeenCalledWith('snap-1', 'snap-2', [
+        'snap-1-e1',
+      ]);
+      expect(
+        screen.getByLabelText('Selection 1 selected, 10 B'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByLabelText(
+          'Results were updated, so the selection was cleared.',
+        ),
+      ).toBeNull();
+      expect(screen.queryByText('Tab bar')).toBeNull();
+    });
+
+    it('unselects the changed files with a snackbar that counts them', async () => {
+      carrySelectionMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        carried: [],
+        dropped: 1,
+      });
+      const { rerender } = await startSelecting();
+
+      useScanMock.mockReturnValue(scanState('snap-2'));
+      rerender(ui());
+
+      expect(
+        await screen.findByLabelText(
+          '1 selected file changed or was removed, so it was unselected.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.queryByTestId('selection-bar')).toBeNull();
+      expect(await screen.findByText('Tab bar')).toBeOnTheScreen();
+    });
+
+    it('clears with a snackbar when the selection cannot be carried to a new scan result', async () => {
+      carrySelectionMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'error',
+        error: {
+          code: 'SNAPSHOT_NOT_FOUND',
+          message: 'That scan result is no longer available.',
+          action: null,
+        },
+      });
       const { rerender } = await startSelecting();
 
       useScanMock.mockReturnValue(scanState('snap-2'));

@@ -35,6 +35,11 @@ import org.robolectric.annotation.Config
  *
  * Scroll index (research R4, measured 2026-10-07) over 50 000 files with an anchor: name sorts ≈ 65–90 ms, time and
  * size sorts ≈ 90–120 ms, against [SCROLL_INDEX_BUDGET_MILLIS].
+ *
+ * Feature 009 `carrySelection` (research R9, measured 2026-10-29) of 50 000 selected files into the next snapshot:
+ * ≈ 230–245 ms against [CARRY_BUDGET_MILLIS], with the plan pinned (PK on the old side, the schema 6
+ * `(snapshotId, sourceId, documentId)` index on the new one). Unpinned, SQLite walked a `(snapshotId, kind, …)`
+ * index instead and took ≈ 1 500 ms.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -187,6 +192,39 @@ class SnapshotQueryPerformanceTest {
   }
 
   /**
+   * Feature 009 (research R9, plan "Performance Goals"): carrying a selection of 50 000 files from one snapshot to
+   * the next, joined on `(snapshotId, sourceId, documentId)` (the schema 6 index), stays within
+   * [CARRY_BUDGET_MILLIS].
+   */
+  @Test
+  fun carryingFiftyThousandSelectedFilesStaysWithinBudget() = runBlocking {
+    db.sourceRootDao().upsert(sourceRoot("src-1"))
+    for ((generation, snapshot) in listOf(1L to SNAPSHOT, 2L to NEXT_SNAPSHOT)) {
+      val run = store.beginRun("run-$generation", "LOCAL_REFRESH", 1L, "CONNECTING", 1_000L)
+      store.stageSnapshot(stagingSnapshot(snapshot, run.runId))
+      store.stageLocalNodes(listOf(directory("src-1", "$snapshot-dir", "Camera", null).copy(snapshotId = snapshot)))
+      val files = ArrayList<LocalNodeEntity>(5_000)
+      for (i in 0 until SELECT_ALL_ROWS) {
+        files +=
+          localNode(snapshot, "src-1", "$snapshot-f$i", "IMG_$i.jpg", parentId = "$snapshot-dir", mimeType = "image/jpeg")
+            .copy(documentId = "primary:DCIM/Camera/IMG_$i.jpg", sizeBytes = if (i % 100 == 0) null else 1_000L + i)
+        if (files.size == 5_000) {
+          store.stageLocalNodes(files)
+          files.clear()
+        }
+      }
+      store.stageLocalNodes(files)
+      store.publish(run.runId, generation, 1L, "COMPLETED", 5_000L + generation)
+    }
+    val selected = (0 until SELECT_ALL_ROWS).map { "$SNAPSHOT-f$it" }
+
+    val millis = medianMillis { assertEquals(SELECT_ALL_ROWS, store.carrySelection(SNAPSHOT, NEXT_SNAPSHOT, selected).carried.size) }
+
+    println("SnapshotQueryPerformanceTest: carrySelection 50k=${millis}ms")
+    assertTrue("carrying $SELECT_ALL_ROWS selected files took ${millis}ms", millis < CARRY_BUDGET_MILLIS)
+  }
+
+  /**
    * Feature 007 (research R4): the scroll index of 50 000 files, in gallery and in one folder (`kind = FILE`), with an
    * anchor, stays within [SCROLL_INDEX_BUDGET_MILLIS] under each of the six sorts.
    */
@@ -312,6 +350,9 @@ class SnapshotQueryPerformanceTest {
 
   private companion object {
     const val SNAPSHOT = "snap-perf"
+    const val NEXT_SNAPSHOT = "snap-perf-next"
+    /** 009 research R9: `carrySelection` for 50 000 selected files. */
+    const val CARRY_BUDGET_MILLIS = 300L
     const val BUDGET_MILLIS = 300L
     const val RUNS = 5
     const val TOP_DIRECTORIES_PER_SOURCE = 10

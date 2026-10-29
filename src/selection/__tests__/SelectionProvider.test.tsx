@@ -3,9 +3,10 @@ import {act, renderHook, waitFor} from '@testing-library/react-native';
 
 import {FilesProvider} from '../../files/FilesProvider';
 import {useFiles} from '../../files/useFiles';
-import {listSelectableEntries} from '../../native/CloudSync';
+import {carrySelection, listSelectableEntries} from '../../native/CloudSync';
 import type {
   ActiveSnapshotDto,
+  CarrySelectionResult,
   FileEntryDto,
   QuerySpec,
   SelectableEntriesResult,
@@ -14,6 +15,7 @@ import {ScanContext, type ScanState} from '../../scan/useScan';
 import {
   SELECTION_CLEARED_NOTICE,
   SelectionProvider,
+  selectionDroppedNotice,
   useSelection,
 } from '../SelectionProvider';
 
@@ -22,8 +24,12 @@ jest.mock('../../native/CloudSync', () => ({
   getBrowsePreferences: jest.fn(() => new Promise(() => {})),
   setBrowsePreferences: jest.fn(),
   listSelectableEntries: jest.fn(),
+  carrySelection: jest.fn(),
 }));
 
+const carrySelectionMock = carrySelection as jest.MockedFunction<
+  typeof carrySelection
+>;
 const listSelectableEntriesMock = listSelectableEntries as jest.MockedFunction<
   typeof listSelectableEntries
 >;
@@ -105,7 +111,20 @@ function selectable(
 beforeEach(() => {
   activeSnapshotId = 'snap-1';
   listSelectableEntriesMock.mockReset();
+  carrySelectionMock.mockReset();
 });
+
+function carried(
+  entries: Array<[string, string, 'SYNCED' | 'UNSYNCED' | 'UNKNOWN']>,
+  dropped: number,
+): CarrySelectionResult {
+  return {
+    contractVersion: 7,
+    status: 'ok',
+    carried: entries.map(([from, to, status]) => ({from, to, status})),
+    dropped,
+  };
+}
 
 describe('SelectionProvider', () => {
   it('starts empty and not selecting', () => {
@@ -315,7 +334,120 @@ describe('SelectionProvider', () => {
     expect(result.current.selection.summary.hiddenByFilterCount).toBe(1);
   });
 
-  it('clears with a notice when the active snapshot changes', async () => {
+  it('carries the selection to the new snapshot under the new IDs, with no notice (R9)', async () => {
+    carrySelectionMock.mockResolvedValue(
+      carried(
+        [
+          ['a', 'a-2', 'SYNCED'],
+          ['t', 't-2', 'SYNCED'],
+        ],
+        0,
+      ),
+    );
+    const {result, rerender} = renderSelection();
+    act(() => {
+      result.current.selection.longPress(file('a', {sizeBytes: 70}));
+      result.current.selection.toggle(
+        file('t', {mimeType: 'text/plain', status: 'UNSYNCED', sizeBytes: null}),
+      );
+    });
+
+    activeSnapshotId = 'snap-2';
+    rerender({});
+
+    await waitFor(() =>
+      expect(result.current.selection.snapshotId).toBe('snap-2'),
+    );
+    expect(carrySelectionMock).toHaveBeenCalledWith('snap-1', 'snap-2', ['a', 't']);
+    expect([...result.current.selection.items.keys()]).toEqual(['a-2', 't-2']);
+    // Each kept item takes its size and status from the new row; t was promoted by the refresh.
+    expect(result.current.selection.items.get('a-2')).toEqual({
+      sizeBytes: 70,
+      status: 'SYNCED',
+      isMedia: true,
+    });
+    expect(result.current.selection.items.get('t-2')).toEqual({
+      sizeBytes: null,
+      status: 'SYNCED',
+      isMedia: false,
+    });
+    expect(result.current.selection.isSelecting).toBe(true);
+    expect(result.current.selection.notice).toBeNull();
+  });
+
+  it('names how many selected files were dropped when some changed or are gone', async () => {
+    carrySelectionMock.mockResolvedValue(carried([['a', 'a-2', 'SYNCED']], 2));
+    const {result, rerender} = renderSelection();
+    act(() => {
+      result.current.selection.longPress(file('a'));
+      result.current.selection.toggle(file('b'));
+      result.current.selection.toggle(file('c'));
+    });
+
+    activeSnapshotId = 'snap-2';
+    rerender({});
+
+    await waitFor(() =>
+      expect(result.current.selection.notice).toBe(
+        '2 selected files changed or were removed, so they were unselected.',
+      ),
+    );
+    expect([...result.current.selection.items.keys()]).toEqual(['a-2']);
+    expect(result.current.selection.snapshotId).toBe('snap-2');
+  });
+
+  it('uses the singular when one selected file was dropped', async () => {
+    carrySelectionMock.mockResolvedValue(carried([['a', 'a-2', 'SYNCED']], 1));
+    const {result, rerender} = renderSelection();
+    act(() => {
+      result.current.selection.longPress(file('a'));
+      result.current.selection.toggle(file('b'));
+    });
+
+    activeSnapshotId = 'snap-2';
+    rerender({});
+
+    await waitFor(() =>
+      expect(result.current.selection.notice).toBe(
+        '1 selected file changed or was removed, so it was unselected.',
+      ),
+    );
+    expect(selectionDroppedNotice(1)).toBe(
+      '1 selected file changed or was removed, so it was unselected.',
+    );
+    expect(selectionDroppedNotice(3)).toBe(
+      '3 selected files changed or were removed, so they were unselected.',
+    );
+  });
+
+  it('leaves selection mode with the notice when every selected file was dropped', async () => {
+    carrySelectionMock.mockResolvedValue(carried([], 1));
+    const {result, rerender} = renderSelection();
+    act(() => result.current.selection.longPress(file('a')));
+
+    activeSnapshotId = 'snap-2';
+    rerender({});
+
+    await waitFor(() =>
+      expect(result.current.selection.notice).toBe(
+        '1 selected file changed or was removed, so it was unselected.',
+      ),
+    );
+    expect(result.current.selection.isSelecting).toBe(false);
+    expect(result.current.selection.snapshotId).toBeNull();
+  });
+
+  it('clears with the existing notice when the carry fails', async () => {
+    carrySelectionMock.mockResolvedValue({
+      contractVersion: 7,
+      status: 'error',
+      error: {
+        code: 'SNAPSHOT_NOT_FOUND',
+        message: 'That scan result is no longer available.',
+        action: null,
+        conflictingSource: null,
+      },
+    });
     const {result, rerender} = renderSelection();
     act(() => result.current.selection.longPress(file('a')));
 
@@ -334,6 +466,46 @@ describe('SelectionProvider', () => {
     // A new selection belongs to the new snapshot.
     act(() => result.current.selection.longPress(file('b')));
     expect(result.current.selection.snapshotId).toBe('snap-2');
+  });
+
+  it('clears with the existing notice when the scan result is gone', async () => {
+    const {result, rerender} = renderSelection();
+    act(() => result.current.selection.longPress(file('a')));
+
+    activeSnapshotId = null;
+    rerender({});
+
+    await waitFor(() => expect(result.current.selection.isSelecting).toBe(false));
+    expect(result.current.selection.notice).toBe(SELECTION_CLEARED_NOTICE);
+    expect(carrySelectionMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores a carry that arrives after an even newer snapshot, and carries again from there', async () => {
+    let resolveFirst: (value: CarrySelectionResult) => void = () => {};
+    carrySelectionMock
+      .mockReturnValueOnce(
+        new Promise(r => {
+          resolveFirst = r;
+        }),
+      )
+      .mockResolvedValueOnce(carried([['a', 'a-3', 'SYNCED']], 0));
+    const {result, rerender} = renderSelection();
+    act(() => result.current.selection.longPress(file('a')));
+
+    activeSnapshotId = 'snap-2';
+    rerender({});
+    activeSnapshotId = 'snap-3';
+    rerender({});
+    await act(async () => {
+      resolveFirst(carried([['a', 'a-2', 'SYNCED']], 0));
+    });
+
+    await waitFor(() =>
+      expect(result.current.selection.snapshotId).toBe('snap-3'),
+    );
+    expect(carrySelectionMock).toHaveBeenLastCalledWith('snap-1', 'snap-3', ['a']);
+    expect([...result.current.selection.items.keys()]).toEqual(['a-3']);
+    expect(result.current.selection.notice).toBeNull();
   });
 
   it('shows no notice when the snapshot changes while nothing is selected', () => {

@@ -143,6 +143,22 @@ describe('typed native boundary', () => {
     );
   });
 
+  it('carries a selection from one snapshot to the next (contract v7, research R9)', () => {
+    const source = fs.readFileSync(
+      path.join(SPECS_DIR, 'NativeCloudSync.ts'),
+      'utf8',
+    );
+    expect(source).toMatch(
+      /carrySelection\(\s*fromSnapshotId: string,\s*toSnapshotId: string,\s*entryIds: Array<string>,?\s*\): Promise<OperationResultDto>;/,
+    );
+    const contracts = fs.readFileSync(
+      path.join(NATIVE_ROOT, 'CloudSyncContracts.ts'),
+      'utf8',
+    );
+    expect(contracts).toMatch(/export type CarrySelectionResult =/);
+    expect(contracts).toMatch(/export const MAX_CARRY_SELECTION_IDS = 50_000;/);
+  });
+
   it('query spec carries an optional kind (contract v6)', () => {
     const source = fs.readFileSync(
       path.join(SPECS_DIR, 'NativeCloudSync.ts'),

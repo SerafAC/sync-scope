@@ -10,6 +10,7 @@ import com.syncscope.image.LocalImageHandle
 import com.syncscope.persistence.FileEntry
 import com.syncscope.persistence.ScrollIndex
 import com.syncscope.persistence.SelectableEntries
+import com.syncscope.persistence.SelectionCarry
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
@@ -304,6 +305,27 @@ class CloudSyncEnvelope(
         putArray("media", media)
       },
     )
+  }
+
+  /**
+   * `{contractVersion, status: "ok", carried: [{from, to, status}], dropped}` for `carrySelection` (009
+   * contracts/cloudsync-tree-preview.md, research R9): entry IDs and statuses only, never a document ID.
+   */
+  fun carry(carry: SelectionCarry): WritableMap {
+    val carried = newArray()
+    for (entry in carry.carried) {
+      carried.pushMap(
+        newMap().apply {
+          putString("from", entry.from)
+          putString("to", entry.to)
+          putString("status", entry.status)
+        }
+      )
+    }
+    return ok().apply {
+      putArray("carried", carried)
+      putInt("dropped", carry.dropped)
+    }
   }
 
   /**

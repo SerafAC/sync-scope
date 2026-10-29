@@ -32,7 +32,7 @@ instead of its top level. With a `parentId` or in the gallery, or when it is not
 
 ```ts
 type CarrySelectionResult =
-  | { status: 'ok'; carried: { from: string; to: string }[]; dropped: number }
+  | { status: 'ok'; carried: { from: string; to: string; status: FileStatus }[]; dropped: number }
   | { status: 'error'; error: CloudSyncError }; // SNAPSHOT_NOT_FOUND (either snapshot), INVALID_QUERY
 ```
 
@@ -40,6 +40,8 @@ type CarrySelectionResult =
 - The matching rule is in [data-model.md](../data-model.md#selection-carry-over-r9). It reads only, and
   never touches the server or the files.
 - `from` may be the same as `to`. Then every existing `FILE` entry is carried.
+- Each carried entry also names its `status` in the new snapshot, so the selection takes the new row's status
+  (data-model "Selection carry-over"; a refresh may have promoted it). Its size is the same by the matching rule.
 
 ## Changed: `getScanState` / the last run
 

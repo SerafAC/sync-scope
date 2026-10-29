@@ -147,6 +147,15 @@ export interface Spec extends TurboModule {
     anchor?: Object | null,
   ): Promise<OperationResultDto>;
   /**
+   * Maps the selected entries of one snapshot to the unchanged files of
+   * another, payload keys `carried` and `dropped`; reads only (contract v7).
+   */
+  carrySelection(
+    fromSnapshotId: string,
+    toSnapshotId: string,
+    entryIds: Array<string>,
+  ): Promise<OperationResultDto>;
+  /**
    * Lists the folders under `path` (null or empty: '/') on the server the
    * draft `config` describes, payload key `remoteFolders`. Lists only; never
    * writes and never saves (contract v6).

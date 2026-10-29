@@ -35,6 +35,9 @@ export const REPOSITORY_DEFAULT_PORTS = {
   WEBDAV_HTTPS: 443,
 } as const;
 
+/** carrySelection takes at most this many entry IDs (contract version 7). */
+export const MAX_CARRY_SELECTION_IDS = 50_000;
+
 /** A deletion plan expires this long after prepareLocalDeletion made it (contract version 5). */
 export const MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000;
 
@@ -739,6 +742,28 @@ export interface SelectableEntriesOk {
 }
 
 export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
+
+/**
+ * One selected file carried to a new snapshot (carrySelection, contract v7,
+ * research R9): its entry ID in the old snapshot, its entry ID in the new one,
+ * and its status there (a refresh may have promoted it).
+ */
+export interface CarriedEntry {
+  from: string;
+  to: string;
+  status: FileStatus;
+}
+
+export interface CarrySelectionOk {
+  contractVersion: number;
+  status: 'ok';
+  carried: CarriedEntry[];
+  /** Selected IDs with no unchanged FILE in the new snapshot. */
+  dropped: number;
+}
+
+/** SNAPSHOT_NOT_FOUND (either snapshot) or INVALID_QUERY (`entryIds`) on error. */
+export type CarrySelectionResult = CarrySelectionOk | OperationError;
 
 /** What prepareLocalDeletion found after the server re-check (contract v5). */
 export interface DeletionPlanDto {

@@ -543,6 +543,89 @@ class ScanOperationsTest {
     assertError(ops.listSelectableEntries("snap-old", JavaOnlyMap.of("view", "GALLERY")), "STALE_GENERATION")
   }
 
+  // --- carrySelection (009 contracts/cloudsync-tree-preview.md, research R9) ---
+
+  @Test
+  fun carrySelectionFollowsTheContract() = runBlocking<Unit> {
+    ready()
+    h.remote.dir(REMOTE_ROOT, remoteFile("kept.png", 10L))
+    h.enumerator.files(
+      "src-1",
+      image("doc-kept", "kept.png").copy(sizeBytes = 10L),
+      image("doc-changed", "changed.png").copy(sizeBytes = 20L),
+      image("doc-gone", "gone.png"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val first = h.store.activeSnapshot()!!.snapshotId!!
+    val before = idsByName(first)
+
+    // The next scan: one file changed size, one is gone; entry IDs are new in every scan.
+    h.enumerator.files(
+      "src-1",
+      image("doc-kept", "kept.png").copy(sizeBytes = 10L),
+      image("doc-changed", "changed.png").copy(sizeBytes = 21L),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val second = h.store.activeSnapshot()!!.snapshotId!!
+    assertTrue(first != second)
+    val after = idsByName(second)
+    val clientsBefore = h.remote.created.size
+
+    val result = ops.carrySelection(first, second, JavaOnlyArray.from(before.values.toList()))
+
+    assertEquals("ok", result.getString("status"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, result.getInt("contractVersion"))
+    assertEquals(setOf("contractVersion", "status", "carried", "dropped"), result.toHashMap().keys)
+    val carried = result.getArray("carried")!!
+    assertEquals(1, carried.size())
+    val entry = carried.getMap(0)!!
+    assertEquals(setOf("from", "to", "status"), entry.toHashMap().keys)
+    assertEquals(before.getValue("kept.png"), entry.getString("from"))
+    assertEquals(after.getValue("kept.png"), entry.getString("to"))
+    assertEquals("SYNCED", entry.getString("status"))
+    assertEquals(2.0, result.getDouble("dropped"), 0.0)
+    // It reads the store only: no server connection, and no document ID or URI crosses the bridge.
+    assertEquals(clientsBefore, h.remote.created.size)
+    assertNoPathOrHost(result)
+    val text = dump(result)
+    for (documentId in listOf("doc-kept", "doc-changed", "doc-gone")) {
+      assertFalse("'$documentId' crossed the bridge: $text", text.contains(documentId))
+    }
+
+    // The same snapshot on both sides carries every existing file to itself.
+    val same = ops.carrySelection(second, second, JavaOnlyArray.from(after.values.toList()))
+    assertEquals(after.size, same.getArray("carried")!!.size())
+    assertEquals(0.0, same.getDouble("dropped"), 0.0)
+
+    // Either snapshot missing is SNAPSHOT_NOT_FOUND.
+    for ((from, to) in listOf("no-such-snapshot" to second, first to "no-such-snapshot")) {
+      val gone = ops.carrySelection(from, to, JavaOnlyArray.of(before.getValue("kept.png")))
+      assertError(gone, "SNAPSHOT_NOT_FOUND")
+      assertFalse(gone.hasKey("carried"))
+    }
+
+    // More than 50 000 IDs, or an ID that is not a string, is INVALID_QUERY on entryIds.
+    val tooMany = JavaOnlyArray.from((0..CARRY_MAX_IDS).map { "e$it" })
+    val invalid =
+      listOf(
+        tooMany,
+        JavaOnlyArray.of("e1", 2.0),
+        JavaOnlyArray.of("e1", null),
+        JavaOnlyArray.of(JavaOnlyMap()),
+      )
+    for (ids in invalid) {
+      val error = assertError(ops.carrySelection(first, second, ids), "INVALID_QUERY")
+      assertEquals("entryIds", error.getString("field"))
+    }
+    // Exactly 50 000 is accepted.
+    val atLimit = ops.carrySelection(first, second, JavaOnlyArray.from((1..CARRY_MAX_IDS).map { "e$it" }))
+    assertEquals("ok", atLimit.getString("status"))
+    assertEquals(CARRY_MAX_IDS.toDouble(), atLimit.getDouble("dropped"), 0.0)
+    assertEquals(clientsBefore, h.remote.created.size)
+  }
+
   // --- getScrollIndex ---
 
   @Test
@@ -771,6 +854,12 @@ class ScanOperationsTest {
     }
   }
 
+  /** Every row of [snapshotId] as name → entryId. */
+  private suspend fun idsByName(snapshotId: String): Map<String, String> {
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    return (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
+  }
+
   private fun names(entries: ReadableArray): List<String> = (0 until entries.size()).map { entries.getMap(it)!!.getString("name")!! }
 
   private fun assertError(result: ReadableMap, code: String): ReadableMap {
@@ -819,3 +908,6 @@ class ScanOperationsTest {
       else -> value.toString()
     }
 }
+
+/** contracts/cloudsync-tree-preview.md "carrySelection": at most this many entry IDs. */
+private const val CARRY_MAX_IDS = 50_000

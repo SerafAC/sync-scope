@@ -1,5 +1,6 @@
 package com.syncscope.bridge
 
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
@@ -30,7 +31,7 @@ import com.syncscope.scan.ScanRefused
 
 /**
  * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle /
- * listSelectableEntries / getScrollIndex,
+ * listSelectableEntries / getScrollIndex / carrySelection,
  * resolved as envelopes (contracts/cloudsync-scan.md and cloudsync-browse.md "Behaviour"). No
  * `documentId`, `documentUri`, path or host ever goes into a result: rows are mapped field by field,
  * image handles are cache files named by a hash, and run errors were redacted when they were stored.
@@ -139,6 +140,28 @@ class ScanOperations(
       }
     return envelope.selectable(entries)
   }
+
+  /**
+   * `CarrySelectionResult` (009 contracts/cloudsync-tree-preview.md "carrySelection", research R9): maps the
+   * selected [entryIds] of [fromSnapshotId] to the unchanged files of [toSnapshotId] ([SnapshotStore.carrySelection]).
+   * [entryIds] is null when it was not a list of at most [CloudSyncContracts.MAX_CARRY_SELECTION_IDS] strings
+   * ([entryIdsOf]): `INVALID_QUERY` on `entryIds`. Either snapshot missing or staged is `SNAPSHOT_NOT_FOUND`.
+   * Reads the store only: it never opens a remote connection or touches a file, and returns entry IDs only.
+   */
+  suspend fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: List<String>?): WritableMap {
+    if (entryIds == null) return invalidQuery("entryIds")
+    val carry =
+      try {
+        store().carrySelection(fromSnapshotId, toSnapshotId, entryIds)
+      } catch (_: SnapshotNotFoundException) {
+        return snapshotNotFound()
+      }
+    return envelope.carry(carry)
+  }
+
+  /** [carrySelection] over a bridge array, read on the calling thread. */
+  suspend fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: ReadableArray): WritableMap =
+    carrySelection(fromSnapshotId, toSnapshotId, entryIdsOf(entryIds))
 
   /**
    * `ScrollIndexResult` (contracts/cloudsync-polish.md "getScrollIndex"): the bands of the files [querySpec] shows, in
@@ -421,5 +444,22 @@ class ScanOperations(
 
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)
+  }
+
+  companion object {
+    /**
+     * The entry IDs of a `carrySelection` call, copied from the bridge array; null when there are more than
+     * [CloudSyncContracts.MAX_CARRY_SELECTION_IDS] or any element is not a string.
+     */
+    fun entryIdsOf(array: ReadableArray): List<String>? {
+      val size = array.size()
+      if (size > CloudSyncContracts.MAX_CARRY_SELECTION_IDS) return null
+      val ids = ArrayList<String>(size)
+      for (i in 0 until size) {
+        if (array.getType(i) != ReadableType.String) return null
+        ids += array.getString(i) ?: return null
+      }
+      return ids
+    }
   }
 }
