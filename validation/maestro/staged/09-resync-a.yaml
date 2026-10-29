@@ -1,0 +1,19 @@
+# FR-003, SC-003 (SFTP), part a of a staged line (feature 009,
+# contracts/maestro-tree-preview.md): sets up the SFTP repository on the tree
+# set (<SFTP_ROOT>/scan/tree) and adds its device side, ScanTree, as the only
+# source, without scanning. The host hook
+# remove-recheck-file.sh scan/tree/Album/2025/new.jpg then deletes new.jpg on
+# the server, as if the sync app had not uploaded it yet, before part b scans.
+# Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/09-resync-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+      SCAN: "false"
+- runFlow: ../subflows/open-scan.yaml
+- assertNotVisible: "Scan summary"

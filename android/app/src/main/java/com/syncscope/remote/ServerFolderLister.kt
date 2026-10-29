@@ -24,6 +24,36 @@ sealed interface FolderListing {
 }
 
 /**
+ * Optional controls for one [FolderLister.listFolders] call (the refresh re-check, research R5):
+ *
+ * - [onClient] receives every client the call creates, so a canceller can close it ([com.syncscope.scan.RunControl]);
+ * - [keepGoing] is asked before each folder; once it answers false, no further folder is started and the
+ *   result holds only the folders listed so far (the 20 s budget);
+ * - [onListed] receives each folder's result as soon as it is known, so a caller that stops the call early
+ *   still has them.
+ */
+class ListingHooks(
+  val onClient: (RemoteClient) -> Unit = {},
+  val keepGoing: () -> Boolean = { true },
+  val onListed: (String, FolderListing) -> Unit = { _, _ -> },
+)
+
+/** Read-only listing of server folders; [ServerFolderLister] is the one implementation, tests fake it. */
+interface FolderLister {
+  /**
+   * One [FolderListing] per distinct folder of [folders] that was started, in first-seen order, keyed at
+   * [precisionMillis]. No folders means no connection. A connect failure propagates as its
+   * [RemoteClientException].
+   */
+  suspend fun listFolders(
+    repository: RepositoryConfigEntity,
+    precisionMillis: Long,
+    folders: List<String>,
+    hooks: ListingHooks = ListingHooks(),
+  ): Map<String, FolderListing>
+}
+
+/**
  * Lists server folders read-only, for the pre-delete re-check ([com.syncscope.deletion.DeletionRecheck],
  * D020) and the refresh re-check (research R5, D023). One place owns the connect-and-list rules
  * (Principle III).
@@ -41,13 +71,13 @@ class ServerFolderLister(
   private val credentials: CredentialStore,
   private val clients: RemoteClientFactory,
   private val delay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
-) {
+) : FolderLister {
 
-  /** One [FolderListing] per distinct folder of [folders], in first-seen order, keyed at [precisionMillis]. */
-  suspend fun listFolders(
+  override suspend fun listFolders(
     repository: RepositoryConfigEntity,
     precisionMillis: Long,
     folders: List<String>,
+    hooks: ListingHooks,
   ): Map<String, FolderListing> {
     val distinct = folders.distinct()
     if (distinct.isEmpty()) return emptyMap()
@@ -58,7 +88,9 @@ class ServerFolderLister(
           RepositoryOperations.NOT_CONFIGURED_MESSAGE,
           RepositoryOperations.NOT_CONFIGURED_ACTION,
         )
-    val connect: suspend () -> RemoteClient = { connectRepository(clients, credentials, config, repository.credentialVersion) }
+    val connect: suspend () -> RemoteClient = {
+      connectRepository(clients, credentials, config, repository.credentialVersion, onCreated = hooks.onClient)
+    }
     val initial =
       try {
         connect()
@@ -69,7 +101,8 @@ class ServerFolderLister(
     val listings = LinkedHashMap<String, FolderListing>()
     RemoteSession(initial, connect).use { session ->
       for (folder in distinct) {
-        listings[folder] =
+        if (!hooks.keepGoing()) break
+        val listing =
           try {
             val keys = MatchIndex(precisionMillis)
             listWithRetry(session, folder, delay).forEach { keys.add(it, folder) }
@@ -82,6 +115,8 @@ class ServerFolderLister(
               FolderListing.Unchecked(failure.code)
             }
           }
+        listings[folder] = listing
+        hooks.onListed(folder, listing)
       }
     }
     return listings

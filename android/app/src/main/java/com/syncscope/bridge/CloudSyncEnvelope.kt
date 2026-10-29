@@ -13,6 +13,9 @@ import com.syncscope.persistence.SelectableEntries
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
+import com.syncscope.scan.ScanCoordinator
+import com.syncscope.scan.ScanEngine
+import com.syncscope.scan.ScanRunView
 
 /**
  * Builders for the discriminated envelopes declared by the CloudSync spec
@@ -227,6 +230,48 @@ class CloudSyncEnvelope(
       putNullableNumber("durationMillis", handle.durationMillis)
     }
 
+  /**
+   * `ScanRunDto`: `error` only on FAILED, `cancelReason` only on CANCELLED; `recheckedFolders` and
+   * `promotedFiles` (contract v7) only on a `LOCAL_REFRESH` run that wrote them, `null` otherwise.
+   */
+  fun scanRun(view: ScanRunView): WritableMap {
+    val run = view.run
+    return newMap().apply {
+      putString("runId", run.runId)
+      putDouble("generation", run.generation.toDouble())
+      putString("mode", run.mode)
+      putString("phase", view.phase)
+      putNullableString("terminalState", run.terminalState)
+      putDouble("startedAtMillis", run.startedAtMillis.toDouble())
+      putNullableNumber("finishedAtMillis", run.finishedAtMillis)
+      putMap(
+        "progress",
+        newMap().apply {
+          putDouble("remoteDirectoriesListed", view.progress.remoteDirectoriesListed.toDouble())
+          putDouble("remoteFilesListed", view.progress.remoteFilesListed.toDouble())
+          putDouble("localFilesEnumerated", view.progress.localFilesEnumerated.toDouble())
+          putDouble("localFilesMatched", view.progress.localFilesMatched.toDouble())
+        },
+      )
+      if (run.terminalState == ScanEngine.TERMINAL_FAILED) {
+        putMap(
+          "error",
+          newMap().apply {
+            putString("code", run.errorCode ?: CloudSyncErrorCode.INTERNAL_ERROR.name)
+            putString("message", redact(run.errorSummary ?: run.errorCode ?: "The scan failed."))
+            putNullableString("action", view.failureAction)
+          },
+        )
+      } else {
+        putNull("error")
+      }
+      val reason = run.errorSummary.takeIf { run.terminalState == ScanCoordinator.TERMINAL_CANCELLED && it in CANCEL_REASONS }
+      putNullableString("cancelReason", reason)
+      putNullableNumber("recheckedFolders", run.recheckedFolders)
+      putNullableNumber("promotedFiles", run.promotedFiles)
+    }
+  }
+
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)
   }
@@ -424,6 +469,9 @@ class CloudSyncEnvelope(
 
     /** The recovery action of every INTERNAL_ERROR. */
     const val INTERNAL_ERROR_ACTION = "Retry; if it persists, reconnect the repository."
+
+    /** The `cancelReason` values a CANCELLED run may carry; anything else reads `null`. */
+    private val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
 
     /** The action of a host-key failure during the pre-delete re-check (contracts/cloudsync-mvp.md). */
     const val HOST_KEY_DELETION_ACTION = "Check the server in Settings › Repository."

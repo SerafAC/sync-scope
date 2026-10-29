@@ -485,6 +485,8 @@ describe('CloudSync versioned contract', () => {
         action: null,
       },
       cancelReason: null,
+      recheckedFolders: null,
+      promotedFiles: null,
     };
     const active: ActiveSnapshotDto = {
       snapshotId: 'snap-1',

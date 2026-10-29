@@ -2098,6 +2098,57 @@ test('e2e mode runs the staged pairs after the workspace with hooks in between',
   assert.doesNotMatch(source, /SIZE_[A-Z0-9_]+=[0-9]/);
 });
 
+// Feature 009 T068: staged/09-resync removes the tree set's new.jpg between
+// parts a and b, and part c's hook puts it back. A run interrupted in between
+// must still leave the seeded tree, so cleanup restores it beside the
+// recheck file, under the same SFTP receipt, and a failure marks the
+// restoration failed exactly like the existing call.
+test('cleanup also restores the staged/09 resync file and reports a failed restoration', async () => {
+  const source = await text('scripts/validation/android-flow.sh');
+  const cleanup = source.slice(
+    source.indexOf('cleanup() {'),
+    source.indexOf('trap cleanup EXIT'),
+  );
+  const receipt = cleanup.indexOf('validation_read_receipt "$claims/sftp"');
+  assert.ok(receipt !== -1, 'cleanup restores under the SFTP receipt');
+  const block = cleanup.slice(receipt, cleanup.indexOf('esac', receipt));
+  const recheck = block.indexOf('"$hooks/restore-recheck-file.sh" ||');
+  const resync = block.indexOf(
+    '"$hooks/restore-recheck-file.sh" scan/tree/Album/2025/new.jpg ||',
+  );
+  assert.ok(recheck !== -1, 'the recheck file is still restored');
+  assert.ok(resync > recheck, 'new.jpg is restored beside the recheck file');
+  const call = block.slice(resync);
+  assert.match(
+    call,
+    /^"\$hooks\/restore-recheck-file\.sh" scan\/tree\/Album\/2025\/new\.jpg \|\|\n\s+\{ restoration=failed; \[ "\$status" -ne 0 \] \|\| \{ status=1; failure_code=restoration; \}; \}/,
+    'a failed restore sets restoration=failed like the existing call',
+  );
+  assert.match(
+    block.slice(0, recheck),
+    /SYNCSCOPE_STATE_ROOT=\$staged_state $/,
+    'the recheck restore runs against the staged state',
+  );
+  assert.match(
+    block.slice(recheck, resync),
+    /SYNCSCOPE_STATE_ROOT=\$staged_state $/,
+    'the resync restore runs against the staged state',
+  );
+
+  // The staged line restores it itself; after the staged pairs, so does the runner.
+  const pairs = await readFile(new URL('pairs.txt', STAGED), 'utf8');
+  assert.ok(
+    pairs.includes(
+      'staged/09-resync-a.yaml|remove-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-b.yaml|restore-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-c.yaml',
+    ),
+  );
+  const staged = source.indexOf('run_staged_pairs "$@"');
+  assert.ok(
+    source.indexOf('restore-recheck-file.sh" scan/tree/Album/2025/new.jpg', staged) !== -1,
+    'the e2e run restores new.jpg after the staged pairs',
+  );
+});
+
 test('release-smoke mode follows the contract steps in order', async () => {
   const source = await text('scripts/validation/android-flow.sh');
   const steps = [

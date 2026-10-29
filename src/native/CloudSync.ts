@@ -385,9 +385,35 @@ export async function getScanState(): Promise<ScanStateResult> {
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    run: result.run != null ? (result.run as ScanRunDto) : null,
+    run: scanRunOf(result.run),
     active: activeSnapshotOf(result.active),
   };
+}
+
+/**
+ * The run as native sends it. The re-check counters (contract v7) are read
+ * defensively: missing or malformed is null, which the Scan tab never shows.
+ */
+function scanRunOf(value: unknown): ScanRunDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const run = value as ScanRunDto & {
+    recheckedFolders?: unknown;
+    promotedFiles?: unknown;
+  };
+  return {
+    ...run,
+    recheckedFolders: countOrNull(run.recheckedFolders),
+    promotedFiles: countOrNull(run.promotedFiles),
+  };
+}
+
+/** A non-negative whole count, else null. */
+function countOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
 }
 
 /**

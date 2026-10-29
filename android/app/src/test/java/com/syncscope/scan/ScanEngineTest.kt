@@ -9,6 +9,8 @@ import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.source.SourceAvailability
 import java.text.Normalizer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -426,6 +428,7 @@ class ScanEngineTest {
 
     val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
 
+    // new.txt was not in the active snapshot, so there is nothing to re-check either (FR-003).
     assertEquals("no remote client is created", clients, h.remote.created.size)
     suspend fun keys(id: String) = h.db.remoteMatchKeyDao().forSnapshot(id).map { listOf(it.name, it.sizeBytes, it.bucket, it.duplicateCount, it.precisionMillis, it.directories) }.toSet()
     assertEquals(keys(first), keys(refreshed))
@@ -492,6 +495,168 @@ class ScanEngineTest {
 
     assertThrows(RefreshUnavailable::class.java) { runBlocking { h.engine.begin(ScanMode.LOCAL_REFRESH) } }
     assertEquals(before.runId, h.db.scanRunDao().latest()!!.runId)
+  }
+
+  // --- LOCAL_REFRESH re-check (FR-003, research R5, D023) ---
+
+  /** A full scan of Photos/old.jpg (backed up to REMOTE_ROOT/photos) and Photos/new.jpg (not yet). */
+  private suspend fun scanPhotosWithANewFile(): String {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteDir("photos"))
+    h.remote.dir("$REMOTE_ROOT/photos", remoteFile("old.jpg", 5))
+    h.enumerator.files(
+      "src-1",
+      localDir("d-photos", "Photos"),
+      localFile("d-old", "old.jpg", size = 5, parent = "d-photos"),
+      localFile("d-new", "new.jpg", size = 6, parent = "d-photos"),
+    )
+    val first = (h.scan() as ScanOutcome.Published).snapshotId
+    assertVerdict(h.nodes(first).associateBy { it.name }, "new.jpg", "UNSYNCED", null)
+    return first
+  }
+
+  private suspend fun runOf(snapshotId: String) = h.db.scanRunDao().byId(h.db.snapshotDao().byId(snapshotId)!!.scanRunId)!!
+
+  @Test
+  fun refreshReportsRecheckingRemoteBetweenCopyingTheRemoteStateAndReadingTheDevice() = runBlocking {
+    scanPhotosWithANewFile()
+    val phases = mutableListOf<String>()
+
+    h.scan(ScanMode.LOCAL_REFRESH, ScanProgress(h.clock, onPhase = { phases += it }))
+
+    assertEquals(listOf("COPYING_REMOTE", "RECHECKING_REMOTE", "ENUMERATING_LOCAL", "PUBLISHING", "PUBLISHED"), phases)
+  }
+
+  @Test
+  fun aFileFoundByTheRecheckBecomesSyncedAndTheRunCountsIt() = runBlocking {
+    val first = scanPhotosWithANewFile()
+    // The sync app uploads new.jpg after the scan.
+    h.remote.dir("$REMOTE_ROOT/photos", remoteFile("old.jpg", 5), remoteFile("new.jpg", 6))
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    val nodes = h.nodes(refreshed).associateBy { it.name }
+    assertVerdict(nodes, "new.jpg", "SYNCED", null)
+    assertVerdict(nodes, "old.jpg", "SYNCED", null)
+    val newKey = h.db.remoteMatchKeyDao().forSnapshot(refreshed).single { it.name == "new.jpg" }
+    assertEquals("$REMOTE_ROOT/photos", newKey.directories)
+    assertTrue("the active snapshot's keys are not touched", h.db.remoteMatchKeyDao().forSnapshot(first).none { it.name == "new.jpg" })
+    assertEquals(
+      "the listing's age stays the full scan's",
+      h.db.snapshotDao().byId(first)!!.remoteListedAtMillis,
+      h.db.snapshotDao().byId(refreshed)!!.remoteListedAtMillis,
+    )
+    val run = runOf(refreshed)
+    assertEquals(1L, run.recheckedFolders)
+    assertEquals(1L, run.promotedFiles)
+    assertEquals(2L, h.store.counts(refreshed).single { it.sourceId == null && it.status == "SYNCED" }.count)
+    assertTrue(h.remote.created.all { it.closed })
+  }
+
+  @Test
+  fun aFileTheRecheckDoesNotFindKeepsItsVerdictAndNothingIsDemoted() = runBlocking {
+    scanPhotosWithANewFile()
+    // new.jpg is still missing, and old.jpg has gone from the server since the scan.
+    h.remote.dir("$REMOTE_ROOT/photos")
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    val nodes = h.nodes(refreshed).associateBy { it.name }
+    assertVerdict(nodes, "new.jpg", "UNSYNCED", null)
+    assertVerdict(nodes, "old.jpg", "SYNCED", null)
+    val run = runOf(refreshed)
+    assertEquals(1L, run.recheckedFolders)
+    assertEquals(0L, run.promotedFiles)
+  }
+
+  @Test
+  fun aRecheckFailureStillPublishes() = runBlocking {
+    val first = scanPhotosWithANewFile()
+    h.remote.dir("$REMOTE_ROOT/photos", remoteFile("old.jpg", 5), remoteFile("new.jpg", 6))
+    h.remote.connectFailure = CloudSyncErrorCode.AUTH_FAILED
+
+    val outcome = h.scan(ScanMode.LOCAL_REFRESH)
+
+    val refreshed = (outcome as ScanOutcome.Published).snapshotId
+    assertTrue(refreshed != first)
+    assertEquals(refreshed, h.store.activeSnapshot()!!.snapshotId)
+    assertVerdict(h.nodes(refreshed).associateBy { it.name }, "new.jpg", "UNSYNCED", null)
+    val run = runOf(refreshed)
+    assertEquals("COMPLETED", run.terminalState)
+    assertNull(run.errorCode)
+    assertEquals(0L, run.recheckedFolders)
+    assertEquals(0L, run.promotedFiles)
+  }
+
+  @Test
+  fun aRefreshWithNothingToRecheckDoesNotConnectAndFullRunsHaveNoCounters() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("old.jpg", 5))
+    h.enumerator.files("src-1", localFile("d-old", "old.jpg", size = 5))
+    val first = (h.scan() as ScanOutcome.Published).snapshotId
+    val clients = h.remote.created.size
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    assertEquals("no connection without a re-checkable file", clients, h.remote.created.size)
+    val full = runOf(first)
+    assertNull(full.recheckedFolders)
+    assertNull(full.promotedFiles)
+    val refresh = runOf(refreshed)
+    assertEquals(0L, refresh.recheckedFolders)
+    assertEquals(0L, refresh.promotedFiles)
+  }
+
+  @Test
+  fun promotedFilesCountsRecheckableFilesOfTheActiveSnapshotThatAreSyncedNowPerDocument() = runBlocking {
+    h.configure()
+    h.addSource("src-1")
+    h.remote.dir(REMOTE_ROOT, remoteFile("old.jpg", 5), remoteDir("gone"))
+    h.remote.fail("$REMOTE_ROOT/gone", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    h.enumerator.files(
+      "src-1",
+      localFile("d-old", "old.jpg", size = 5),
+      // UNKNOWN for the unread folder: re-checkable.
+      localFile("d-a", "a.jpg", size = 6),
+      // UNKNOWN for the device: not re-checkable, even once it can be matched.
+      localFile("d-b", "b.jpg", size = null),
+    )
+    h.scan()
+    h.remote.dir(REMOTE_ROOT, remoteFile("old.jpg", 5), remoteFile("a.jpg", 6), remoteFile("b.jpg", 7))
+    h.enumerator.files("src-1", localFile("d-old", "old.jpg", size = 5), localFile("d-a", "a.jpg", size = 6), localFile("d-b", "b.jpg", size = 7))
+
+    val refreshed = (h.scan(ScanMode.LOCAL_REFRESH) as ScanOutcome.Published).snapshotId
+
+    val nodes = h.nodes(refreshed).associateBy { it.name }
+    assertVerdict(nodes, "a.jpg", "SYNCED", null)
+    assertVerdict(nodes, "b.jpg", "SYNCED", null)
+    assertEquals("only a.jpg was re-checkable", 1L, runOf(refreshed).promotedFiles)
+  }
+
+  @Test
+  fun cancellationStopsTheRecheckLikeTheRestOfTheRun() = runBlocking {
+    val first = scanPhotosWithANewFile()
+    h.remote.hold()
+    val phases = mutableListOf<String>()
+    val progress = ScanProgress(h.clock, onPhase = { phases += it })
+    val ticket = h.engine.begin(ScanMode.LOCAL_REFRESH)
+    val control = RunControl()
+
+    val job = async { h.engine.execute(ticket, progress, control) }
+    h.remote.reachedGate.await()
+    control.closeClient()
+    job.cancel()
+
+    job.join()
+
+    assertTrue(job.isCancelled)
+    assertTrue(runCatching { job.await() }.exceptionOrNull() is CancellationException)
+    assertEquals("the local phase never starts", "RECHECKING_REMOTE", phases.last())
+    assertEquals(first, h.store.activeSnapshot()!!.snapshotId)
+    assertTrue(h.remote.created.all { it.closed })
+    h.remote.release()
   }
 
   // --- directory descendant counts (schema version 3) ---

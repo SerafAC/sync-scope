@@ -8,9 +8,12 @@ import com.syncscope.deletion.DeletionState
 import com.syncscope.deletion.FailureView
 import com.syncscope.deletion.GroupTotals
 import com.syncscope.persistence.FileEntry
+import com.syncscope.persistence.ScanRunEntity
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
+import com.syncscope.scan.ScanProgress
+import com.syncscope.scan.ScanRunView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -410,5 +413,49 @@ class CloudSyncEnvelopeTest {
     assertEquals("Check the server.", body.getString("action"))
     assertFalse(body.getString("message")!!.contains("nas.local"))
     assertFalse(body.getString("message")!!.contains("alice"))
+  }
+
+  // --- ScanRunDto (contract v7, FR-003) ---
+
+  private fun run(mode: String, recheckedFolders: Long?, promotedFiles: Long?) =
+    ScanRunEntity(
+      runId = "run-1",
+      generation = 4,
+      configRevision = 1,
+      includeHidden = false,
+      phase = "PUBLISHED",
+      startedAtMillis = 1_000L,
+      finishedAtMillis = 2_000L,
+      terminalState = "COMPLETED",
+      errorCode = null,
+      errorSummary = null,
+      mode = mode,
+      recheckedFolders = recheckedFolders,
+      promotedFiles = promotedFiles,
+    )
+
+  @Test
+  fun aRefreshRunCarriesItsRecheckCounters() {
+    val dto = envelope.scanRun(ScanRunView(run("LOCAL_REFRESH", 3, 2), "PUBLISHED", ScanProgress.Counters(), null))
+
+    assertEquals("run-1", dto.getString("runId"))
+    assertEquals("LOCAL_REFRESH", dto.getString("mode"))
+    assertEquals("PUBLISHED", dto.getString("phase"))
+    assertEquals(3.0, dto.getDouble("recheckedFolders"), 0.0)
+    assertEquals(2.0, dto.getDouble("promotedFiles"), 0.0)
+    assertTrue(dto.isNull("error"))
+    assertTrue(dto.isNull("cancelReason"))
+  }
+
+  @Test
+  fun aFullRunOrARunFromBeforeVersion6HasNullRecheckCounters() {
+    for (row in listOf(run("FULL", null, null), run("LOCAL_REFRESH", null, null))) {
+      val dto = envelope.scanRun(ScanRunView(row, "PUBLISHED", ScanProgress.Counters(), null))
+
+      assertTrue(dto.hasKey("recheckedFolders"))
+      assertTrue(dto.isNull("recheckedFolders"))
+      assertTrue(dto.hasKey("promotedFiles"))
+      assertTrue(dto.isNull("promotedFiles"))
+    }
   }
 }

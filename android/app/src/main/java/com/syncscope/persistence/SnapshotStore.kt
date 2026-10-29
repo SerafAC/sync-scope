@@ -230,6 +230,28 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
     }
   }
 
+  /** Refresh re-check (research R5): the device folders with re-checkable files next to backed-up ones. */
+  suspend fun recheckableNeighbourFolders(snapshotId: String): List<NeighbourFolder> =
+    db.localNodeDao().recheckableNeighbourFolders(snapshotId)
+
+  /** Refresh re-check: the backed-up files of those folders, whose keys name the candidate server folders. */
+  suspend fun syncedNeighbours(snapshotId: String): List<SyncedNeighbour> = db.localNodeDao().syncedNeighbours(snapshotId)
+
+  /** Refresh re-check: adds [keys] to a staged snapshot, leaving any key it already holds as it is. */
+  suspend fun stageMissingMatchKeys(keys: List<RemoteMatchKeyEntity>) {
+    if (keys.isEmpty()) return
+    db.remoteMatchKeyDao().insertMissing(keys)
+  }
+
+  /** Files re-checkable in [fromSnapshotId] and `SYNCED` in [toSnapshotId], per `(sourceId, documentId)`. */
+  suspend fun promotedFiles(fromSnapshotId: String, toSnapshotId: String): Long =
+    db.localNodeDao().promotedCount(fromSnapshotId, toSnapshotId)
+
+  /** Stores a `LOCAL_REFRESH` run's re-check counters (research R5). */
+  suspend fun setRecheckCounts(runId: String, recheckedFolders: Long, promotedFiles: Long) {
+    db.scanRunDao().setRecheckCounts(runId, recheckedFolders, promotedFiles)
+  }
+
   /**
    * LOCAL_REFRESH (research R2, R7): gives the staged [toSnapshotId] the remote side of
    * [fromSnapshotId] in one transaction — every match key, the remote-scope ambiguity rows (never

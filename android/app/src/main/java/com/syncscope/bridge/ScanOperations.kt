@@ -23,12 +23,10 @@ import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.StaleGenerationException
 import com.syncscope.scan.FileStatus
 import com.syncscope.scan.ScanCoordinator
-import com.syncscope.scan.ScanEngine
 import com.syncscope.scan.ScanInProgress
 import com.syncscope.scan.ScanMode
 import com.syncscope.scan.ScanNotFound
 import com.syncscope.scan.ScanRefused
-import com.syncscope.scan.ScanRunView
 
 /**
  * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle /
@@ -87,7 +85,7 @@ class ScanOperations(
     val view = coordinator().state()
     val snapshot = store().activeSnapshot()?.snapshotId?.let { store().snapshot(it) }?.takeIf { it.publishable }
     return envelope.ok().apply {
-      if (view == null) putNull("run") else putMap("run", runDto(view))
+      if (view == null) putNull("run") else putMap("run", envelope.scanRun(view))
       if (snapshot == null) putNull("active") else putMap("active", activeDto(snapshot))
     }
   }
@@ -263,43 +261,6 @@ class ScanOperations(
 
   // --- getScanState ---
 
-  /** `ScanRunDto`: `error` only on FAILED, `cancelReason` only on CANCELLED. */
-  private fun runDto(view: ScanRunView): WritableMap {
-    val run = view.run
-    return envelope.map().apply {
-      putString("runId", run.runId)
-      putDouble("generation", run.generation.toDouble())
-      putString("mode", run.mode)
-      putString("phase", view.phase)
-      putNullableString("terminalState", run.terminalState)
-      putDouble("startedAtMillis", run.startedAtMillis.toDouble())
-      putNullableNumber("finishedAtMillis", run.finishedAtMillis)
-      putMap(
-        "progress",
-        envelope.map().apply {
-          putDouble("remoteDirectoriesListed", view.progress.remoteDirectoriesListed.toDouble())
-          putDouble("remoteFilesListed", view.progress.remoteFilesListed.toDouble())
-          putDouble("localFilesEnumerated", view.progress.localFilesEnumerated.toDouble())
-          putDouble("localFilesMatched", view.progress.localFilesMatched.toDouble())
-        },
-      )
-      if (run.terminalState == ScanEngine.TERMINAL_FAILED) {
-        putMap(
-          "error",
-          envelope.map().apply {
-            putString("code", run.errorCode ?: CloudSyncErrorCode.INTERNAL_ERROR.name)
-            putString("message", CloudSyncEnvelope.redact(run.errorSummary ?: run.errorCode ?: "The scan failed."))
-            putNullableString("action", view.failureAction)
-          },
-        )
-      } else {
-        putNull("error")
-      }
-      val reason = run.errorSummary.takeIf { run.terminalState == ScanCoordinator.TERMINAL_CANCELLED && it in CANCEL_REASONS }
-      putNullableString("cancelReason", reason)
-    }
-  }
-
   /** `ActiveSnapshotDto`; the summary reads `snapshot_counts` and `remote_ambiguity` only, never a full count. */
   private suspend fun activeDto(snapshot: SnapshotEntity): WritableMap {
     val id = snapshot.snapshotId
@@ -460,13 +421,5 @@ class ScanOperations(
 
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)
-  }
-
-  private fun WritableMap.putNullableNumber(key: String, value: Long?) {
-    if (value == null) putNull(key) else putDouble(key, value.toDouble())
-  }
-
-  private companion object {
-    val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
   }
 }

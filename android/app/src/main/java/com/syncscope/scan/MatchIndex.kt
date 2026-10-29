@@ -55,6 +55,34 @@ class MatchIndex(val precisionMillis: Long) {
   fun containsExact(nfcName: String, sizeBytes: Long, bucket: Long): Boolean =
     counts.containsKey(Key(nfcName, sizeBytes, bucket))
 
+  /**
+   * The keys of [listed] that this index does not hold, with their counts and directories, as a new index
+   * (research R5). Neither index changes.
+   */
+  fun keysMissingFrom(listed: MatchIndex): MatchIndex {
+    require(listed.precisionMillis == precisionMillis) { "the listing's precision differs from the index's" }
+    val missing = MatchIndex(precisionMillis)
+    for ((key, count) in listed.counts) {
+      if (counts.containsKey(key)) continue
+      missing.counts[key] = count
+      listed.directories[key]?.let { missing.directories[key] = LinkedHashSet(it) }
+    }
+    return missing
+  }
+
+  /**
+   * Adds every key of [other] this index does not hold, with its count and directories; a key already here
+   * keeps its count and directories (research R5: the refresh re-check never rewrites a stored key).
+   */
+  fun addMissing(other: MatchIndex) {
+    require(other.precisionMillis == precisionMillis) { "the other index's precision differs" }
+    for ((key, count) in other.counts) {
+      if (counts.containsKey(key)) continue
+      counts[key] = count
+      other.directories[key]?.let { directories[key] = LinkedHashSet(it) }
+    }
+  }
+
   fun toRows(snapshotId: String): List<RemoteMatchKeyEntity> =
     counts.map { (key, count) ->
       RemoteMatchKeyEntity(

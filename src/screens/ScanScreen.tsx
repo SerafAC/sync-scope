@@ -15,7 +15,6 @@ import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import type {
   CloudSyncError,
   ScanMode,
-  ScanPhase,
   ScanRunDto,
 } from '../native/CloudSyncContracts';
 import type {
@@ -24,7 +23,7 @@ import type {
 } from '../navigation/AppNavigator';
 import { GoThereButton } from '../navigation/fixTargets';
 import { ScanSummaryCard, formatTimestamp } from '../scan/ScanSummaryCard';
-import { useScan } from '../scan/useScan';
+import { PHASE_TEXT, useScan } from '../scan/useScan';
 import { spacing } from '../theme/spacing';
 import {
   useSetupChecklist,
@@ -35,19 +34,6 @@ import {
 const MODE_TEXT: Record<ScanMode, string> = {
   FULL: 'Full scan',
   LOCAL_REFRESH: 'Local refresh',
-};
-
-const PHASE_TEXT: Record<ScanPhase, string> = {
-  CONNECTING: 'Connecting to the server',
-  LISTING_REMOTE: 'Listing the backup',
-  COPYING_REMOTE: 'Reusing the last backup listing',
-  RECHECKING_REMOTE: 'Checking the server for new backups',
-  ENUMERATING_LOCAL: 'Checking the files on this device',
-  PUBLISHING: 'Saving the results',
-  PUBLISHED: 'Completed',
-  CANCELLED: 'Cancelled',
-  FAILED: 'Failed',
-  ABORTED: 'Stopped when the app closed',
 };
 
 const REPOSITORY_TEXT: Record<Exclude<RepositoryItem, 'ready'>, string> = {
@@ -314,7 +300,7 @@ export function ScanScreen(): React.JSX.Element {
           <OldSettingsNotice />
         ) : null}
         {active != null ? (
-          <ScanSummaryCard active={active} isStale={isStale} />
+          <ScanSummaryCard active={active} isStale={isStale} run={run} />
         ) : null}
       </ScrollView>
       {error != null ? (

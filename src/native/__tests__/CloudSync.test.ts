@@ -386,6 +386,8 @@ const runningRun = {
   },
   error: null,
   cancelReason: null,
+  recheckedFolders: null,
+  promotedFiles: null,
 };
 
 const activeSnapshot = {
@@ -580,6 +582,50 @@ describe('CloudSync scan wrappers', () => {
         expect(result.status).toBe('ok');
         if (result.status === 'ok') {
           expect(result.active?.configRevision).toBe(0);
+        }
+      }
+    });
+
+    it('carries the refresh re-check counters of the run (contract v7)', async () => {
+      const refresh = {
+        ...runningRun,
+        mode: 'LOCAL_REFRESH',
+        phase: 'PUBLISHED',
+        terminalState: 'COMPLETED',
+        recheckedFolders: 3,
+        promotedFiles: 2,
+      };
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 7,
+          status: 'ok',
+          run: refresh,
+          active: null,
+        }),
+      });
+
+      const result = await getScanState();
+
+      expect(result.status === 'ok' && result.run).toEqual(refresh);
+    });
+
+    it('reads missing or malformed re-check counters as null', async () => {
+      for (const value of [undefined, null, '3', Number.NaN, -1]) {
+        mockNative({
+          getScanState: jest.fn().mockResolvedValue({
+            contractVersion: 7,
+            status: 'ok',
+            run: { ...runningRun, recheckedFolders: value, promotedFiles: value },
+            active: null,
+          }),
+        });
+
+        const result = await getScanState();
+
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok') {
+          expect(result.run?.recheckedFolders).toBeNull();
+          expect(result.run?.promotedFiles).toBeNull();
         }
       }
     });

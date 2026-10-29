@@ -31,6 +31,10 @@ interface ScanRunDao {
 
   @Query("SELECT MAX(generation) FROM scan_run") suspend fun maxGeneration(): Long?
 
+  /** A `LOCAL_REFRESH` run's re-check outcome (research R5), written before it publishes. */
+  @Query("UPDATE scan_run SET recheckedFolders = :recheckedFolders, promotedFiles = :promotedFiles WHERE runId = :runId")
+  suspend fun setRecheckCounts(runId: String, recheckedFolders: Long, promotedFiles: Long): Int
+
   /** The run with the highest generation: the running one, else the most recent. */
   @Query("SELECT * FROM scan_run ORDER BY generation DESC LIMIT 1") suspend fun latest(): ScanRunEntity?
 
@@ -205,6 +209,41 @@ interface LocalNodeDao {
   suspend fun decrementDescendantCounts(snapshotId: String, directoryIds: List<String>, status: String): Int
 
   /**
+   * Refresh re-check (research R5): the device folders `(sourceId, parentId)` of [snapshotId] that hold at least
+   * one re-checkable `FILE` ([RECHECKABLE_SQL]) and at least one `SYNCED` one, each with its number of
+   * re-checkable files. A `null` parent is the source root.
+   */
+  @Query(
+    "SELECT r.sourceId AS sourceId, r.parentId AS parentId, COUNT(*) AS count FROM local_node r " +
+      "WHERE r.snapshotId = :snapshotId AND r.kind = 'FILE' AND " + RECHECKABLE_SQL +
+      " AND EXISTS (SELECT 1 FROM local_node s WHERE s.snapshotId = r.snapshotId AND s.sourceId = r.sourceId " +
+      "AND s.parentId IS r.parentId AND s.kind = 'FILE' AND s.status = 'SYNCED') " +
+      "GROUP BY r.sourceId, r.parentId"
+  )
+  suspend fun recheckableNeighbourFolders(snapshotId: String): List<NeighbourFolder>
+
+  /** Refresh re-check: the `SYNCED` files of [snapshotId] that share a device folder with a re-checkable one. */
+  @Query(
+    "SELECT s.sourceId AS sourceId, s.parentId AS parentId, s.name AS name, s.sizeBytes AS sizeBytes, " +
+      "s.modifiedUtcMillis AS modifiedUtcMillis FROM local_node s " +
+      "WHERE s.snapshotId = :snapshotId AND s.kind = 'FILE' AND s.status = 'SYNCED' " +
+      "AND EXISTS (SELECT 1 FROM local_node r WHERE r.snapshotId = s.snapshotId AND r.sourceId = s.sourceId " +
+      "AND r.parentId IS s.parentId AND r.kind = 'FILE' AND " + RECHECKABLE_SQL + ")"
+  )
+  suspend fun syncedNeighbours(snapshotId: String): List<SyncedNeighbour>
+
+  /**
+   * Refresh re-check counter: the `FILE`s re-checkable in [fromSnapshotId] that are `SYNCED` in [toSnapshotId],
+   * matched per `(sourceId, documentId)`.
+   */
+  @Query(
+    "SELECT COUNT(*) FROM local_node s JOIN local_node r ON r.snapshotId = :fromSnapshotId " +
+      "AND r.sourceId = s.sourceId AND r.documentId = s.documentId AND r.kind = 'FILE' " +
+      "WHERE s.snapshotId = :toSnapshotId AND s.kind = 'FILE' AND s.status = 'SYNCED' AND " + RECHECKABLE_SQL
+  )
+  suspend fun promotedCount(fromSnapshotId: String, toSnapshotId: String): Long
+
+  /**
    * The document behind a media `FILE` row (an image or a video, [MediaKind.SQL_MEDIA]), for local image
    * handles; null for a directory, a non-media file or an unknown entry.
    */
@@ -214,6 +253,26 @@ interface LocalNodeDao {
   )
   suspend fun mediaEntry(snapshotId: String, entryId: String): MediaEntry?
 }
+
+/**
+ * A re-checkable `FILE` row aliased `r` (research R5): `UNSYNCED`, or `UNKNOWN` for a reason a server listing
+ * can change, so not `LOCAL_UNAVAILABLE` (the device) nor `REMOTE_MTIME_MISSING` (the server gave no time).
+ */
+const val RECHECKABLE_SQL =
+  "(r.status = 'UNSYNCED' OR (r.status = 'UNKNOWN' AND (r.issueCode IS NULL OR " +
+    "r.issueCode NOT IN ('LOCAL_UNAVAILABLE', 'REMOTE_MTIME_MISSING'))))"
+
+/** A device folder holding re-checkable files next to backed-up ones, with the re-checkable count. */
+data class NeighbourFolder(val sourceId: String, val parentId: String?, val count: Long)
+
+/** A backed-up file in a [NeighbourFolder]: what its match key is computed from. */
+data class SyncedNeighbour(
+  val sourceId: String,
+  val parentId: String?,
+  val name: String,
+  val sizeBytes: Long?,
+  val modifiedUtcMillis: Long?,
+)
 
 /** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
 data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isMedia: Boolean)
@@ -268,6 +327,13 @@ interface RemoteNodeDao {
 @Dao
 interface RemoteMatchKeyDao {
   @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAll(keys: List<RemoteMatchKeyEntity>)
+
+  /**
+   * The refresh re-check's one exception to ABORT (research R5): `INSERT OR IGNORE` on the unique
+   * `(snapshotId, name, sizeBytes, precisionMillis, bucket)`, so a key already there keeps its
+   * `duplicateCount` and `directories`.
+   */
+  @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertMissing(keys: List<RemoteMatchKeyEntity>)
 
   @Query("SELECT COUNT(*) FROM remote_match_key WHERE snapshotId = :snapshotId")
   suspend fun countFor(snapshotId: String): Long

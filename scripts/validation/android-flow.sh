@@ -109,6 +109,11 @@ cleanup() {
     restoration=passed
     SYNCSCOPE_STATE_ROOT=$staged_state "$hooks/restore-recheck-file.sh" ||
       { restoration=failed; [ "$status" -ne 0 ] || { status=1; failure_code=restoration; }; }
+    # staged/09-resync (feature 009) removes the tree set's new.jpg between its
+    # parts a and b; a run stopped before part c's hook must still leave the
+    # seeded tree for the services' before-manifest check.
+    SYNCSCOPE_STATE_ROOT=$staged_state "$hooks/restore-recheck-file.sh" scan/tree/Album/2025/new.jpg ||
+      { restoration=failed; [ "$status" -ne 0 ] || { status=1; failure_code=restoration; }; }
     ;;
   esac
   if [ -n "$keystore_dir" ]; then
@@ -642,6 +647,7 @@ EOF
       validation_phase_begin "$api" staged
       run_staged_pairs "$@"
       SYNCSCOPE_STATE_ROOT=$staged_state "$hooks/restore-recheck-file.sh"
+      SYNCSCOPE_STATE_ROOT=$staged_state "$hooks/restore-recheck-file.sh" scan/tree/Album/2025/new.jpg
       validation_phase_end 0
     elif [ "$mode" = measure ]; then
       # adb shell forwards stdin. Keep the frozen schedule off descriptor 0 so

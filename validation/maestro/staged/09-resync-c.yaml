@@ -1,0 +1,45 @@
+# FR-003, SC-003 (SFTP), part c of a staged line: runs after
+# restore-recheck-file.sh put Album/2025/new.jpg back on the server (the sync
+# app uploaded it after the scan). No state reset and no full scan: launchApp
+# relaunches the app, and opening it starts the automatic local refresh. The
+# refresh re-checks the server folder of new.jpg's backed-up neighbours
+# (b1.jpg, clip.mp4), finds new.jpg there and shows it Synced; the summary
+# card says so.
+appId: com.syncscope
+name: staged/09-resync-c
+---
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+- extendedWaitUntil:
+    visible: "Local refresh"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Completed .+"
+    timeout: 60000
+- assertNotVisible: "Full scan"
+- assertNotVisible: "Scan failed"
+- assertVisible: "Re-checked 1 server folder, 1 file now backed up"
+
+# The same folder in list view: new.jpg is backed up now.
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder 2025(, .+)?"
+    timeout: 15000
+- tapOn: "Folder 2025(, .+)?"
+- extendedWaitUntil:
+    visible: "new\\.jpg, Synced"
+    timeout: 15000
+- assertNotVisible: "new\\.jpg, Unsynced"
+- assertVisible: "b1\\.jpg, Synced"

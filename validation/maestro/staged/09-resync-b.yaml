@@ -1,0 +1,53 @@
+# FR-003, SC-003 (SFTP), part b of a staged line: runs after
+# remove-recheck-file.sh deleted Album/2025/new.jpg from the server's tree set.
+# No state reset: the repository and the ScanTree source from part a stay.
+# A full scan, then list view in ScanTree/Album/2025. The folder must hold
+# b1.jpg, new.jpg and clip.mp4 on the device first (any status), so a missing
+# device fixture fails here, clearly, rather than as a wrong status. new.jpg is
+# then Unsynced, next to its backed-up neighbours b1.jpg and clip.mp4. The
+# host hook restore-recheck-file.sh scan/tree/Album/2025/new.jpg then puts it
+# back on the server, as the sync app uploading it, before part c.
+appId: com.syncscope
+name: staged/09-resync-b
+---
+- launchApp
+- runFlow: ../subflows/open-scan.yaml
+- runFlow: ../subflows/start-scan.yaml
+- assertVisible: "Full scan"
+- assertVisible: "Completed .+"
+- assertVisible: "Scan summary"
+- assertNotVisible: "Scan failed"
+
+# List view → ScanTree → Album → 2025.
+- runFlow: ../subflows/open-files.yaml
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder 2025(, .+)?"
+    timeout: 15000
+- tapOn: "Folder 2025(, .+)?"
+- extendedWaitUntil:
+    visible: "Breadcrumb 2025"
+    timeout: 15000
+
+# The device side of the fixture is complete.
+- extendedWaitUntil:
+    visible: "b1\\.jpg, (Synced|Unsynced|Unknown)(, .+)?"
+    timeout: 15000
+- assertVisible: "new\\.jpg, (Synced|Unsynced|Unknown)(, .+)?"
+- assertVisible: "clip\\.mp4, (Synced|Unsynced|Unknown)(, .+)?"
+
+# new.jpg is not on the server; its neighbours are.
+- assertVisible: "new\\.jpg, Unsynced"
+- assertVisible: "b1\\.jpg, Synced"
+- assertVisible: "clip\\.mp4, Synced"

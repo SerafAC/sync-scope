@@ -844,6 +844,16 @@ export interface ScanRunDto {
   error: CloudSyncError | null;
   /** CANCELLED only. */
   cancelReason: 'USER' | 'BACKGROUNDED' | null;
+  /**
+   * LOCAL_REFRESH only (contract v7, FR-003): the server folders the refresh
+   * re-check listed. null on FULL runs and on runs from before the re-check.
+   */
+  recheckedFolders: number | null;
+  /**
+   * LOCAL_REFRESH only (contract v7): the files not backed up before the
+   * refresh that it found backed up. null where `recheckedFolders` is.
+   */
+  promotedFiles: number | null;
 }
 
 export interface SkippedSourceDto {

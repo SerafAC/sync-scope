@@ -224,6 +224,30 @@ class ServerFolderListerTest {
     assertTrue("the session is closed", server.clients.all { it.closed })
   }
 
+  @Test
+  fun hooksSeeEachClientAndEachResultAndKeepGoingStopsBeforeTheNextFolder() = runBlocking {
+    server.ok("/backup/a", file("a.jpg", 1))
+    server.fail("/backup/b", CloudSyncErrorCode.DIRECTORY_UNREADABLE)
+    server.ok("/backup/c", file("c.jpg", 3))
+    val clients = mutableListOf<RemoteClient>()
+    val seen = mutableListOf<Pair<String, FolderListing>>()
+
+    val result =
+      lister.listFolders(
+        repository,
+        PRECISION,
+        listOf("/backup/a", "/backup/b", "/backup/c"),
+        ListingHooks(onClient = { clients += it }, keepGoing = { seen.size < 2 }, onListed = { folder, listing -> seen += folder to listing }),
+      )
+
+    assertEquals(server.clients.toList(), clients)
+    assertEquals(listOf("/backup/a", "/backup/b"), seen.map { it.first })
+    assertEquals("the folder after the budget ran out is never listed", listOf("/backup/a", "/backup/b"), server.listed)
+    assertEquals(seen.toMap(), result)
+    assertTrue(result.getValue("/backup/a") is FolderListing.Listed)
+    assertTrue(server.clients.all { it.closed })
+  }
+
   // --- helpers ---
 
   private fun file(name: String, size: Long, mtime: Long? = MTIME) = RemoteEntry(name, size, mtime, RemoteEntryType.REGULAR_FILE)
