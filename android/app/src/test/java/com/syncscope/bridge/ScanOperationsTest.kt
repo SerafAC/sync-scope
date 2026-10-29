@@ -517,6 +517,19 @@ class ScanOperationsTest {
     val top = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1")))
     assertEquals(setOf(idOf.getValue("solo.png")), top.keys)
 
+    // wholeSource (009 R11): every file of the source at any depth, only for a LIST query without a folder.
+    val whole = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", true)))
+    assertEquals(setOf(idOf.getValue("a.png"), idOf.getValue("notes.txt"), idOf.getValue("solo.png")), whole.keys)
+    val notWhole = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", false)))
+    assertEquals(setOf(idOf.getValue("solo.png")), notWhole.keys)
+    for (bad in listOf(
+      JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "parentId", idOf.getValue("Photos"), "wholeSource", true),
+      JavaOnlyMap.of("view", "GALLERY", "wholeSource", true),
+      JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", "yes"),
+    )) {
+      assertEquals("wholeSource", assertError(ops.listSelectableEntries(snapshotId, bad), "INVALID_QUERY").getString("field"))
+    }
+
     // The query is validated as queryFiles does, and a LIST selection names its source.
     assertEquals("filter", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("filter", "SIDEWAYS")), "INVALID_QUERY").getString("field"))
     assertEquals("sourceId", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST")), "INVALID_QUERY").getString("field"))

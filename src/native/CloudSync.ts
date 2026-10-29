@@ -497,7 +497,8 @@ export function localImageHandleOf(raw: unknown): LocalImageHandleDto | null {
 /**
  * Every FILE row [querySpec] would show in the active snapshot [snapshotId], for
  * "Select all" (contract v5). Native ignores `pageSize`, `sort` and `search`; a
- * LIST query needs its `sourceId` and `parentId` (null: the source's top level).
+ * LIST query needs its `sourceId` and `parentId` (null: the source's top level,
+ * or with `wholeSource` every file of the source at any depth, 009 R11).
  * The four arrays must be parallel: a length mismatch or a malformed value is
  * INTERNAL_ERROR, never a partial selection. An unknown size (`-1`) becomes null.
  */

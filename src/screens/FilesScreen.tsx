@@ -27,6 +27,7 @@ import { useSelection } from '../selection/SelectionProvider';
 import { spacing } from '../theme/spacing';
 import { GalleryScreen } from './GalleryScreen';
 import { ListScreen, type ListFolder } from './ListScreen';
+import { TreeScreen } from './TreeScreen';
 
 export const RESULTS_UPDATED = 'Results updated';
 
@@ -79,9 +80,12 @@ function SelectAllButton({
 }
 
 /**
- * What "Select all" covers (FR-015): in the gallery, every image under the
- * filter; in the list, the open folder's direct files under the filter.
- * Null at the list's sources level, where there is nothing to select.
+ * What "Select all" covers (FR-015) in a view with one scope: in the
+ * gallery, every image under the filter; in the list, the open folder's
+ * direct files under the filter (the source's top level when `parentId` is
+ * null). Null at the list's sources level, where there is nothing to
+ * select, and in the tree, which has one query per source
+ * (`selectAllQueries`).
  */
 export function selectAllQuery(
   view: FilesView,
@@ -96,7 +100,7 @@ export function selectAllQuery(
       pageSize: PAGED_QUERY_PAGE_SIZE,
     };
   }
-  if (listFolder == null) {
+  if (view === 'TREE' || listFolder == null) {
     return null;
   }
   return {
@@ -110,13 +114,40 @@ export function selectAllQuery(
 }
 
 /**
+ * The queries "Select all" runs and merges (FR-015). The tree has no single
+ * current folder, so it runs the list view's query at the root of every
+ * source shown, never scoped to a folder, with `wholeSource` so it takes
+ * every matching file of the source at any depth (009 research R11, decision
+ * log 2026-10-29); the other views run their one `selectAllQuery`. Empty
+ * when there is nothing to select.
+ */
+export function selectAllQueries(
+  view: FilesView,
+  filter: QuerySpec['filter'],
+  listFolder: ListFolder | null,
+  sourceIds: readonly string[],
+): readonly QuerySpec[] {
+  if (view === 'TREE') {
+    return sourceIds.flatMap(sourceId => {
+      const query = selectAllQuery('LIST', filter, {
+        sourceId,
+        parentId: null,
+      });
+      return query == null ? [] : [{ ...query, wholeSource: true }];
+    });
+  }
+  const query = selectAllQuery(view, filter, listFolder);
+  return query == null ? [] : [query];
+}
+
+/**
  * Selection mode (FR-015, FR-016): while files are selected, the bottom tabs
  * are hidden (the selection bar takes their place), the top bar holds
  * "Clear selection" ✕ and "Select all", and back clears the selection.
  * Everything is restored when the selection ends.
  */
 function useSelectionMode(
-  selectQuery: QuerySpec | null,
+  selectQueries: readonly QuerySpec[],
   focused: boolean,
 ): void {
   const navigation =
@@ -133,8 +164,8 @@ function useSelectionMode(
       return;
     }
     const onSelectAll = () => {
-      if (selectQuery != null) {
-        selectAll(selectQuery);
+      if (selectQueries.length > 0) {
+        selectAll(selectQueries);
       }
     };
     navigation.setOptions({
@@ -142,12 +173,12 @@ function useSelectionMode(
       headerLeft: () => <ClearSelectionButton onClear={clear} />,
       headerRight: () => (
         <SelectAllButton
-          disabled={selectQuery == null || selectingAll}
+          disabled={selectQueries.length === 0 || selectingAll}
           onSelectAll={onSelectAll}
         />
       ),
     });
-  }, [navigation, isSelecting, selectingAll, selectQuery, selectAll, clear]);
+  }, [navigation, isSelecting, selectingAll, selectQueries, selectAll, clear]);
 
   useEffect(() => {
     if (!isSelecting || !focused) {
@@ -186,10 +217,10 @@ function NoScanResults(): React.JSX.Element {
 
 /**
  * The Files tab: the sort drop-down with the view drop-down right of it
- * (FR-001), the shared filter chips below them, and both views. The sort
- * drop-down shows and edits the visible view's own sort (FR-003). The views
+ * (FR-001), the shared filter chips below them, and the three views
+ * (gallery, list, tree). The sort drop-down shows and edits the visible view's own sort (FR-003). The views
  * mount once the remembered view and sorts are read, so their first read
- * already uses the remembered sort. Both stay mounted and only the active
+ * already uses the remembered sort. All stay mounted and only the active
  * one is shown, so each keeps its scroll position and folder across a switch
  * (Story 1 sc. 8). When a view's rows are
  * replaced by a new snapshot, a "Results updated" snackbar is shown (FR-005)
@@ -202,7 +233,7 @@ function NoScanResults(): React.JSX.Element {
  * While files are selected, the selection bar replaces the bottom tabs
  * (`useSelectionMode`), and a snackbar says when a new scan result cleared
  * the selection. `Delete selected` opens the delete dialog for the selection;
- * after a deletion the removed files leave the selection and both views
+ * after a deletion the removed files leave the selection and every view
  * reload page 1 in place, keeping their folder and filter (research R14).
  */
 export function FilesScreen({
@@ -233,12 +264,18 @@ export function FilesScreen({
       setCounts(current => ({ ...current, LIST: next })),
     [],
   );
-  const [listFolder, setListFolder] = useState<ListFolder | null>(null);
-  const selectQuery = useMemo(
-    () => selectAllQuery(view, filter, listFolder),
-    [view, filter, listFolder],
+  const onTreeCounts = useCallback(
+    (next: StatusCountDto[] | null) =>
+      setCounts(current => ({ ...current, TREE: next })),
+    [],
   );
-  useSelectionMode(selectQuery, focused);
+  const [listFolder, setListFolder] = useState<ListFolder | null>(null);
+  const sourceIds = useMemo(() => [...aliases.keys()], [aliases]);
+  const selectQueries = useMemo(
+    () => selectAllQueries(view, filter, listFolder, sourceIds),
+    [view, filter, listFolder, sourceIds],
+  );
+  useSelectionMode(selectQueries, focused);
 
   const [deletion, setDeletion] = useState<DeletionTarget | null>(null);
   // Bumped by every finished deletion, here or in the preview (research R14).
@@ -322,6 +359,16 @@ export function FilesScreen({
               onCountsChange={onListCounts}
               onFolderChange={setListFolder}
               visible={view === 'LIST' && showViews}
+            />
+          </View>
+          <View
+            style={view === 'TREE' && showViews ? styles.view : styles.hidden}
+            testID="files-tree"
+          >
+            <TreeScreen
+              {...shared}
+              onCountsChange={onTreeCounts}
+              visible={view === 'TREE' && showViews}
             />
           </View>
         </>

@@ -5,7 +5,7 @@ import {
   screen,
   within,
 } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { FlatList, Text } from 'react-native';
 import { MD3LightTheme, PaperProvider } from 'react-native-paper';
 
 import { getBrowsePreferences } from '../../native/CloudSync';
@@ -18,6 +18,7 @@ import {
 import { a11ySweep } from '../../test-utils/a11ySweep';
 import { density, spacing } from '../../theme/spacing';
 import { FilesProvider } from '../FilesProvider';
+import { useFiles } from '../useFiles';
 import { TreeView, type TreeViewProps } from '../TreeView';
 import type {
   TreeFileRow,
@@ -159,6 +160,7 @@ function renderTree(overrides: Partial<TreeViewProps['tree']> = {}) {
     toggle: jest.fn(),
     loadMore: jest.fn(),
     anchorIndex: null,
+    anchorGeneration: 0,
     ...overrides,
   };
   const result = render(
@@ -362,5 +364,147 @@ describe('TreeView', () => {
 
     fireEvent(screen.getByLabelText('a1.jpg, Synced'), 'longPress');
     a11ySweep(result);
+  });
+});
+
+describe('TreeView keeps the place on new results (T057, 007 FR-014)', () => {
+  /** Shows the tree state's anchor, as `FilesProvider` holds it. */
+  function AnchorProbe(): React.JSX.Element {
+    const { tree } = useFiles();
+    return <Text testID="anchor">{JSON.stringify(tree.anchor)}</Text>;
+  }
+
+  function ui(
+    anchorIndex: number | null,
+    visible: boolean,
+    anchorGeneration = anchorIndex == null ? 0 : 1,
+  ) {
+    return (
+      <PaperProvider theme={MD3LightTheme}>
+        <ScanContext.Provider value={scanState('snap-1')}>
+          <FilesProvider>
+            <SelectionProvider>
+              <TreeView
+                filter="ALL"
+                snapshotId="snap-1"
+                tree={{
+                  rows: ROWS,
+                  toggle: jest.fn(),
+                  loadMore: jest.fn(),
+                  anchorIndex,
+                  anchorGeneration,
+                }}
+                visible={visible}
+              />
+              <AnchorProbe />
+            </SelectionProvider>
+          </FilesProvider>
+        </ScanContext.Provider>
+      </PaperProvider>
+    );
+  }
+
+  function layout(height: number) {
+    fireEvent(screen.getByTestId('tree-rows'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 360, height } },
+    });
+  }
+
+  function scrollEnd(event: 'scrollEndDrag' | 'momentumScrollEnd', y: number) {
+    fireEvent(screen.getByTestId('tree-rows'), event, {
+      nativeEvent: {
+        contentOffset: { x: 0, y },
+        contentSize: { width: 360, height: ROWS.length * density.rowHeight },
+        layoutMeasurement: { width: 360, height: 112 },
+      },
+    });
+  }
+
+  it("records the first visible row's name path when a scroll settles", () => {
+    render(ui(null, true));
+    expect(screen.getByTestId('anchor')).toHaveTextContent('null');
+
+    scrollEnd('momentumScrollEnd', 3 * density.rowHeight + 10);
+    expect(screen.getByTestId('anchor')).toHaveTextContent(
+      JSON.stringify(['s-1', 'Album', '2024', 'a1.jpg']),
+    );
+
+    // Less than a point of a row on screen is not that row.
+    scrollEnd('scrollEndDrag', 5 * density.rowHeight - 0.5);
+    expect(screen.getByTestId('anchor')).toHaveTextContent(
+      JSON.stringify(['s-1', 'Album', 'Docs']),
+    );
+
+    // Back at the top there is no place to keep.
+    scrollEnd('scrollEndDrag', 0);
+    expect(screen.getByTestId('anchor')).toHaveTextContent('null');
+  });
+
+  it('scrolls back to the re-found anchor once', () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, 'scrollToIndex')
+      .mockImplementation(() => {});
+    try {
+      const { rerender } = render(ui(null, true));
+      layout(112);
+      expect(scrollToIndex).not.toHaveBeenCalled();
+
+      rerender(ui(6, true));
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+      expect(scrollToIndex).toHaveBeenCalledWith({ index: 6, animated: false });
+
+      rerender(ui(6, true));
+      layout(200);
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  it('scrolls back on every re-find, also when it lands on the same index', () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, 'scrollToIndex')
+      .mockImplementation(() => {});
+    try {
+      const { rerender } = render(ui(null, true));
+      layout(112);
+
+      rerender(ui(6, true, 1));
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+
+      // The user scrolls to another row, and the next snapshot shortens the
+      // rows above it so that it is re-found at index 6 again.
+      scrollEnd('momentumScrollEnd', 2 * density.rowHeight);
+      rerender(ui(6, true, 2));
+      expect(scrollToIndex).toHaveBeenCalledTimes(2);
+      expect(scrollToIndex).toHaveBeenLastCalledWith({
+        index: 6,
+        animated: false,
+      });
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  it('a hidden tree scrolls to the anchor once it is shown and laid out', () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, 'scrollToIndex')
+      .mockImplementation(() => {});
+    try {
+      const { rerender } = render(ui(null, false));
+      layout(0);
+
+      rerender(ui(4, false));
+      expect(scrollToIndex).not.toHaveBeenCalled();
+
+      rerender(ui(4, true));
+      expect(scrollToIndex).not.toHaveBeenCalled();
+      layout(112);
+
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+      expect(scrollToIndex).toHaveBeenCalledWith({ index: 4, animated: false });
+    } finally {
+      scrollToIndex.mockRestore();
+    }
   });
 });

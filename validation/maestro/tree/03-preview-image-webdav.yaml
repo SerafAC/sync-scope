@@ -7,11 +7,11 @@
 # edge), and Back returns to the same view and place.
 # Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
 #
-# This file holds the gallery and list-view steps (tasks.md T045). The tree
-# step is added as the last step by T061, once tree view exists.
+# The gallery and list-view steps are tasks.md T045, the tree step T061.
 #
 # The tree set has 9 media files (8 JPEGs and clip.mp4), so the whole gallery
-# fits one screen and Loose.jpg needs no scrolling in either view.
+# fits one screen and Loose.jpg needs no scrolling in any view: in the tree it
+# is the fourth row, after ScanTree, Album and Empty.
 appId: com.syncscope
 name: tree/03-preview-image-webdav
 ---
@@ -79,4 +79,37 @@ name: tree/03-preview-image-webdav
     timeout: 15000
 - assertVisible: "View: List"
 - assertVisible: "Breadcrumb ScanTree"
+- assertVisible: "Loose\\.jpg, .+"
+
+# 3. Tree view: expand ScanTree, tap Loose.jpg → the preview; Back → still in
+# tree view, ScanTree expanded, with the row on screen.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Expand ScanTree"
+    timeout: 15000
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Loose\\.jpg, .+"
+    timeout: 15000
+- tapOn: "Loose\\.jpg, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-image"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "preview-image-full"
+    timeout: 15000
+- assertNotVisible: "This file is no longer on the device"
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: Tree"
+- assertVisible: "Collapse ScanTree"
+- assertVisible: "Folder Album(, .+)?"
 - assertVisible: "Loose\\.jpg, .+"

@@ -876,6 +876,26 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     media: [true, true, false],
   };
 
+  it('passes a whole-source tree query through unchanged (009 R11)', async () => {
+    const native = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: v, status: 'ok', selectable: wire });
+    mockNative({ listSelectableEntries: native });
+    const tree = {
+      filter: 'UNSYNCED',
+      view: 'LIST',
+      sort: 'NAME_ASC',
+      sourceId: 's-1',
+      parentId: null,
+      wholeSource: true,
+    } as const;
+
+    const result = await listSelectableEntries('snap-1', tree);
+
+    expect(native).toHaveBeenCalledWith('snap-1', tree);
+    expect(result.status).toBe('ok');
+  });
+
   it('passes the snapshot and query through and maps -1 to null', async () => {
     const native = jest.fn().mockResolvedValue({
       contractVersion: v,

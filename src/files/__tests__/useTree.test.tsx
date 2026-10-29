@@ -756,6 +756,35 @@ describe('useTree', () => {
       rowAt(rows, ['s-1', 'Album', '2025', 'new.jpg']),
     );
     expect(result.current.tree.snapshotChanged).toBe(true);
+    expect(result.current.tree.anchorGeneration).toBe(1);
+  });
+
+  it('gives each re-find a new generation, also at the same index', async () => {
+    const read = fakeReader({
+      'snap-1': SNAP_1,
+      'snap-2': SNAP_1,
+      'snap-3': SNAP_1,
+    });
+    const { result, rerender } = setup({
+      read,
+      initialState: {
+        expanded: [['s-1'], ['s-1', 'Album'], ['s-1', 'Album', '2024']],
+        anchor: ['s-1', 'Album', '2024', 'a2.jpg'],
+      },
+    });
+    await waitFor(() =>
+      expect(shape(result.current.tree.rows)).toContain('file:3:a2.jpg'),
+    );
+    expect(result.current.tree.anchorGeneration).toBe(0);
+
+    rerender({ snapshotId: 'snap-2' });
+    await waitFor(() => expect(result.current.tree.anchorGeneration).toBe(1));
+    const first = result.current.tree.anchorIndex;
+    expect(first).not.toBeNull();
+
+    rerender({ snapshotId: 'snap-3' });
+    await waitFor(() => expect(result.current.tree.anchorGeneration).toBe(2));
+    expect(result.current.tree.anchorIndex).toBe(first);
   });
 
   it('re-finds the deepest remaining ancestor when the anchor row is gone', async () => {

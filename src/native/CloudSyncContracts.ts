@@ -454,6 +454,13 @@ export interface QuerySpec {
   pageSize?: number | null;
   /** Narrows the rows to folders or files; part of the token fingerprint (contract v6, research R3). */
   kind?: FileKind | null;
+  /**
+   * `listSelectableEntries` only (009 research R11, the tree view's "Select
+   * all"): every matching file of `sourceId` at any depth instead of its top
+   * level. Needs a LIST query without `parentId`, otherwise INVALID_QUERY.
+   * Page reads ignore it.
+   */
+  wholeSource?: boolean | null;
 }
 
 export interface FileEntryDto {

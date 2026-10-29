@@ -123,6 +123,12 @@ export interface UseTreeResult {
    * of `state.anchor`, or of its deepest ancestor still there. Null otherwise.
    */
   anchorIndex: number | null;
+  /**
+   * Counts the re-finds of the anchor: a new value on every re-find, even when
+   * the re-found row sits at the same index as the last one, so the view
+   * scrolls back each time (the user may have scrolled away in between).
+   */
+  anchorGeneration: number;
   /** Rows were shown and the active snapshot changed: show "Results updated". */
   snapshotChanged: boolean;
   acknowledgeSnapshotChange: () => void;
@@ -248,7 +254,10 @@ export function useTree({
     shown: false,
   });
   const [version, setVersion] = useState(0);
-  const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
+  const [anchorFind, setAnchorFind] = useState<{
+    index: number | null;
+    generation: number;
+  }>({ index: null, generation: 0 });
   const [snapshotChanged, setSnapshotChanged] = useState(false);
   const mounted = useRef(true);
   const latest = useRef({
@@ -538,7 +547,9 @@ export function useTree({
       store.relocating = true;
       setSnapshotChanged(true);
     }
-    setAnchorIndex(null);
+    setAnchorFind(previous =>
+      previous.index == null ? previous : { ...previous, index: null },
+    );
     bump();
   }, [scopeKey, snapshotId, reset, bump]);
 
@@ -670,7 +681,10 @@ export function useTree({
           samePath(row.path, wanted),
       );
       if (index >= 0) {
-        setAnchorIndex(index);
+        setAnchorFind(previous => ({
+          index,
+          generation: previous.generation + 1,
+        }));
         return;
       }
     }
@@ -761,7 +775,8 @@ export function useTree({
     loadMore,
     error,
     retry,
-    anchorIndex,
+    anchorIndex: anchorFind.index,
+    anchorGeneration: anchorFind.generation,
     snapshotChanged,
     acknowledgeSnapshotChange,
   };

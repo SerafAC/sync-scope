@@ -5,12 +5,13 @@
 # long, so it reads "0:02" (formatDuration).
 # Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
 #
-# This file holds the gallery and list-view steps (tasks.md T034) and the
-# preview steps (T046). The tree-row step is added by T061.
+# The gallery and list-view steps are tasks.md T034, the tree-row step
+# T061 and the preview steps T046.
 #
 # The thumbnail's parts are matched by testID under their tile or row:
 # gallery-tile-play and gallery-tile-duration in GalleryTile, and
-# file-row-thumbnail-image and file-row-thumbnail-play in FileRow
+# file-row-thumbnail-image and file-row-thumbnail-play in FileRow (list and
+# tree rows alike)
 # (src/files/MediaThumbnail.tsx prefixes each part with the given testID).
 #
 # The preview's controller is the platform MediaController
@@ -90,7 +91,40 @@ name: tree/04-video-gallery-preview-sftp
     id: "file-row-icon"
     childOf: "clip\\.mp4, .+"
 
-# 3. Preview (US1 sc. 4, SC-004): back in the gallery, tap the MP4 tile → the
+# 3. In tree view, the MP4 row under ScanTree → Album → 2025 shows the same
+# thumbnail with a play badge (US1 sc. 6, FR-005).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Expand ScanTree"
+    timeout: 15000
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Expand Album"
+    timeout: 15000
+- tapOn: "Expand Album"
+- extendedWaitUntil:
+    visible: "Expand 2025"
+    timeout: 15000
+- tapOn: "Expand 2025"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "file-row-thumbnail-image"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertVisible:
+    id: "file-row-thumbnail-play"
+    childOf: "clip\\.mp4, .+"
+- assertNotVisible:
+    id: "file-row-icon"
+    childOf: "clip\\.mp4, .+"
+
+# 4. Preview (US1 sc. 4, SC-004): back in the gallery, tap the MP4 tile → the
 # video preview opens, muted, and plays the local file to its end.
 - runFlow:
     file: ../subflows/select-view.yaml
@@ -137,7 +171,7 @@ name: tree/04-video-gallery-preview-sftp
       text: "Play"
     timeout: 5000
 
-# 4. Seek responds: rewind takes the stopped clip back to 00:00.
+# 5. Seek responds: rewind takes the stopped clip back to 00:00.
 - tapOn:
     id: ".*:id/rew"
 - extendedWaitUntil:
@@ -146,7 +180,7 @@ name: tree/04-video-gallery-preview-sftp
       text: "0?0:00"
     timeout: 5000
 
-# 5. Play/pause responds: Play turns the button into Pause and the elapsed
+# 6. Play/pause responds: Play turns the button into Pause and the elapsed
 # time moves on from 00:00.
 - tapOn:
     id: ".*:id/pause"
@@ -163,7 +197,7 @@ name: tree/04-video-gallery-preview-sftp
     id: "preview-mute"
     text: "Unmute"
 
-# 6. Back returns to the gallery with the tile.
+# 7. Back returns to the gallery with the tile.
 - back
 - extendedWaitUntil:
     notVisible:

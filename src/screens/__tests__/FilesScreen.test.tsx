@@ -36,7 +36,7 @@ import type {
 import { useScan, type ScanState } from '../../scan/useScan';
 import { SelectionProvider } from '../../selection/SelectionProvider';
 import { a11ySweep } from '../../test-utils/a11ySweep';
-import { FilesScreen, selectAllQuery } from '../FilesScreen';
+import { FilesScreen, selectAllQueries, selectAllQuery } from '../FilesScreen';
 
 /** The tab screen's options as `navigation.setOptions` merged them. */
 type HeaderOptions = {
@@ -514,6 +514,11 @@ describe('FilesScreen', () => {
     it('passes the a11y sweep with each drop-down open, in both views (FR-017)', async () => {
       const result = render(ui());
       await screen.findByLabelText('snap-1.png, Synced');
+      // Let every mounted view's first reads settle (the hidden tree view
+      // reads its sources' counts), so the open drop-down is not re-rendered
+      // underneath the sweep.
+      await waitFor(() => expect(queryTreeChildrenMock).toHaveBeenCalled());
+      await act(async () => {});
 
       fireEvent.press(screen.getByLabelText('Sort: Date, newest first'));
       await waitFor(() =>
@@ -961,13 +966,14 @@ describe('FilesScreen', () => {
 
   describe('tree view (009 T050)', () => {
     beforeEach(() => {
-      queryTreeChildrenMock.mockImplementation(async (_snapshotId, parentId, query) =>
-        ok(
-          parentId == null && query.kind === 'FILE'
-            ? [file('t-1', 'Loose.jpg')]
-            : [],
-          LIST_COUNTS,
-        ),
+      queryTreeChildrenMock.mockImplementation(
+        async (_snapshotId, parentId, query) =>
+          ok(
+            parentId == null && query.kind === 'FILE'
+              ? [file('t-1', 'Loose.jpg')]
+              : [],
+            LIST_COUNTS,
+          ),
       );
     });
 
@@ -1029,18 +1035,103 @@ describe('FilesScreen', () => {
       expect(screen.getByLabelText('Clear selection')).toBeOnTheScreen();
       expect(screen.getByLabelText('Delete selected')).toBeOnTheScreen();
     });
+    it('Select all in tree view selects the filtered files of every source, at any depth', async () => {
+      useSourceAliasesMock.mockReturnValue(
+        new Map([
+          ['s-1', 'Gallery'],
+          ['s-2', 'Camera'],
+        ]),
+      );
+      listSelectableEntriesMock.mockImplementation(
+        async (_snapshotId, query) => ({
+          contractVersion: 4,
+          status: 'ok',
+          selectable:
+            query.sourceId === 's-1'
+              ? {
+                  entryIds: ['t-1'],
+                  sizes: [10],
+                  statuses: ['SYNCED'],
+                  media: [true],
+                }
+              : {
+                  entryIds: ['c-1', 'c-2'],
+                  sizes: [20, 30],
+                  statuses: ['UNSYNCED', 'SYNCED'],
+                  media: [true, true],
+                },
+        }),
+      );
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+      pickView('Tree');
+      fireEvent.press(await screen.findByLabelText('Expand Gallery'));
+      fireEvent(await screen.findByLabelText('Loose.jpg, Synced'), 'longPress');
+      await waitFor(() =>
+        expect(screen.getByLabelText('Select all')).toBeEnabled(),
+      );
+
+      fireEvent.press(screen.getByLabelText('Select all'));
+
+      expect(
+        await screen.findByLabelText('Selection 3 selected, 60 B'),
+      ).toBeOnTheScreen();
+      expect(listSelectableEntriesMock).toHaveBeenCalledTimes(2);
+      for (const sourceId of ['s-1', 's-2']) {
+        expect(listSelectableEntriesMock).toHaveBeenCalledWith('snap-1', {
+          filter: 'ALL',
+          view: 'LIST',
+          sort: 'NAME_ASC',
+          sourceId,
+          parentId: null,
+          pageSize: 100,
+          wholeSource: true,
+        });
+      }
+    });
   });
 
   describe('selectAllQuery', () => {
-    it('in tree view is the list view\'s query at the root, never scoped to a folder', () => {
+    it("in tree view is one whole-source list query per source, never scoped to a folder (R11)", () => {
       for (const filter of ['ALL', 'SYNCED', 'UNSYNCED'] as const) {
+        const roots = ['s-1', 's-2'].map(sourceId => ({
+          ...selectAllQuery('LIST', filter, { sourceId, parentId: null }),
+          wholeSource: true,
+        }));
         expect(
-          selectAllQuery('TREE', filter, { sourceId: 's-1', parentId: 'd-1' }),
-        ).toEqual(selectAllQuery('LIST', filter, null));
-        expect(selectAllQuery('TREE', filter, null)).toEqual(
-          selectAllQuery('LIST', filter, null),
+          selectAllQueries(
+            'TREE',
+            filter,
+            { sourceId: 's-1', parentId: 'd-1' },
+            ['s-1', 's-2'],
+          ),
+        ).toEqual(roots);
+        expect(selectAllQueries('TREE', filter, null, ['s-1', 's-2'])).toEqual(
+          roots,
         );
+        expect(roots[1]).toEqual({
+          filter,
+          view: 'LIST',
+          sort: 'NAME_ASC',
+          sourceId: 's-2',
+          parentId: null,
+          pageSize: 100,
+          wholeSource: true,
+        });
       }
+      expect(selectAllQueries('TREE', 'ALL', null, [])).toEqual([]);
+      expect(selectAllQuery('TREE', 'ALL', null)).toBeNull();
+    });
+
+    it('in the gallery and list is the one selectAllQuery, or nothing', () => {
+      expect(selectAllQueries('GALLERY', 'ALL', null, ['s-1'])).toEqual([
+        selectAllQuery('GALLERY', 'ALL', null),
+      ]);
+      expect(selectAllQueries('LIST', 'ALL', null, ['s-1'])).toEqual([]);
+      const folder = { sourceId: 's-1', parentId: 'd-1' };
+      expect(selectAllQueries('LIST', 'ALL', folder, ['s-1'])).toEqual([
+        selectAllQuery('LIST', 'ALL', folder),
+      ]);
     });
 
     it('is null at the list sources level', () => {

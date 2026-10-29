@@ -677,6 +677,37 @@ class SnapshotStoreTest {
   }
 
   @Test
+  fun selectableEntriesOfAWholeSourceAreItsFilesAtAnyDepth() = runBlocking {
+    seedBrowseFixture()
+    // 009 research R11, the tree view's "Select all": every file of the source, never a directory.
+    val all = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1"), wholeSource = true)
+    assertEquals(setOf("f1", "f3", "f4", "f5", "f6", "f7", "f8"), all.entryIds.toSet())
+    assertEquals(all.entryIds.size, all.entryIds.toSet().size)
+    val expected =
+      mapOf(
+        FileFilter.SYNCED to setOf("f3", "f7"),
+        FileFilter.UNSYNCED to setOf("f1", "f4", "f5", "f8"),
+        FileFilter.ISSUES_UNKNOWN to setOf("f6"),
+      )
+    for ((filter, ids) in expected) {
+      val selectable =
+        store.selectableEntries("snap-1", SnapshotQuery(filter = filter, sourceId = "src-1"), wholeSource = true)
+      assertEquals("whole source $filter", ids, selectable.entryIds.toSet())
+    }
+    // Only that source.
+    val other = store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-2"), wholeSource = true)
+    assertEquals(setOf("g1", "g2", "g3"), other.entryIds.toSet())
+    // Not with a folder or in the gallery.
+    assertThrows(IllegalArgumentException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(sourceId = "src-1", parentId = "d1"), wholeSource = true) }
+    }
+    assertThrows(IllegalArgumentException::class.java) {
+      runBlocking { store.selectableEntries("snap-1", SnapshotQuery(view = FileView.GALLERY), wholeSource = true) }
+    }
+    Unit
+  }
+
+  @Test
   fun selectableEntriesInListRequireASource() = runBlocking {
     seedBrowseFixture()
     assertThrows(IllegalArgumentException::class.java) {

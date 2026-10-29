@@ -1,0 +1,115 @@
+# US1 sc. 1, FR-001 (SFTP), feature 009 (contracts/maestro-tree-preview.md):
+# tree view shows the same hierarchy as list view as one expandable list.
+# The tree set's source ScanTree holds Album/ (2024/, 2025/ and Docs/),
+# Empty/ and Loose.jpg. Expanding Album splices its three folders in below
+# it, one level deeper; expanding 2025 shows its three files (b1.jpg,
+# clip.mp4, new.jpg); collapsing Album removes everything beneath it. List
+# view then shows the same three folders in Album.
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# Every source and folder row has a chevron labelled "Expand <name>" or
+# "Collapse <name>" (src/files/a11y.ts folderToggleLabel). The indent itself
+# (spacing.lg per level, at most 8 levels) is checked by
+# src/files/__tests__/TreeView.test.tsx; here each child is below its parent.
+appId: com.syncscope
+name: tree/01-expand-collapse-sftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. View → Tree: only the source, collapsed.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- assertVisible: "Expand ScanTree"
+- assertNotVisible: "Folder Album(, .+)?"
+
+# 2. Expand the source → Album, Empty and Loose.jpg.
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- assertVisible: "Collapse ScanTree"
+- assertVisible: "Folder Empty(, .+)?"
+- assertVisible: "Loose\\.jpg, .+"
+
+# 3. Expand Album → 2024, 2025 and Docs appear below it.
+- tapOn: "Expand Album"
+- extendedWaitUntil:
+    visible: "Folder 2024(, .+)?"
+    timeout: 15000
+- assertVisible: "Collapse Album"
+- assertVisible:
+    text: "Folder 2024(, .+)?"
+    below: "Folder Album(, .+)?"
+- assertVisible:
+    text: "Folder 2025(, .+)?"
+    below: "Folder 2024(, .+)?"
+- assertVisible:
+    text: "Folder Docs(, .+)?"
+    below: "Folder 2025(, .+)?"
+# Album's subfolders come before the source's next folder.
+- assertVisible:
+    text: "Folder Empty(, .+)?"
+    below: "Folder Docs(, .+)?"
+
+# 4. Expand 2025 → its three files, between 2025 and Docs.
+- tapOn: "Expand 2025"
+- extendedWaitUntil:
+    visible: "b1\\.jpg, .+"
+    timeout: 15000
+- assertVisible: "clip\\.mp4, .+"
+- assertVisible: "new\\.jpg, .+"
+- assertVisible:
+    text: "b1\\.jpg, .+"
+    below: "Folder 2025(, .+)?"
+- assertVisible:
+    text: "Folder Docs(, .+)?"
+    below: "new\\.jpg, .+"
+- assertNotVisible: "a1\\.jpg, .+"
+
+# 5. Collapse Album → its folders and 2025's files are gone; the source's
+# other rows stay.
+- tapOn: "Collapse Album"
+- extendedWaitUntil:
+    notVisible: "Folder 2024(, .+)?"
+    timeout: 15000
+- assertNotVisible: "Folder 2025(, .+)?"
+- assertNotVisible: "Folder Docs(, .+)?"
+- assertNotVisible: "b1\\.jpg, .+"
+- assertNotVisible: "clip\\.mp4, .+"
+- assertNotVisible: "new\\.jpg, .+"
+- assertVisible: "Expand Album"
+- assertVisible: "Folder Empty(, .+)?"
+- assertVisible: "Loose\\.jpg, .+"
+
+# 6. List view: open ScanTree, then Album → the same three folders.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Breadcrumb Album"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Folder 2024(, .+)?"
+    timeout: 15000
+- assertVisible: "Folder 2025(, .+)?"
+- assertVisible: "Folder Docs(, .+)?"

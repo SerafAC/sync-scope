@@ -106,7 +106,9 @@ class ScanOperations(
    * `ListSelectableEntriesResult` (contracts/cloudsync-mvp.md "listSelectableEntries"): every `FILE` row
    * [querySpec] would show, for "Select all". Only the active snapshot can be selected from: a missing
    * or staged one is `SNAPSHOT_NOT_FOUND`, a published one that was replaced is `STALE_GENERATION`.
-   * The query is validated as `queryFiles` does; a LIST selection also needs its `sourceId`.
+   * The query is validated as `queryFiles` does; a LIST selection also needs its `sourceId`. An optional
+   * boolean `wholeSource` (009 research R11, the tree view's "Select all") takes every matching file of
+   * the source at any depth; it needs a LIST query without a `parentId`, otherwise it is `INVALID_QUERY`.
    */
   suspend fun listSelectableEntries(snapshotId: String, querySpec: ReadableMap): WritableMap {
     val query =
@@ -115,6 +117,13 @@ class ScanOperations(
         is ParsedQuery.Valid -> parsed.query
       }
     if (query.view == FileView.LIST && query.sourceId == null) return invalidQuery("sourceId")
+    val wholeSource =
+      when {
+        !querySpec.hasKey("wholeSource") || querySpec.isNull("wholeSource") -> false
+        querySpec.getType("wholeSource") != ReadableType.Boolean -> return invalidQuery("wholeSource")
+        else -> querySpec.getBoolean("wholeSource")
+      }
+    if (wholeSource && (query.view != FileView.LIST || query.parentId != null)) return invalidQuery("wholeSource")
     val snapshot = store().snapshot(snapshotId)
     if (snapshot == null || !snapshot.publishable) return snapshotNotFound()
     if (store().activeSnapshot()?.snapshotId != snapshotId) {
@@ -126,7 +135,7 @@ class ScanOperations(
     }
     val entries =
       try {
-        store().selectableEntries(snapshotId, query)
+        store().selectableEntries(snapshotId, query, wholeSource)
       } catch (_: SnapshotNotFoundException) {
         return snapshotNotFound()
       }

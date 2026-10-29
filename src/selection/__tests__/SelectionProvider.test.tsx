@@ -251,6 +251,43 @@ describe('SelectionProvider', () => {
     expect(result.current.selection.error).toBeNull();
   });
 
+  it('reads several queries together and merges them (tree view, R11)', async () => {
+    const roots = ['s-1', 's-2'].map(sourceId => ({
+      ...galleryQuery,
+      view: 'LIST' as const,
+      sourceId,
+      parentId: null,
+    }));
+    listSelectableEntriesMock
+      .mockResolvedValueOnce(selectable([['a', 70, 'SYNCED', true]]))
+      .mockResolvedValueOnce(selectable([['c', 30, 'UNSYNCED', false]]));
+    const {result} = renderSelection();
+
+    await act(() => result.current.selection.selectAll(roots));
+
+    expect(listSelectableEntriesMock).toHaveBeenCalledTimes(2);
+    expect(listSelectableEntriesMock).toHaveBeenCalledWith('snap-1', roots[0]);
+    expect(listSelectableEntriesMock).toHaveBeenCalledWith('snap-1', roots[1]);
+    expect([...result.current.selection.items.keys()].sort()).toEqual(['a', 'c']);
+  });
+
+  it('adds nothing when one of several queries fails', async () => {
+    listSelectableEntriesMock
+      .mockResolvedValueOnce(selectable([['b', 1, 'SYNCED', true]]))
+      .mockResolvedValueOnce({
+        contractVersion: 5,
+        status: 'error',
+        error: {code: 'INVALID_QUERY', message: 'The query sourceId is invalid.', action: null},
+      });
+    const {result} = renderSelection();
+    act(() => result.current.selection.longPress(file('a')));
+
+    await act(() => result.current.selection.selectAll([galleryQuery, galleryQuery]));
+
+    expect([...result.current.selection.items.keys()]).toEqual(['a']);
+    expect(result.current.selection.error?.code).toBe('INVALID_QUERY');
+  });
+
   it('does nothing on select all without an active snapshot', async () => {
     activeSnapshotId = null;
     const {result} = renderSelection();

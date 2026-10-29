@@ -1,0 +1,61 @@
+# US1 sc. 3, SC-002, FR-001 (FTP), feature 009
+# (contracts/maestro-tree-preview.md, research R4): under a filter every
+# folder stays in the tree with its matching-file count; a folder with none
+# is dimmed, shows "0" and can still be expanded. Every file of the tree set
+# is on the server, so under "Unsynced" Album/Docs (doc.pdf) has no match.
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# A dimmed row's label ends in ", 0 matching, no matches" (src/files/a11y.ts
+# folderRowLabel) and its count on the right has the testID
+# folder-row-count (src/files/FolderRow.tsx). The dimmed colour itself is
+# checked by src/files/__tests__/TreeView.test.tsx.
+appId: com.syncscope
+name: tree/02-filter-dimmed-ftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "FTP"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. View → Tree, then the "Unsynced" filter.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Filter Unsynced(, .+)?"
+    timeout: 15000
+- tapOn: "Filter Unsynced(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+
+# 2. Expand the source and Album: Docs is still there, with "0".
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Expand Album"
+- extendedWaitUntil:
+    visible: "Folder Docs, 0 matching, no matches"
+    timeout: 15000
+- assertVisible:
+    id: "folder-row-count"
+    text: "0"
+    childOf: "Folder Docs, 0 matching, no matches"
+
+# 3. The dimmed folder still expands, and collapses again.
+- tapOn: "Expand Docs"
+- extendedWaitUntil:
+    visible: "Collapse Docs"
+    timeout: 15000
+- assertVisible: "Folder Docs, 0 matching, no matches"
+# doc.pdf is on the server, so the filter hides it.
+- assertNotVisible: "doc\\.pdf, .+"
+- tapOn: "Collapse Docs"
+- extendedWaitUntil:
+    visible: "Expand Docs"
+    timeout: 15000

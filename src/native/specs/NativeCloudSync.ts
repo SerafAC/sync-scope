@@ -72,6 +72,8 @@ export type QuerySpecInput = {
   pageSize?: number | null;
   /** 'DIRECTORY' | 'FILE': narrows the rows; part of the token fingerprint (contract v6). */
   kind?: string | null;
+  /** listSelectableEntries only: every file of the source at any depth (009 R11). */
+  wholeSource?: boolean | null;
 };
 
 export interface Spec extends TurboModule {

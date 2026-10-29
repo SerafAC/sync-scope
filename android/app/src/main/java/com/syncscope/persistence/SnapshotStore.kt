@@ -510,17 +510,24 @@ open class SnapshotStore(private val db: SyncScopeDatabase) : DeletionSnapshots 
    * follows `queryFiles` (the filter applies to every row, media only, `sourceId`/`parentId` narrow
    * when given). LIST follows `queryTreeChildren` for one folder: the direct children of
    * `query.parentId` (the source's top level when null) in `query.sourceId`, which is required.
-   * Directories are never returned; `pageSize`, `sort` and `search` are ignored. Throws
-   * [SnapshotNotFoundException] when the snapshot is missing or still staged.
+   * Directories are never returned; `pageSize`, `sort` and `search` are ignored. [wholeSource] (LIST
+   * without a `parentId` only, 009 research R11) takes every matching `FILE` of the source at any depth
+   * instead of its top level: the tree view's "Select all". Throws [SnapshotNotFoundException] when the
+   * snapshot is missing or still staged.
    */
-  suspend fun selectableEntries(snapshotId: String, query: SnapshotQuery): SelectableEntries {
+  suspend fun selectableEntries(
+    snapshotId: String,
+    query: SnapshotQuery,
+    wholeSource: Boolean = false,
+  ): SelectableEntries {
     val list = query.view == FileView.LIST
     require(!list || query.sourceId != null) { "a LIST selection needs a sourceId" }
+    require(!wholeSource || (list && query.parentId == null)) { "wholeSource needs a LIST query without a parentId" }
     val snapshot = db.snapshotDao().byId(snapshotId)
     if (snapshot == null || !snapshot.publishable) {
       throw SnapshotNotFoundException("snapshot '$snapshotId' is not published")
     }
-    val (where, args) = scopeOf(snapshotId, query.copy(search = null), topLevelOnly = list && query.parentId == null)
+    val (where, args) = scopeOf(snapshotId, query.copy(search = null), topLevelOnly = list && query.parentId == null && !wholeSource)
     where.append(" AND kind = 'FILE'")
     val sql =
       "SELECT entryId, sizeBytes, status, COALESCE(${MediaKind.SQL_MEDIA}, 0) AS isMedia" +

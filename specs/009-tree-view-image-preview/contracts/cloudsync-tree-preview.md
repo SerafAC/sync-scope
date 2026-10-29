@@ -20,6 +20,14 @@ The gallery reads `FILE` rows whose MIME type is `image/*` or `video/*` (`MediaK
 sorts, tokens and the scroll index are unchanged. The `SelectableEntries` wire field `images: boolean[]`
 is renamed `media: boolean[]`.
 
+## Changed: `listSelectableEntries` gains `QuerySpec.wholeSource` (tree view's "Select all", R11)
+
+`wholeSource?: boolean | null`, read by `listSelectableEntries` only (page reads ignore it). With `true`, a
+LIST query with a `sourceId` and no `parentId` selects every matching `FILE` of that source at any depth,
+instead of its top level. With a `parentId` or in the gallery, or when it is not a boolean, the result is
+`INVALID_QUERY` with `field: 'wholeSource'`. Tree view runs one such query per source and merges the results
+(decision log 2026-10-29).
+
 ## New: `carrySelection(fromSnapshotId, toSnapshotId, entryIds)`
 
 ```ts

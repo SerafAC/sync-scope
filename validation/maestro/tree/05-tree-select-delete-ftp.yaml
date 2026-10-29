@@ -1,0 +1,122 @@
+# Selection parity in tree view (FTP), feature 009 (US1, FR-001, research
+# R11, contracts/maestro-tree-preview.md): tree file rows select as in list
+# view, the preview's "Select this file" adds to the same selection, and
+# Delete runs the existing delete flow; the deleted files leave the tree
+# without a scan.
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# Order: while anything is selected a tap on a row toggles it instead of
+# opening the preview (R11, as in list view), so the preview of a3.jpg is
+# opened first, with nothing selected. "Select this file" there makes
+# "1 selected"; back in the tree a long-press on a1.jpg (SYNCED) makes
+# "2 selected" and a tap on a2.jpg "3 selected".
+#
+# Touches only Album/2024/a1-a3.jpg: a4.jpg and a5.jpg (staged/10 later in
+# the same API run), Album/2025 (staged/09) and Loose.jpg stay. The deleted
+# files are not restored here; device-fixtures.sh reseeds the changed set
+# before the next API level's workspace flows (T002).
+appId: com.syncscope
+name: tree/05-tree-select-delete-ftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "FTP"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. View → Tree, expand ScanTree → Album → 2024.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Expand ScanTree"
+    timeout: 15000
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Expand Album"
+    timeout: 15000
+- tapOn: "Expand Album"
+- extendedWaitUntil:
+    visible: "Expand 2024"
+    timeout: 15000
+- tapOn: "Expand 2024"
+- extendedWaitUntil:
+    visible: "a1\\.jpg, Synced"
+    timeout: 15000
+- assertVisible: "a2\\.jpg, .+"
+- assertVisible: "a3\\.jpg, .+"
+- assertNotVisible: "Selection .+"
+
+# 2. With nothing selected, a tap on a3.jpg opens its preview; "Select this
+# file" selects it, and the selection bar shows in the preview.
+- tapOn: "a3\\.jpg, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-image"
+    timeout: 15000
+- tapOn: "Select this file"
+- extendedWaitUntil:
+    visible: "Unselect this file"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Selection 1 selected, .+"
+    timeout: 15000
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: Tree"
+- assertVisible: "a3\\.jpg, .+, selected"
+
+# 3. Long-press a1.jpg (SYNCED), then tap a2.jpg → 3 selected; folder rows
+# never are.
+- longPressOn: "a1\\.jpg, Synced"
+- extendedWaitUntil:
+    visible: "a1\\.jpg, Synced, selected"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Selection 2 selected, .+"
+    timeout: 15000
+- tapOn: "a2\\.jpg, .+"
+- extendedWaitUntil:
+    visible: "a2\\.jpg, .+, selected"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Selection 3 selected, .+"
+    timeout: 15000
+- assertNotVisible: "a4\\.jpg, .+, selected"
+- assertNotVisible: "a5\\.jpg, .+, selected"
+
+# 4. Delete → the existing confirmation → the three files are deleted.
+- tapOn: "Delete selected"
+- extendedWaitUntil:
+    visible: "(Checking files on the server|Delete [0-9]+ backed-up files, .+)"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Delete 3 backed-up files, .+"
+    timeout: 60000
+- assertVisible: "Deleted files cannot be recovered."
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Deleted 3 files, freed .+"
+    timeout: 60000
+- assertNotVisible: "Could not delete .+"
+- tapOn: "Done"
+
+# 5. The files are gone from the tree without a scan, and the selection is
+# empty; the rest of the set stays.
+- extendedWaitUntil:
+    notVisible: "a1\\.jpg, .+"
+    timeout: 15000
+- assertNotVisible: "a2\\.jpg, .+"
+- assertNotVisible: "a3\\.jpg, .+"
+- assertNotVisible: "Selection .+"
+- assertVisible: "View: Tree"
+- assertVisible: "Collapse 2024"
+- assertVisible: "a4\\.jpg, .+"
+- assertVisible: "a5\\.jpg, .+"
+- assertVisible: "Folder 2025(, .+)?"
