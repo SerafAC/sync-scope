@@ -20,7 +20,7 @@
 # android:id/rew (back 5 s, so to 0:00 in a 2 s clip) and the elapsed time is
 # android:id/time_current, formatted "00:02" by the platform. The clip is
 # only 2 s long, so the steps first let it play to its end: from there the
-# state is known (stopped at 00:02, the button says "Play") and every later
+# state is known (stopped, the button says "Play") and every later
 # change is a response to a tap, not to the clip running on.
 appId: com.syncscope
 name: tree/04-video-gallery-preview-sftp
@@ -143,33 +143,22 @@ name: tree/04-video-gallery-preview-sftp
 - assertVisible:
     id: "preview-mute"
     text: "Unmute"
-# The view shows the controller once prepared, and a tap on the video toggles
-# it: show it only if it is not on screen already.
-- runFlow:
-    when:
-      notVisible:
-        id: ".*:id/mediacontroller_progress"
-    commands:
-      - tapOn:
-          id: "preview-video"
-# Played: the elapsed time reaches the end of the 2 s clip, which stops there.
+# The view keeps the controller on screen once prepared and again when the
+# clip ends (SyncScopeVideoView.kt), so no tap is needed to read it. The
+# total reads the clip's 2 s.
 - extendedWaitUntil:
     visible:
-      id: ".*:id/time_current"
+      id: ".*:id/time"
       text: "0?0:02"
     timeout: 15000
-- runFlow:
-    when:
-      notVisible:
-        id: ".*:id/mediacontroller_progress"
-    commands:
-      - tapOn:
-          id: "preview-video"
+# Played to its end: the button turns back to "Play" when the clip stops.
+# The elapsed time is not read here: after completion the platform player
+# reports position 0 on the emulator, so it shows 00:00, not 00:02.
 - extendedWaitUntil:
     visible:
       id: ".*:id/pause"
       text: "Play"
-    timeout: 5000
+    timeout: 10000
 
 # 5. Seek responds: rewind takes the stopped clip back to 00:00.
 - tapOn:
@@ -180,19 +169,22 @@ name: tree/04-video-gallery-preview-sftp
       text: "0?0:00"
     timeout: 5000
 
-# 6. Play/pause responds: Play turns the button into Pause and the elapsed
-# time moves on from 00:00.
+# 6. Play/pause responds: Play turns the button into Pause and the clip
+# plays again from 00:00.
 - tapOn:
     id: ".*:id/pause"
     text: "Play"
 - assertVisible:
     id: ".*:id/pause"
     text: "Pause"
+# It plays through again and stops: the button returns to "Play". The
+# elapsed time is not polled here; 0:01 is on screen for under a second on a
+# slow emulator, and after the end the player reports 00:00 again.
 - extendedWaitUntil:
     visible:
-      id: ".*:id/time_current"
-      text: "0?0:0[12]"
-    timeout: 5000
+      id: ".*:id/pause"
+      text: "Play"
+    timeout: 10000
 - assertVisible:
     id: "preview-mute"
     text: "Unmute"

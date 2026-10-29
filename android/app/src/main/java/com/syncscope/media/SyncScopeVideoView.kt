@@ -6,12 +6,14 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.MediaController
 import android.widget.VideoView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
+import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.uimanager.SimpleViewManager
@@ -129,7 +131,7 @@ interface VideoPlayer {
 /** [VideoPlayer] over [VideoView] and [MediaController]. */
 class PlatformVideoPlayer(context: Context) : VideoPlayer {
   private val videoView = VideoView(context)
-  private val controller = MediaController(context)
+  private val controller = BackPassingMediaController(context)
   private var player: MediaPlayer? = null
 
   override val view: View
@@ -143,7 +145,11 @@ class PlatformVideoPlayer(context: Context) : VideoPlayer {
     videoView.setOnPreparedListener { mediaPlayer ->
       player = mediaPlayer
       listener.onPrepared(mediaPlayer.duration.toLong())
+      // Keep play/pause and seek on screen: the controller otherwise hides itself after 3 s.
+      controller.show(0)
     }
+    // VideoView hides the controller when the clip ends; show it again so it can be replayed.
+    videoView.setOnCompletionListener { controller.show(0) }
     videoView.setOnErrorListener { _, what, extra ->
       listener.onError(what, extra)
       // Handled: no system "Can't play this video" dialog.
@@ -164,6 +170,22 @@ class PlatformVideoPlayer(context: Context) : VideoPlayer {
     player = null
     controller.hide()
     videoView.stopPlayback()
+  }
+}
+
+/**
+ * The platform controller, kept on screen by [PlatformVideoPlayer], consumes Back to hide itself, so the
+ * first Back would not leave the preview. This one hides and passes Back on to the activity.
+ */
+private class BackPassingMediaController(context: Context) : MediaController(context) {
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (event.keyCode != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
+    // Hand both key events to the activity, as if the controller were not there, so React Native's
+    // back handling (navigation) sees them.
+    val activity = (context as? ReactContext)?.currentActivity ?: return super.dispatchKeyEvent(event)
+    if (event.action == KeyEvent.ACTION_UP) hide()
+    activity.dispatchKeyEvent(event)
+    return true
   }
 }
 
