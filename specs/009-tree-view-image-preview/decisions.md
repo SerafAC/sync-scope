@@ -8,3 +8,7 @@
 **A:** Every matching file in each source, with a small native change (recommended) — Matches R11 and the spec. selectableEntries gets a "whole source" mode (a TREE view value, or a LIST query flag that turns off topLevelOnly). Bridge, CloudSyncContracts and types updated; Kotlin and JS tests added; T050's test expects one such query per source. This supersedes "No native change" in the previous 2026-10-29 decision; the rest of that decision (per-source queries merged in JS, T060 text amendment) still stands. Chosen automatically per the user's standing "take recommended" rule.
 
 **Note for implementers and verifiers:** the full test command takes ~15+ minutes (scripts/validation/performance-runner.test.mjs alone is ~13 min), longer than the 10-minute foreground shell limit. Run it with Bash run_in_background and wait for completion; a foreground timeout is not a test failure.
+
+## 2026-10-29T19:04:57+01:00 — Polish: e2e gate [T086]
+**Q:** staged/07-delete-offline-b failed on API 31: the delete was refused with "A scan is already running." because the launch's local refresh now re-checks the paused SFTP server (FR-003) and holds the run until the connect times out (~35 s). Fix the flow or the product?
+**A:** Fix the flow (recommended) — refusing a delete while a scan runs is 006 behaviour and Retry works once the refresh ends; 07-b now waits on the Scan tab for the local refresh to complete before deleting, like staged/09-resync-c.
