@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -11,6 +12,8 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.MediaController
 import android.widget.VideoView
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.ReactContext
@@ -175,9 +178,13 @@ class PlatformVideoPlayer(context: Context) : VideoPlayer {
 
 /**
  * The platform controller, kept on screen by [PlatformVideoPlayer], consumes Back to hide itself, so the
- * first Back would not leave the preview. This one hides and passes Back on to the activity.
+ * first Back would not leave the preview. This one hides and passes Back on to the activity: as a key
+ * event, and from API 33 also through its window's back dispatcher, where predictive back (target SDK 36)
+ * delivers it instead of a key event.
  */
 private class BackPassingMediaController(context: Context) : MediaController(context) {
+  private var backCallback: Any? = null
+
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     if (event.keyCode != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
     // Hand both key events to the activity, as if the controller were not there, so React Native's
@@ -186,6 +193,37 @@ private class BackPassingMediaController(context: Context) : MediaController(con
     if (event.action == KeyEvent.ACTION_UP) hide()
     activity.dispatchKeyEvent(event)
     return true
+  }
+
+  override fun show(timeout: Int) {
+    super.show(timeout)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback == null) {
+      // Above the controller's own callback (PRIORITY_DEFAULT), which would only hide it.
+      val callback = OnBackInvokedCallback { passBack() }
+      findOnBackInvokedDispatcher()?.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+        ?: return
+      backCallback = callback
+    }
+  }
+
+  override fun hide() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      (backCallback as? OnBackInvokedCallback)?.let { findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
+      backCallback = null
+    }
+    super.hide()
+  }
+
+  /**
+   * The dispatcher's Back, handed to the activity's own Back. A replayed key pair would be dropped here:
+   * with predictive back, the activity no longer turns a Back key into onBackPressed.
+   */
+  private fun passBack() {
+    val activity = (context as? ReactContext)?.currentActivity
+    hide()
+    // ReactActivity.onBackPressed asks React Native first (navigation), as a Back key does.
+    @Suppress("DEPRECATION")
+    activity?.onBackPressed()
   }
 }
 
