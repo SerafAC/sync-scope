@@ -2030,9 +2030,27 @@ describe('CloudSync browse preference wrappers (contract v6)', () => {
     });
   });
 
+  it('getBrowsePreferences keeps a stored TREE view (009)', async () => {
+    mockNative({
+      getBrowsePreferences: jest.fn().mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        preferences: {
+          view: 'TREE',
+          gallerySort: 'TIME_DESC',
+          listSort: 'NAME_ASC',
+        },
+      }),
+    });
+
+    const result = await getBrowsePreferences();
+
+    expect(result.status === 'ok' && result.preferences.view).toBe('TREE');
+  });
+
   it('getBrowsePreferences reads each unknown or missing value as its default', async () => {
     const cases: unknown[] = [
-      { view: 'TREE', gallerySort: 'COLOUR_ASC', listSort: 7 },
+      { view: 'FOLDERS', gallerySort: 'COLOUR_ASC', listSort: 7 },
       {},
       null,
       'GALLERY',

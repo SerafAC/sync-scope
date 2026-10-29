@@ -1137,6 +1137,7 @@ export async function rejectSftpHostKey(
 const BROWSE_VIEWS: readonly unknown[] = [
   'GALLERY',
   'LIST',
+  'TREE',
 ] satisfies BrowsePreferencesDto['view'][];
 
 function sortOr(value: unknown, fallback: FileSort): FileSort {

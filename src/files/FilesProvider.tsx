@@ -14,11 +14,16 @@ import {
   type FilesState,
   type FilesView,
 } from './useFiles';
+import {INITIAL_TREE_STATE, type TreeState} from './useTree';
 
-/** The preference key that holds each view's sort (data-model.md, Browse preferences). */
+/**
+ * The preference key that holds each view's sort (data-model.md, Browse
+ * preferences). The tree shares the list's.
+ */
 const SORT_KEY = {
   GALLERY: 'gallerySort',
   LIST: 'listSort',
+  TREE: 'listSort',
 } as const satisfies Record<FilesView, keyof BrowsePreferencesDto>;
 
 /** Reads the remembered choices; any failure reads as the first-run defaults. */
@@ -48,6 +53,8 @@ function writePreferences(change: Partial<BrowsePreferencesDto>): void {
  * resolves) and each change is written with `setBrowsePreferences()`. A
  * choice made before the read resolves wins over the stored one. The filter
  * stays in memory only, so it is back at All after a restart (005 R10).
+ * The tree view's state (expanded name paths and anchor, 009 research R3)
+ * is held here for the session only, so it survives switching views.
  */
 export function FilesProvider({
   children,
@@ -61,6 +68,7 @@ export function FilesProvider({
   );
   const [listSort, setListSort] = useState<FileSort>(INITIAL_SORTS.LIST);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [tree, setTree] = useState<TreeState>(INITIAL_TREE_STATE);
   /** Fields the user changed before the stored ones arrived. */
   const touched = useRef(new Set<keyof BrowsePreferencesDto>());
 
@@ -97,7 +105,7 @@ export function FilesProvider({
   const setSort = useCallback((target: FilesView, sort: FileSort) => {
     const key = SORT_KEY[target];
     touched.current.add(key);
-    if (target === 'GALLERY') {
+    if (key === 'gallerySort') {
       setGallerySort(sort);
     } else {
       setListSort(sort);
@@ -106,7 +114,7 @@ export function FilesProvider({
   }, []);
 
   const sorts = useMemo(
-    () => ({GALLERY: gallerySort, LIST: listSort}),
+    () => ({GALLERY: gallerySort, LIST: listSort, TREE: listSort}),
     [gallerySort, listSort],
   );
 
@@ -119,8 +127,10 @@ export function FilesProvider({
       setView,
       setFilter,
       setSort,
+      tree,
+      setTree,
     }),
-    [view, filter, sorts, preferencesLoaded, setView, setSort],
+    [view, filter, sorts, preferencesLoaded, setView, setSort, tree],
   );
 
   return (

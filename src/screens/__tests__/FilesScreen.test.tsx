@@ -217,8 +217,8 @@ function storedPreferences(preferences: BrowsePreferencesDto) {
   });
 }
 
-/** Opens the view drop-down and picks [target] (`Gallery` or `List`). */
-function pickView(target: 'Gallery' | 'List') {
+/** Opens the view drop-down and picks [target] (`Gallery`, `List` or `Tree`). */
+function pickView(target: 'Gallery' | 'List' | 'Tree') {
   fireEvent.press(screen.getByLabelText(/^View: /));
   fireEvent.press(screen.getByLabelText(target));
 }
@@ -959,7 +959,90 @@ describe('FilesScreen', () => {
     });
   });
 
+  describe('tree view (009 T050)', () => {
+    beforeEach(() => {
+      queryTreeChildrenMock.mockImplementation(async (_snapshotId, parentId, query) =>
+        ok(
+          parentId == null && query.kind === 'FILE'
+            ? [file('t-1', 'Loose.jpg')]
+            : [],
+          LIST_COUNTS,
+        ),
+      );
+    });
+
+    it('renders the tree for TREE, with the other views hidden', async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+
+      pickView('Tree');
+
+      expect(await screen.findByLabelText('View: Tree')).toBeOnTheScreen();
+      expect(screen.getByTestId('files-tree')).toBeVisible();
+      expect(screen.getByTestId('files-gallery', HIDDEN)).not.toBeVisible();
+      expect(screen.getByTestId('files-list', HIDDEN)).not.toBeVisible();
+      expect(screen.getByLabelText(/^Folder Gallery/)).toBeVisible();
+      expect(setBrowsePreferencesMock).toHaveBeenLastCalledWith({
+        view: 'TREE',
+      });
+    });
+
+    it('opens on a remembered TREE view', async () => {
+      storedPreferences({
+        view: 'TREE',
+        gallerySort: 'TIME_DESC',
+        listSort: 'NAME_ASC',
+      });
+      render(ui());
+
+      expect(await screen.findByLabelText('View: Tree')).toBeOnTheScreen();
+      expect(screen.getByTestId('files-tree')).toBeVisible();
+    });
+
+    it('keeps the expanded folders when switching views and back', async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+      pickView('Tree');
+      fireEvent.press(await screen.findByLabelText('Expand Gallery'));
+      expect(await screen.findByLabelText('Loose.jpg, Synced')).toBeVisible();
+
+      pickView('List');
+      expect(screen.getByTestId('files-tree', HIDDEN)).not.toBeVisible();
+      pickView('Gallery');
+      pickView('Tree');
+
+      expect(await screen.findByLabelText('Collapse Gallery')).toBeVisible();
+      expect(screen.getByLabelText('Loose.jpg, Synced')).toBeVisible();
+    });
+
+    it('selects a tree file with a long-press, with the selection chrome', async () => {
+      render(ui());
+      await screen.findByLabelText('snap-1.png, Synced');
+      pickView('Tree');
+      fireEvent.press(await screen.findByLabelText('Expand Gallery'));
+
+      fireEvent(await screen.findByLabelText('Loose.jpg, Synced'), 'longPress');
+
+      expect(
+        await screen.findByLabelText('Loose.jpg, Synced, selected'),
+      ).toBeSelected();
+      expect(screen.getByLabelText('Clear selection')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Delete selected')).toBeOnTheScreen();
+    });
+  });
+
   describe('selectAllQuery', () => {
+    it('in tree view is the list view\'s query at the root, never scoped to a folder', () => {
+      for (const filter of ['ALL', 'SYNCED', 'UNSYNCED'] as const) {
+        expect(
+          selectAllQuery('TREE', filter, { sourceId: 's-1', parentId: 'd-1' }),
+        ).toEqual(selectAllQuery('LIST', filter, null));
+        expect(selectAllQuery('TREE', filter, null)).toEqual(
+          selectAllQuery('LIST', filter, null),
+        );
+      }
+    });
+
     it('is null at the list sources level', () => {
       expect(selectAllQuery('LIST', 'SYNCED', null)).toBeNull();
     });

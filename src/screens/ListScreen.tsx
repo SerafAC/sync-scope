@@ -14,7 +14,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { List, useTheme, type MD3Theme } from 'react-native-paper';
 
 import { Breadcrumb } from '../files/Breadcrumb';
 import { FastScroller } from '../files/FastScroller';
@@ -26,18 +25,18 @@ import {
   type FilesViewProps,
 } from '../files/FilesViewParts';
 import { FileRow, formatSize } from '../files/FileRow';
-import { folderRowLabel, placeholderLabel } from '../files/a11y';
+import { FolderRow, PlaceholderRow } from '../files/FolderRow';
 import { useFiles } from '../files/useFiles';
 import { useOpenPreview } from '../files/useOpenPreview';
 import { useListNavigation } from '../files/useListNavigation';
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
+  readTreeChildren,
   scrollAnchorOf,
   usePagedQuery,
   type IndexReader,
   type PagedRow,
-  type PageReader,
 } from '../files/usePagedQuery';
 import { getScrollIndex, queryTreeChildren } from '../native/CloudSync';
 import type {
@@ -66,10 +65,6 @@ export interface ListScreenProps extends FilesViewProps {
 }
 
 export { formatSize };
-
-/** `queryTreeChildren` as a {@link PageReader}: the parent travels in `query.parentId`. */
-const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
-  queryTreeChildren(snapshotId, query.parentId ?? null, query, pageToken);
 
 /** The scroll index of a folder's files: the query carries the folder (research R4). */
 const readIndex: IndexReader = (snapshotId, query, anchor) =>
@@ -174,55 +169,6 @@ function useSourceCounts(
   }, [key]);
 
   return loaded != null && loaded.key === key ? loaded.bySource : null;
-}
-
-function themedStyles(theme: MD3Theme) {
-  return StyleSheet.create({
-    dimmed: { color: theme.colors.onSurfaceDisabled },
-  });
-}
-
-function FolderIcon({ color }: { color: string }): React.JSX.Element {
-  return <List.Icon color={color} icon="folder-outline" />;
-}
-
-/** A source or directory row: `N matching`, dimmed at 0 and still pressable (clarification 3). */
-function FolderRow({
-  name,
-  matching,
-  onPress,
-}: {
-  name: string;
-  matching: number | null;
-  onPress: () => void;
-}): React.JSX.Element {
-  const theme = useTheme();
-  const themed = useMemo(() => themedStyles(theme), [theme]);
-  const dimmed = matching === 0;
-  return (
-    <List.Item
-      accessibilityLabel={folderRowLabel(name, matching)}
-      description={matching == null ? undefined : `${matching} matching`}
-      descriptionStyle={dimmed ? themed.dimmed : undefined}
-      left={FolderIcon}
-      onPress={onPress}
-      style={styles.row}
-      title={name}
-      titleStyle={dimmed ? themed.dimmed : undefined}
-    />
-  );
-}
-
-/** A row of a band not read yet: the fixed row height, no spinner (research R7). */
-function PlaceholderRow(): React.JSX.Element {
-  return (
-    <View
-      accessibilityLabel={placeholderLabel()}
-      accessible
-      style={styles.row}
-      testID="list-placeholder"
-    />
-  );
 }
 
 /**
@@ -583,10 +529,5 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
 const styles = StyleSheet.create({
   folder: {
     flex: 1,
-  },
-  row: {
-    height: density.rowHeight,
-    justifyContent: 'center',
-    paddingVertical: 0,
   },
 });

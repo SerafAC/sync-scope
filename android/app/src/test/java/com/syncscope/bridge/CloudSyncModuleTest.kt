@@ -131,9 +131,13 @@ class CloudSyncModuleTest {
     assertEquals("TIME_DESC", read.getString("gallerySort"))
     assertEquals("SIZE_DESC", read.getString("listSort"))
 
-    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }
+    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "FOLDERS"), it) }
     assertEquals("INVALID_QUERY", refused.getMap("error")!!.getString("code"))
     assertEquals("LIST", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
+
+    // 009: the tree view is remembered like the others.
+    assertEquals("ok", resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }.getString("status"))
+    assertEquals("TREE", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
   }
 
   @Test

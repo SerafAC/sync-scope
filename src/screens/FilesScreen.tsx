@@ -219,6 +219,7 @@ export function FilesScreen({
   const [counts, setCounts] = useState<CountsByView>({
     GALLERY: null,
     LIST: null,
+    TREE: null,
   });
   const [updated, setUpdated] = useState(false);
 

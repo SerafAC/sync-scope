@@ -531,11 +531,19 @@ export interface ScrollIndexOk {
 export type ScrollIndexResult = ScrollIndexOk | OperationError;
 
 /**
+ * The Files tab's view mode as remembered (007 research R10); TREE is added
+ * by 009 (research R1). Not a query's `FileView`: the tree reads LIST queries.
+ * Mirrored by the Kotlin `BrowsePreferences.VIEWS`.
+ */
+export type BrowseView = 'GALLERY' | 'LIST' | 'TREE';
+
+/**
  * The remembered browse choices (contract v6, research R10). Missing or
- * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC.
+ * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC. The tree
+ * view sorts its files with `listSort`.
  */
 export interface BrowsePreferencesDto {
-  view: 'GALLERY' | 'LIST';
+  view: BrowseView;
   gallerySort: FileSort;
   listSort: FileSort;
 }

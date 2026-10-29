@@ -358,12 +358,13 @@ describe('CloudSync versioned contract', () => {
         status: 'ok',
         preferences: {...defaults, view: 'LIST', listSort: 'SIZE_ASC'},
       };
-      // @ts-expect-error the view is GALLERY or LIST
-      const badView: BrowsePreferencesDto = {...defaults, view: 'TREE'};
+      const tree: BrowsePreferencesDto = {...defaults, view: 'TREE'};
+      // @ts-expect-error the view is GALLERY, LIST or TREE
+      const badView: BrowsePreferencesDto = {...defaults, view: 'FOLDERS'};
       // @ts-expect-error a remembered sort is a FileSort
       const badSort: BrowsePreferencesDto = {...defaults, listSort: 'TYPE_ASC'};
       expect(isErrorResult(ok)).toBe(false);
-      expect([badView, badSort]).toHaveLength(2);
+      expect([tree, badView, badSort]).toHaveLength(3);
     });
 
     it('points at Settings › Device folders, never Settings › Folders', () => {

@@ -1,7 +1,7 @@
 import type {
+  BrowseView,
   FileFilter,
   FileStatus,
-  FileView,
 } from '../native/CloudSyncContracts';
 
 /** What the selection keeps of one selected `FILE` row (data-model "Selection"). */
@@ -32,12 +32,12 @@ const FILTER_STATUS: Record<Exclude<FileFilter, 'ALL'>, FileStatus> = {
  * The derived values the selection bar shows. An item is hidden when its
  * status is not in [filter], or when it is not media (an image or a video)
  * in gallery view.
- * Files in other list folders are not hidden: the user navigated away from
- * them knowingly (research R9).
+ * Files in other list folders, or in collapsed tree folders, are not hidden:
+ * the user navigated away from them knowingly (research R9).
  */
 export function selectionSummary(
   items: ReadonlyMap<string, SelectionItem>,
-  view: FileView,
+  view: BrowseView,
   filter: FileFilter,
 ): SelectionSummary {
   let knownBytes = 0;
