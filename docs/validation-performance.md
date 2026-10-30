@@ -7,7 +7,7 @@ safety. Unit tests alone never establish a timing baseline. US1 (helper, progres
 changes) and US2 (verified acceleration) are implemented and measured; see
 [Interaction, build and fixture changes](#interaction-build-and-fixture-changes-us1). US3 profiling and
 any app changes it justifies have not started.
-The runner accepts `connected`, `e2e`, `release-smoke` and `measure`, repeated `--api` arguments,
+The runner accepts `connected`, `e2e` and `measure`, repeated `--api` arguments,
 `--report-dir`, and `--graphics auto|host-opengl|software`. Direct invocation still defaults to API 31
 and, without `--graphics`, to the original **legacy launch request** (`-gpu swiftshader_indirect`),
 reported as software. `pnpm e2e:android` requests API 31 followed by 36 with `--graphics auto` (T046),
@@ -20,7 +20,7 @@ Existing acceptance instructions remain in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
 The authorized recovery collects separately per API to respect Metro's unchanged four-hour cap.
 Only newly acquired `measure` emulators receive a bounded **14,400-second** cap; standalone,
-connected, e2e and release-smoke keep **9,000 seconds**. Borrowed emulators retain their original
+connected and e2e keep **9,000 seconds**. Borrowed emulators retain their original
 deadline. There is no user-controlled lifetime override. This lifecycle policy is explicit recovery
 provenance, not an app/action speedup or a graphics/resource/animation change.
 
@@ -68,8 +68,8 @@ dropping a boundary; synthetic regressions cover these rules and original restar
 Statuses distinguish **executed**, **failed**, **missing** and **pre-existing documented deviation**.
 At setup all runtime claims are missing, not passed: source inventory is not executed proof.
 The original default `start-scan` optional running wait is explicitly a weakness, not affirmative
-scan-start evidence. Debug workspace execution of release-named flows never proves signed standalone
-installation or an in-place signed APK update; existing `release-smoke` mode supplies that proof.
+scan-start evidence. Debug workspace execution never proves signed standalone installation or an in-place signed APK
+update; the former `release-smoke` mode was removed, and the release build is left to its CI/CD pipeline.
 
 ## Private local layout
 

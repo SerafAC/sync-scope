@@ -21,6 +21,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is ta
   folder. New flows `validation/maestro/tree/` (5) and staged lines `09-resync`, `10-selection-survives`
   and `11-toolbar-halves`, with the hook `assert-equal-halves.sh`; decisions D023 and D024.
 
+### Removed
+
+- `pnpm e2e:android:release-smoke` and the runner's `release-smoke` mode. It refused to run while
+  `~/.gradle/gradle.properties` held a real release key, and the release build is to be checked by its
+  own CI/CD pipeline instead. The two flows it reused still run in the debug workspace, renamed
+  `mvp/90-standalone-setup` and `mvp/91-relaunch-keeps-data`.
+
 - Verified emulator acceleration for the validation runner (feature 008, US2):
   `scripts/validation/android-flow.sh --graphics auto|host-opengl|software` discovers the exposed Intel
   host GPU and the emulator's software modes, and requires KVM. It verifies the actual renderer after

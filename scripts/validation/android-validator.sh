@@ -238,7 +238,7 @@ case "$action" in
       [ -n "${SYNCSCOPE_INVOCATION_TOKEN:-}" ] || exit 1
       invocation_mode=$(cat "$mode_file")
       case "$invocation_mode" in
-        "$SYNCSCOPE_INVOCATION_TOKEN":connected|"$SYNCSCOPE_INVOCATION_TOKEN":e2e|"$SYNCSCOPE_INVOCATION_TOKEN":release-smoke|"$SYNCSCOPE_INVOCATION_TOKEN":measure) ;;
+        "$SYNCSCOPE_INVOCATION_TOKEN":connected|"$SYNCSCOPE_INVOCATION_TOKEN":e2e|"$SYNCSCOPE_INVOCATION_TOKEN":measure) ;;
         *) exit 1 ;;
       esac
       [ "$(wc -c <"$mode_file")" -eq "$((${#invocation_mode} + 1))" ] || exit 1

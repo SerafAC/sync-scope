@@ -1,11 +1,9 @@
-# Story 4 sc. 1-2, FR-012, SC-004: the installed app works on its own. In
-# release-smoke mode (android-flow.sh step 6) this runs on the signed release
-# APK with no Metro: set up SFTP through the form, add a folder, scan, and see
-# the results in Files. No debug seam is used, so the flow is valid on the
-# debug build too and runs last in the workspace.
+# Story 4 sc. 1-2, FR-012, SC-004: the installed app works on its own: set up
+# SFTP through the form, add a folder, scan, and see the results in Files. No
+# debug seam is used, and it runs last in the workspace.
 # Self-contained: starts from clearState (contracts/maestro-mvp.md).
 appId: com.syncscope
-name: mvp/90-release-smoke
+name: mvp/90-standalone-setup
 ---
 - launchApp:
     clearState: true

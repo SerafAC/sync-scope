@@ -387,37 +387,6 @@ case "$*" in "version --format"*) printf '29.8.1 29.8.1\\n' ;;
   assert.doesNotMatch(await h.log(), /docker rm|down|prune/);
 });
 
-test('release-smoke preserves unsigned rejection, signed build/install/update and no Metro', async t => {
-  const h = await harness(t);
-  const javaHome = join(h.root, 'java');
-  await executable(join(javaHome, 'bin/keytool'), 'exit 0');
-  await executable(join(h.bin, 'pnpm'), `
-[ "$1" != --version ] || { printf '11.3.0\\n'; exit 0; }
-printf 'release build\\n' >>"$SYNCSCOPE_TEST_CALLS"
-[ -n "\${ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE:-}" ] ||
-  { printf 'Release signing is not configured\\n'; exit 1; }
-mkdir -p "$SYNCSCOPE_TEST_ROOT/repo/android/app/build/outputs/apk/release"
-printf 'release-apk\\n' >"$SYNCSCOPE_TEST_ROOT/repo/android/app/build/outputs/apk/release/app-release.apk"`);
-  await executable(join(h.env.ANDROID_HOME, 'build-tools/37/aapt2'), `
-case "$*" in *"dump badging"*)
-  printf "package: name='com.syncscope' versionCode='1' versionName='0.0.1'\\n"
-  printf "application: label='SyncScope' icon='res/test.xml'\\n" ;;
-  *) printf 'E: adaptive-icon\\nE: foreground\\nE: monochrome\\n' ;; esac`);
-  await executable(join(h.env.ANDROID_HOME, 'platform-tools/adb'), `
-[ "$1" != version ] || { printf '37.0.1\\n'; exit 0; }
-printf 'adb %s\\n' "$*" >>"$SYNCSCOPE_TEST_CALLS"
-case "$*" in
-  *"syncscope-debug://configure-repository"*) printf 'Error: Activity not started, unable to resolve Intent\\n' ;;
-  *"-exec stat -c %s {} +") printf '7\\n' ;;
-esac`);
-  const run = h.run(['release-smoke'], {JAVA_HOME: javaHome});
-  assert.equal(run.status, 0, run.stderr);
-  const log = await h.log();
-  assert.equal(log.split('\n').filter(line => line === 'release build').length, 2);
-  assert.match(log, /uninstall com.syncscope[\s\S]*install[\s\S]*90-release-smoke[\s\S]*install -r[\s\S]*91-release-update/);
-  assert.doesNotMatch(log, /metro start|assembleDebug|reactNativeArchitectures/);
-});
-
 // Exercise the actual Bash acquisition, identity, audit and cleanup code.
 // Only external SDK/Docker/Metro/Maestro tools and fixture data generation are
 // fake; process sessions, /proc identities, flock and timeout are real.
@@ -873,9 +842,9 @@ test('measurement authority rejects missing inherited lock, token mismatch, syml
   assert.equal(run(true).status, 1);
   assert.doesNotMatch(await h.log(), /emulator acquired-process/);
   await rm(modeFile);
-  await writeFile(modeFile, 'owner:release-smoke\n', {mode: 0o600});
-  const release = run(true);
-  assert.equal(release.status, 0, release.stderr);
+  await writeFile(modeFile, 'owner:e2e\n', {mode: 0o600});
+  const e2e = run(true);
+  assert.equal(e2e.status, 0, e2e.stderr);
   assert.match(await h.log(), /emulator lifetime 9000\n/);
   const stop = spawnSync('sh', [join(h.repo, 'scripts/validation/android-validator.sh'),
     'stop', ...args.slice(1)], {env: {...h.env, SYNCSCOPE_INVOCATION_TOKEN: 'owner',
@@ -1259,7 +1228,7 @@ test('default, connected and release CLI keep the original single legacy request
     });
   }
   const h = await harness(t);
-  for (const args of [['release-smoke', '--graphics', 'gpu'], ['connected', '--graphics'],
+  for (const args of [['release-smoke'], ['e2e', '--graphics', 'gpu'], ['connected', '--graphics'],
     ['e2e', '--graphics', 'legacy']]) {
     assert.equal(h.run(args).status, 64, args.join(' '));
   }
@@ -1465,7 +1434,7 @@ test('measure shares the same single x86_64 debug build across APIs', async t =>
   assert.match(builds[0], /-PreactNativeArchitectures=x86_64/);
 });
 
-test('connected and release builds keep their original ABI, signing and update paths', async t => {
+test('connected builds keep their original ABI, and the runner builds no release', async t => {
   const h = await harness(t);
   const run = h.run(['connected', '--api', '31', '--api', '36']);
   assert.equal(run.status, 0, run.stderr);
@@ -1477,9 +1446,7 @@ test('connected and release builds keep their original ABI, signing and update p
   const report = await onlyReport(h);
   assert.equal(report.build.abi, 'instrumented');
   const flow = await readFile(join(h.repo, 'scripts/validation/android-flow.sh'), 'utf8');
-  const release = flow.split('\n').filter(line => /assemble:release|assembleRelease/.test(line));
-  assert.ok(release.length > 0);
-  assert.ok(release.every(line => !/reactNativeArchitectures/.test(line)), 'release keeps every ABI');
+  assert.doesNotMatch(flow, /assemble:release|assembleRelease/, 'the release build is left to CI/CD');
 });
 
 test('a failed debug build boots, installs and runs nothing, and releases what it acquired', async t => {

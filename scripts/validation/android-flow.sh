@@ -30,7 +30,7 @@ while [ "$#" -gt 0 ]; do
     *) exit 64 ;;
   esac
 done
-case "$mode" in connected|e2e|release-smoke|measure) ;; *) exit 64 ;; esac
+case "$mode" in connected|e2e|measure) ;; *) exit 64 ;; esac
 [ -n "$apis" ] || apis=" 31"
 seen=
 for requested_api in $apis; do
@@ -73,7 +73,6 @@ hooks="$repo/scripts/validation/hooks"
 staged_state=$(validation_state syncscope-sftp)
 gradle_pid=
 paused_protocols=
-keystore_dir=
 SYNCSCOPE_PERFORMANCE_DIR=
 artifact_counter=0
 maestro_pid=
@@ -116,9 +115,6 @@ cleanup() {
       { restoration=failed; [ "$status" -ne 0 ] || { status=1; failure_code=restoration; }; }
     ;;
   esac
-  if [ -n "$keystore_dir" ]; then
-    rm -rf -- "$keystore_dir" || { [ "$status" -ne 0 ] || status=1; }
-  fi
   if [ -n "$gradle_pid" ]; then
     validation_stop_process "$claims/gradle" || true
     wait "$gradle_pid" 2>/dev/null || true
@@ -293,105 +289,6 @@ run_staged_pairs() {
   done <"$pairs"
 }
 
-# release_smoke_build: release-smoke steps 1-3 (contracts/maestro-mvp.md).
-release_smoke_build() {
-  # Step 1: no signing properties, so the documented failure (Story 4 sc. 4).
-  gradle_properties="${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"
-  if grep -qs '^[[:space:]]*SYNCSCOPE_RELEASE_' "$gradle_properties"; then
-    printf '%s\n' \
-      "$gradle_properties sets SYNCSCOPE_RELEASE_* properties; release-smoke needs them unset." >&2
-    exit 1
-  fi
-  if unsigned=$(cd "$repo" && env \
-    -u ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE \
-    -u ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD \
-    -u ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS \
-    -u ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD \
-    timeout --signal=TERM --kill-after=20 1200 pnpm assemble:release 2>&1); then
-    printf '%s\n' "The release build without signing properties must fail." >&2
-    exit 1
-  fi
-  case "$unsigned" in
-    *"Release signing is not configured"*) ;;
-    *)
-      printf '%s\n' "$unsigned" >&2
-      printf '%s\n' "The unsigned release build failed without the signing message." >&2
-      exit 1
-      ;;
-  esac
-
-  # Step 2: a throwaway key, then the documented command (sc. 3).
-  keystore_dir=$(mktemp -d /tmp/cloud-sync-checker-release-XXXXXX)
-  keystore_secret=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-  "${JAVA_HOME:+$JAVA_HOME/bin/}keytool" -genkeypair -noprompt \
-    -storetype PKCS12 -keystore "$keystore_dir/release.p12" \
-    -alias syncscope-release-smoke -keyalg RSA -keysize 2048 -validity 1 \
-    -dname 'CN=SyncScope release smoke' \
-    -storepass "$keystore_secret" -keypass "$keystore_secret" >/dev/null 2>&1
-  export ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE="$keystore_dir/release.p12"
-  export ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD="$keystore_secret"
-  export ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS=syncscope-release-smoke
-  export ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD="$keystore_secret"
-  (cd "$repo" && timeout --signal=TERM --kill-after=20 1200 pnpm assemble:release)
-  keystore_secret=
-
-  # Step 3: the APK's version comes from package.json (FR-022, R17).
-  version=$(node -p "require(process.argv[1]).version" "$repo/package.json")
-  printf '%s\n' "$version" |
-    grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' || {
-    printf 'package.json version is not MAJOR.MINOR.PATCH: %s\n' "$version" >&2
-    exit 1
-  }
-  major=${version%%.*}
-  minor=${version#*.}
-  minor=${minor%%.*}
-  patch=${version##*.}
-  version_code=$((major * 10000 + minor * 100 + patch))
-  aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
-  badging=$("$aapt2" dump badging "$release_apk" | sed -n '1p')
-  case "$badging" in
-    *" versionCode='$version_code'"*" versionName='$version'"*) ;;
-    *)
-      printf 'Release APK version does not match package.json %s (code %s): %s\n' \
-        "$version" "$version_code" "$badging" >&2
-      exit 1
-      ;;
-  esac
-  # Feature 007 Story 7 (T071, SC-009): the launcher icon is the adaptive
-  # ic_launcher.xml from scripts/icon/generate-icons.sh, not a default PNG.
-  # Release builds shorten resource paths (res/E4.xml), so the check reads
-  # the icon file itself: an adaptive icon with a monochrome layer.
-  application=$("$aapt2" dump badging "$release_apk" | grep '^application:')
-  case "$application" in
-    *" label='SyncScope'"*" icon='res/"*".xml'"*) ;;
-    *)
-      printf 'Release APK application-icon is not an XML icon: %s\n' \
-        "$application" >&2
-      exit 1
-      ;;
-  esac
-  icon=${application#*" icon='"}
-  icon=${icon%%"'"*}
-  icon_tree=$("$aapt2" dump xmltree --file "$icon" "$release_apk")
-  case "$icon_tree" in
-    *"E: adaptive-icon"*"E: foreground"*"E: monochrome"*) ;;
-    *)
-      printf 'Release APK application-icon %s is not the adaptive icon with a monochrome layer:\n%s\n' \
-        "$icon" "$icon_tree" >&2
-      exit 1
-      ;;
-  esac
-}
-
-release_apk="$repo/android/app/build/outputs/apk/release/app-release.apk"
-if [ "$mode" = release-smoke ]; then
-  validation_phase_begin shared build
-  release_smoke_build
-  validation_phase_end 0
-  node "$repo/scripts/validation/performance-report.mjs" build \
-    "$SYNCSCOPE_PERFORMANCE_DIR" "$release_apk" /dev/null
-fi
-
 debug_apk="$repo/android/app/build/outputs/apk/debug/app-debug.apk"
 if [ "$mode" = e2e ] || [ "$mode" = measure ]; then
   # Feature 008 (T041, research R9): one debug assembly per invocation, before
@@ -532,15 +429,10 @@ for api in $apis; do
       "$SYNCSCOPE_PERFORMANCE_DIR" "$debug_apk" "$gradle_log" "$api"
   fi
 
-  if [ "$mode" = release-smoke ]; then
-    validation_phase_begin "$api" install
-    # Step 4: a clean install of the release APK, with Metro never started.
-    adb uninstall com.syncscope >/dev/null 2>&1 || true
-    adb install "$release_apk"
-  elif [ "$mode" = e2e ] || [ "$mode" = measure ]; then
+  if [ "$mode" = e2e ] || [ "$mode" = measure ]; then
     validation_phase_begin "$api" install
     # The shared build's APK; every API and calibration candidate gets the same one.
-    # A release-smoke run leaves the release-signed APK installed, and Android
+    # A locally installed release build is signed with another key, and Android
     # refuses to update it with the debug-signed one. Only in that case is the
     # app uninstalled first; every flow directory starts from clearState anyway.
     if ! installed=$(timeout --signal=TERM --kill-after=10 60 \
@@ -674,28 +566,6 @@ $schedule
 EOF
       sample_scenario=none
       sample_repetition=0
-    else
-      # Step 5: the debug-only configure deep link does not exist in release.
-      started=$(adb shell am start -W -a android.intent.action.VIEW \
-        -d 'syncscope-debug://configure-repository' 2>&1 || true)
-      case "$started" in
-        *"Error: Activity not started, unable to resolve Intent"*) ;;
-        *)
-          printf '%s\n' "$started" >&2
-          printf '%s\n' "The release APK resolves the debug configure deep link." >&2
-          exit 1
-          ;;
-      esac
-      # Steps 6-7: the smoke flow, then an in-place update with the same key.
-      validation_phase_begin "$api" workspace
-      run_flow mvp/90-release-smoke.yaml "$@"
-      validation_phase_end 0
-      validation_phase_begin "$api" install
-      adb install -r "$release_apk"
-      validation_phase_end 0
-      validation_phase_begin "$api" workspace
-      run_flow mvp/91-release-update.yaml "$@"
-      validation_phase_end 0
     fi
   fi
 

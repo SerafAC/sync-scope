@@ -1640,15 +1640,15 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
 const HOOKS = new URL('hooks/', import.meta.url);
 const STAGED = new URL('../../validation/maestro/staged/', import.meta.url);
 
-test('android-flow accepts the release-smoke mode and still rejects unknown modes', async t => {
+test('android-flow accepts its modes and rejects unknown ones', async t => {
   const source = await text('scripts/validation/android-flow.sh');
   assert.match(
     source,
-    /case "\$mode" in connected\|e2e\|release-smoke\|measure\) ;; \*\) exit 64 ;; esac/,
+    /case "\$mode" in connected\|e2e\|measure\) ;; \*\) exit 64 ;; esac/,
   );
 
   const {home, sdk} = await fakeSdk(t);
-  for (const mode of ['bogus', '']) {
+  for (const mode of ['bogus', '', 'release-smoke']) {
     const run = spawnSync(
       'sh',
       [new URL('android-flow.sh', import.meta.url).pathname, mode],
@@ -1658,10 +1658,7 @@ test('android-flow accepts the release-smoke mode and still rejects unknown mode
   }
 
   const packageJson = JSON.parse(await text('package.json'));
-  assert.equal(
-    packageJson.scripts['e2e:android:release-smoke'],
-    'scripts/validation/android-flow.sh release-smoke --api 31',
-  );
+  assert.equal(packageJson.scripts['e2e:android:release-smoke'], undefined);
   // Feature 008 T046: normal validation uses the ranked automatic graphics
   // profile on both APIs; a bare android-flow.sh call keeps the legacy launch.
   assert.equal(
@@ -1735,7 +1732,7 @@ const ORIGINAL_WORKSPACE = [
   'browse/01-gallery-thousands', 'browse/02-gallery-filters', 'browse/03-gallery-issues-unknown',
   'browse/04-list-browse', 'mvp/01-setup-ftp', 'mvp/01-setup-sftp', 'mvp/01-setup-webdav',
   'mvp/02-setup-errors', 'mvp/03-first-run', 'mvp/04-select-size', 'mvp/05-delete-synced',
-  'mvp/90-release-smoke', 'mvp/91-release-update', 'polish/01-sort', 'polish/02-sort-persists',
+  'mvp/90-standalone-setup', 'mvp/91-relaunch-keeps-data', 'polish/01-sort', 'polish/02-sort-persists',
   'polish/03-fast-scroll', 'polish/04-remote-folders-webdav', 'polish/05-remote-folder-unread-ftp',
   'polish/06-remote-browse-sftp', 'polish/07-results-updated-keeps-place',
   'polish/08-add-large-folder',
@@ -2149,52 +2146,6 @@ test('cleanup also restores the staged/09 resync file and reports a failed resto
   );
 });
 
-test('release-smoke mode follows the contract steps in order', async () => {
-  const source = await text('scripts/validation/android-flow.sh');
-  const steps = [
-    'Release signing is not configured',
-    'keytool" -genkeypair',
-    'ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE',
-    'pnpm assemble:release',
-    'dump badging',
-    "grep '^application:'",
-    'dump xmltree --file',
-    'E: monochrome',
-    'uninstall com.syncscope',
-    'device-fixtures.sh',
-    'Error: Activity not started, unable to resolve Intent',
-    'mvp/90-release-smoke.yaml',
-    'install -r',
-    'mvp/91-release-update.yaml',
-  ];
-  const start = source.indexOf('release_smoke_build() {');
-  assert.ok(start !== -1, 'release-smoke builds in release_smoke_build');
-  let at = start;
-  for (const step of steps) {
-    const found = source.indexOf(step, at);
-    assert.ok(found !== -1, `release-smoke must contain '${step}' after the previous step`);
-    at = found;
-  }
-  for (const suffix of ['STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']) {
-    assert.ok(
-      source.includes(`ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_${suffix}`),
-      `${suffix} must be exported for the signed build`,
-    );
-  }
-  assert.match(source, /mktemp -d/);
-  const cleanup = source.slice(
-    source.indexOf('cleanup() {'),
-    source.indexOf('trap cleanup EXIT'),
-  );
-  assert.match(cleanup, /keystore_dir/, 'the keystore is removed in cleanup');
-  assert.match(source, /syncscope-debug:\/\/configure-repository/);
-  // Release-smoke never starts Metro.
-  assert.match(
-    source,
-    /if \[ "\$mode" = e2e \] \|\| \[ "\$mode" = measure \]; then\n\s+validation_phase_begin shared services\n\s+SYNCSCOPE_RESOURCE_RECEIPT="\$claims\/metro" "\$repo\/scripts\/validation\/metro-service\.sh" start/,
-  );
-});
-
 // FR-022, research R17: the app version is derived from package.json, never
 // hard-coded in build.gradle. Runs the real Gradle task (offline, so the
 // cached toolchain is used) and recomputes the expected values here.
@@ -2585,8 +2536,8 @@ test('the committed launcher icons are SyncScope’s own', async () => {
   await lstat(new URL('assets/icon/play-store-512.png', root));
 });
 
-test('the release smoke flow finds the app in the launcher', async () => {
-  const flow = await text('validation/maestro/mvp/90-release-smoke.yaml');
+test('the standalone setup flow finds the app in the launcher', async () => {
+  const flow = await text('validation/maestro/mvp/90-standalone-setup.yaml');
   const home = flow.indexOf('- pressKey: Home');
   assert.ok(home !== -1, 'the flow returns to the launcher');
   assert.match(flow.slice(home), /visible: "SyncScope"/);

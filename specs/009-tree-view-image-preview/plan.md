@@ -143,7 +143,7 @@ first UI task, with the fix planned either way: why the toolbar does not stretch
 | VII. `./docs` | PASS | **New decisions**: D023, refresh re-check of unsynced files (amends D020's rejected alternative); D024, video preview through a native view (narrows R029).<br>**Pages**:<br>• `scope.md`: R029 is documents only<br>• `overview.md`: tree view, preview, video in the gallery, the re-check<br>• `architecture.md`: schema v6, contract v7, the native view, `ServerFolderLister`, `MediaKind`, the `RECHECKING_REMOTE` phase<br>• `sync-and-deletion-safety.md`: the refresh can promote and never demotes, with the neighbour-folder limitation<br>• `protocols.md`: the refresh may connect |
 | VIII. README | PASS | User sections: "Browse as a tree", "Preview photos and videos", and, in "Read the results", how not-backed-up files update after your sync app uploads them, and the limitation for brand-new folders. |
 | IX. DEVELOPMENT.md | PASS | The `ffmpeg` prerequisite for regenerating the MP4 fixture, the `tree/` flows, the staged lines 09, 10 and 11, and `assert-equal-halves.sh`. |
-| Quality gates | Planned | Lint and typecheck, `test:ci`, `test:android:unit`, `test:foundation`, `e2e:android` (API 31 and 36) and `release-smoke` are the exit gate. |
+| Quality gates | Planned | Lint and typecheck, `test:ci`, `test:android:unit`, `test:foundation`, and `e2e:android` (API 31 and 36) are the exit gate (`release-smoke` removed, see decisions.md). |
 
 The gate passes, before and after the Phase 1 design. The items under Complexity Tracking are justified.
 

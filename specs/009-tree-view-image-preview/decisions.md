@@ -12,3 +12,7 @@
 ## 2026-10-29T19:04:57+01:00 — Polish: e2e gate [T086]
 **Q:** staged/07-delete-offline-b failed on API 31: the delete was refused with "A scan is already running." because the launch's local refresh now re-checks the paused SFTP server (FR-003) and holds the run until the connect times out (~35 s). Fix the flow or the product?
 **A:** Fix the flow (recommended) — refusing a delete while a scan runs is 006 behaviour and Retry works once the refresh ends; 07-b now waits on the Scan tab for the local refresh to complete before deleting, like staged/09-resync-c.
+
+## 2026-10-30T10:31:31+01:00 — Polish: release smoke [T086]
+**Q:** `pnpm e2e:android:release-smoke` refuses to run while `~/.gradle/gradle.properties` holds the real release key, so it keeps colliding with the local setup. Keep it as a T086 gate?
+**A:** Remove it (user) — the release build will be its own test in a CI/CD pipeline. The `release-smoke` mode, its package script, tests and docs are gone; the two flows it shared with the debug workspace stay, renamed `mvp/90-standalone-setup` and `mvp/91-relaunch-keeps-data`. T086 no longer includes it.

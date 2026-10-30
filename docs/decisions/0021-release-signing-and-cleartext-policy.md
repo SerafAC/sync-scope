@@ -30,8 +30,9 @@ attached. Two things stood in the way:
   message pointing to `DEVELOPMENT.md` › Release key. There is no fallback to the debug key. Debug and
   unit-test builds never need the key. `pnpm assemble:release` is the one documented command.
 - **No debug seams in release.** The `syncscope-debug://` activities ([D017](./0017-debug-grant-release-seam.md),
-  [D018](./0018-debug-repository-seam.md)) live only in the debug source set. `android-flow.sh
-  release-smoke` asserts the links resolve to no activity on the installed release APK.
+  [D018](./0018-debug-repository-seam.md)) live only in the debug source set. The former `android-flow.sh
+  release-smoke` mode asserted the links resolve to no activity on the installed release APK; it was
+  removed in feature 009, and those checks belong to the release build's CI/CD pipeline.
 - **Cleartext is the user's choice** (R4). The release build type sets `usesCleartextTraffic=true`; the
   default config still denies it unless a build type opts in. The app only connects to the server the
   user typed in, so the policy that matters is theirs. The repository form shows, under the protocol

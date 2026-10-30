@@ -315,8 +315,8 @@ validation/maestro/
 │   ├── 03-first-run.yaml
 │   ├── 04-select-size.yaml
 │   ├── 05-delete-synced.yaml
-│   ├── 90-release-smoke.yaml       # also the release-smoke mode's flow
-│   └── 91-release-update.yaml      # release-smoke only: after an in-place update
+│   ├── 90-standalone-setup.yaml
+│   └── 91-relaunch-keeps-data.yaml
 ├── polish/          # feature 007
 │   ├── 01-sort.yaml
 │   ├── 02-sort-persists.yaml
@@ -647,8 +647,8 @@ The `mvp/` flows (feature 006) run after `browse/`. The full scenario mapping is
 | `03-first-run` | clearState | the Scan checklist, the Files empty state, the folder picker hint and DCIM start folder, then a first scan |
 | `04-select-size` | SFTP, `gallery`; Select | long-press, tap, Select all, the count and size, hidden by filter, back clears |
 | `05-delete-synced` | SFTP, `gallery-partial`, then `gallery`; Delete | real deletion of the SYNCED files, UNKNOWN files survive, folders stay; then the not-backed-up opt-in |
-| `90-release-smoke` | clearState, no seam | setup, folder, scan and results; valid on debug and release |
-| `91-release-update` | after `adb install -r` | the server, folders and results survive an update (release-smoke only) |
+| `90-standalone-setup` | clearState, no seam | setup, folder, scan and results, all through the UI |
+| `91-relaunch-keeps-data` | after `90` | the server, folders and results survive a relaunch |
 
 ### Polish flow order
 
@@ -700,23 +700,6 @@ workspace, `android-flow.sh` reads `staged/pairs.txt`: each line alternates flow
 A pause registers its resume in the runner's `trap` before it runs, so a failed flow never leaves a
 container paused. The staged flows all use the SFTP container. The hooks are covered by
 `validation-infrastructure.test.mjs`.
-
-### Release smoke
-
-`pnpm e2e:android:release-smoke` (`android-flow.sh release-smoke --api 31`) proves the installable APK:
-
-1. `pnpm assemble:release` with no `SYNCSCOPE_RELEASE_*` properties must fail with "Release signing is
-   not configured". The run refuses to start if `~/.gradle/gradle.properties` sets them.
-2. It generates a throwaway keystore in a temp directory and builds with `pnpm assemble:release` through
-   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_*`.
-3. `aapt2 dump badging` must report the `versionName` and `versionCode` derived from `package.json`.
-4. It installs the release APK with Metro stopped, and asserts that `syncscope-debug://configure-repository`
-   resolves to no activity.
-5. It runs `mvp/90-release-smoke`, re-installs the same APK with `adb install -r`, and runs
-   `mvp/91-release-update`.
-6. It deletes the keystore.
-
-It needs the protocol containers like `pnpm e2e:android`, and runs on API 31 only.
 
 ### Running one flow
 
@@ -819,7 +802,6 @@ repository.
    Instead of the file, you can export them as environment variables named
    `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE`, `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD`,
    `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS` and `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD`.
-   `pnpm e2e:android:release-smoke` does this with a throwaway key.
 
 3. Build with `pnpm assemble:release`. The APK is
    `android/app/build/outputs/apk/release/app-release.apk`. It bundles the JavaScript, so it runs without

@@ -400,7 +400,7 @@ The validation stack proves behaviour against real servers and real emulators.
   approval, and `android-flow.sh` passes the per-run container credentials to Maestro as `-e` variables.
   After the workspace, `android-flow.sh` runs the `staged/` a/b pairs with a host- or device-side hook
   between the parts (a server file removed, a container paused, a device file changed).
-  `pnpm e2e:android:release-smoke` builds, installs and checks the release APK with no Metro running. The layout, selector, assertion, seam and fixture conventions are in
+  The layout, selector, assertion, seam and fixture conventions are in
   [DEVELOPMENT.md](../DEVELOPMENT.md#end-to-end-flows-maestro).
 - **Credentials to the device.** Gradle forwards the per-run container credentials into
   `testInstrumentationRunnerArguments`, and the emulator reaches the host at `10.0.2.2`

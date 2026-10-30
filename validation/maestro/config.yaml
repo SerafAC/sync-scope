@@ -49,8 +49,8 @@ executionOrder:
     - mvp/03-first-run
     - mvp/04-select-size
     - mvp/05-delete-synced
-    - mvp/90-release-smoke
-    - mvp/91-release-update
+    - mvp/90-standalone-setup
+    - mvp/91-relaunch-keeps-data
     - polish/01-sort
     - polish/02-sort-persists
     - polish/03-fast-scroll
