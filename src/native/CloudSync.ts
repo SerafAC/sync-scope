@@ -12,6 +12,8 @@ import {
   type CloudSyncError,
   type DeletionFailureDto,
   type DeletionFailureReason,
+  type CarriedEntry,
+  type CarrySelectionResult,
   type DeletionPlanDto,
   type DeletionResultDto,
   type ExecuteLocalDeletionResult,
@@ -19,6 +21,7 @@ import {
   type HostKeyChallengeDto,
   type LaunchSourcePickerResult,
   type ListSourcesResult,
+  type LocalImageHandleDto,
   type LocalImageHandleResult,
   type LocalImageSpec,
   type OperationError,
@@ -162,6 +165,8 @@ type NativeEnvelope = {
   preferences?: unknown;
   remoteFolders?: unknown;
   scrollIndex?: unknown;
+  carried?: unknown;
+  dropped?: unknown;
 };
 
 type NativeErrorShape = {
@@ -384,9 +389,35 @@ export async function getScanState(): Promise<ScanStateResult> {
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    run: result.run != null ? (result.run as ScanRunDto) : null,
+    run: scanRunOf(result.run),
     active: activeSnapshotOf(result.active),
   };
+}
+
+/**
+ * The run as native sends it. The re-check counters (contract v7) are read
+ * defensively: missing or malformed is null, which the Scan tab never shows.
+ */
+function scanRunOf(value: unknown): ScanRunDto | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const run = value as ScanRunDto & {
+    recheckedFolders?: unknown;
+    promotedFiles?: unknown;
+  };
+  return {
+    ...run,
+    recheckedFolders: countOrNull(run.recheckedFolders),
+    promotedFiles: countOrNull(run.promotedFiles),
+  };
+}
+
+/** A non-negative whole count, else null. */
+function countOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
 }
 
 /**
@@ -454,21 +485,50 @@ export async function getLocalImageHandle(
   if (result.status !== 'ok') {
     return normalizeOperationError(result);
   }
-  const handle = result.handle as { uri?: unknown } | null | undefined;
-  if (handle == null || typeof handle.uri !== 'string') {
+  const handle = localImageHandleOf(result.handle);
+  if (handle == null) {
     return normalizeOperationError({ ...result, status: 'error', error: null });
   }
   return {
     contractVersion: contractVersionOf(result),
     status: 'ok',
-    handle: { uri: handle.uri },
+    handle,
+  };
+}
+
+/**
+ * The wire `handle` of `getLocalImageHandle` as a {@link LocalImageHandleDto}
+ * (contract v7), or null when it has no string `uri`. A `durationMillis`
+ * that is not a finite non-negative number (missing, negative, NaN, a
+ * string) becomes null; stray fields are dropped.
+ */
+export function localImageHandleOf(raw: unknown): LocalImageHandleDto | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null;
+  }
+  const { uri, durationMillis } = raw as {
+    uri?: unknown;
+    durationMillis?: unknown;
+  };
+  if (typeof uri !== 'string') {
+    return null;
+  }
+  return {
+    uri,
+    durationMillis:
+      typeof durationMillis === 'number' &&
+      Number.isFinite(durationMillis) &&
+      durationMillis >= 0
+        ? durationMillis
+        : null,
   };
 }
 
 /**
  * Every FILE row [querySpec] would show in the active snapshot [snapshotId], for
  * "Select all" (contract v5). Native ignores `pageSize`, `sort` and `search`; a
- * LIST query needs its `sourceId` and `parentId` (null: the source's top level).
+ * LIST query needs its `sourceId` and `parentId` (null: the source's top level,
+ * or with `wholeSource` every file of the source at any depth, 009 R11).
  * The four arrays must be parallel: a length mismatch or a malformed value is
  * INTERNAL_ERROR, never a partial selection. An unknown size (`-1`) becomes null.
  */
@@ -656,15 +716,12 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (value == null || typeof value !== 'object') {
     return null;
   }
-  const { entryIds, sizes, statuses, images } = value as Record<
-    string,
-    unknown
-  >;
+  const { entryIds, sizes, statuses, media } = value as Record<string, unknown>;
   if (
     !Array.isArray(entryIds) ||
     !Array.isArray(sizes) ||
     !Array.isArray(statuses) ||
-    !Array.isArray(images)
+    !Array.isArray(media)
   ) {
     return null;
   }
@@ -672,11 +729,11 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
   if (
     sizes.length !== count ||
     statuses.length !== count ||
-    images.length !== count ||
+    media.length !== count ||
     !entryIds.every(id => typeof id === 'string') ||
     !sizes.every(size => typeof size === 'number' && Number.isFinite(size)) ||
     !statuses.every(status => FILE_STATUSES.includes(status)) ||
-    !images.every(image => typeof image === 'boolean')
+    !media.every(isMedia => typeof isMedia === 'boolean')
   ) {
     return null;
   }
@@ -684,7 +741,7 @@ function selectableEntriesOf(value: unknown): SelectableEntries | null {
     entryIds: entryIds as string[],
     sizes: (sizes as number[]).map(size => (size < 0 ? null : size)),
     statuses: statuses as FileStatus[],
-    images: images as boolean[],
+    media: media as boolean[],
   };
 }
 
@@ -800,6 +857,66 @@ function deletionResultOf(value: unknown): DeletionResultDto | null {
     failures: failures as DeletionFailureDto[],
     removedEntryIds: v.removedEntryIds as string[],
   };
+}
+
+/**
+ * Carries the selected [entryIds] of [fromSnapshotId] to [toSnapshotId]
+ * (contract v7, research R9): each unchanged file (same source, document,
+ * size and time) under its new entry ID with its new status; the rest count
+ * as `dropped`. Reads only. A malformed result is INTERNAL_ERROR, never a
+ * partial carry.
+ */
+export async function carrySelection(
+  fromSnapshotId: string,
+  toSnapshotId: string,
+  entryIds: readonly string[],
+): Promise<CarrySelectionResult> {
+  const module = scanModule();
+  if (module == null) {
+    return moduleUnavailable();
+  }
+  const result = await callEnvelope(
+    m => m.carrySelection(fromSnapshotId, toSnapshotId, [...entryIds]),
+    module,
+  );
+  if (result == null) {
+    return normalizeOperationError({ status: 'error', error: null });
+  }
+  if (result.status !== 'ok') {
+    return normalizeOperationError(result);
+  }
+  const carried = carriedEntriesOf(result.carried);
+  if (carried == null || !isCount(result.dropped)) {
+    return normalizeOperationError({ ...result, status: 'error', error: null });
+  }
+  return {
+    contractVersion: contractVersionOf(result),
+    status: 'ok',
+    carried,
+    dropped: result.dropped,
+  };
+}
+
+function carriedEntriesOf(value: unknown): CarriedEntry[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const entries: CarriedEntry[] = [];
+  for (const item of value) {
+    if (item == null || typeof item !== 'object') {
+      return null;
+    }
+    const { from, to, status } = item as Record<string, unknown>;
+    if (
+      typeof from !== 'string' ||
+      typeof to !== 'string' ||
+      !FILE_STATUSES.includes(status)
+    ) {
+      return null;
+    }
+    entries.push({ from, to, status: status as FileStatus });
+  }
+  return entries;
 }
 
 /**
@@ -1111,6 +1228,7 @@ export async function rejectSftpHostKey(
 const BROWSE_VIEWS: readonly unknown[] = [
   'GALLERY',
   'LIST',
+  'TREE',
 ] satisfies BrowsePreferencesDto['view'][];
 
 function sortOr(value: unknown, fallback: FileSort): FileSort {
@@ -1213,6 +1331,7 @@ export const CloudSync = {
   getLocalImageHandle,
   listSelectableEntries,
   getScrollIndex,
+  carrySelection,
   prepareLocalDeletion,
   executeLocalDeletion,
   getRepositorySummary,

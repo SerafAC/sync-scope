@@ -73,12 +73,12 @@ class CloudSyncModuleTest {
   }
 
   @Test
-  fun contractVersionResolvesSix() {
+  fun contractVersionResolvesSeven() {
     val promise = RecordingPromise()
 
     module.getContractVersion(promise)
 
-    assertEquals(6, promise.resolved)
+    assertEquals(7, promise.resolved)
     assertNull(promise.rejectedCode)
   }
 
@@ -119,7 +119,7 @@ class CloudSyncModuleTest {
 
     val first = resolve { module.getBrowsePreferences(it) }
     assertEquals("ok", first.getString("status"))
-    assertEquals(6, first.getInt("contractVersion"))
+    assertEquals(7, first.getInt("contractVersion"))
     assertEquals("GALLERY", first.getMap("preferences")!!.getString("view"))
     assertEquals("TIME_DESC", first.getMap("preferences")!!.getString("gallerySort"))
     assertEquals("NAME_ASC", first.getMap("preferences")!!.getString("listSort"))
@@ -131,16 +131,20 @@ class CloudSyncModuleTest {
     assertEquals("TIME_DESC", read.getString("gallerySort"))
     assertEquals("SIZE_DESC", read.getString("listSort"))
 
-    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }
+    val refused = resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "FOLDERS"), it) }
     assertEquals("INVALID_QUERY", refused.getMap("error")!!.getString("code"))
     assertEquals("LIST", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
+
+    // 009: the tree view is remembered like the others.
+    assertEquals("ok", resolve { module.setBrowsePreferences(JavaOnlyMap.of("view", "TREE"), it) }.getString("status"))
+    assertEquals("TREE", resolve { module.getBrowsePreferences(it) }.getMap("preferences")!!.getString("view"))
   }
 
   @Test
   fun listSourcesResolvesOkWithEverySource() {
     val empty = resolve { module.listSources(it) }
     assertEquals("ok", empty.getString("status"))
-    assertEquals(6, empty.getInt("contractVersion"))
+    assertEquals(7, empty.getInt("contractVersion"))
     assertEquals(0, empty.getArray("sources")!!.size())
 
     pick(camera)
@@ -266,10 +270,11 @@ class CloudSyncModuleTest {
           "listSelectableEntries" to { scans.listSelectableEntries("snap", JavaOnlyMap.of("view", "GALLERY"), it) },
           "getScrollIndex" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY", "sort", "TIME_DESC"), null, it) },
           "getScrollIndex(anchor)" to { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "LIST"), JavaOnlyMap.of("sortName", "1a"), it) },
+          "carrySelection" to { scans.carrySelection("snap", "snap-2", JavaOnlyArray.of("entry"), it) },
         )
       for ((method, call) in operations) {
         val result = resolve(call)
-        assertEquals(method, 6, result.getInt("contractVersion"))
+        assertEquals(method, 7, result.getInt("contractVersion"))
         if (result.getString("status") == "error") {
           assertNotEquals(method, "NOT_IMPLEMENTED", result.getMap("error")!!.getString("code"))
         }
@@ -295,6 +300,18 @@ class CloudSyncModuleTest {
           resolve { scans.getScrollIndex("snap", JavaOnlyMap.of("view", "GALLERY"), anchor, it) }.getMap("error")!!.getString("code"),
         )
       }
+      // carrySelection (009 R9): either snapshot missing, and a bad ID list, resolve typed errors.
+      assertEquals(
+        "SNAPSHOT_NOT_FOUND",
+        resolve { scans.carrySelection("snap", "snap-2", JavaOnlyArray.of("entry"), it) }.getMap("error")!!.getString("code"),
+      )
+      for (ids in listOf(JavaOnlyArray.of("entry", 1.0), JavaOnlyArray.from((0..50_000).map { "e$it" }))) {
+        val error = resolve { scans.carrySelection("snap", "snap-2", ids, it) }.getMap("error")!!
+        assertEquals("INVALID_QUERY", error.getString("code"))
+        assertEquals("entryIds", error.getString("field"))
+      }
+      // It never connects to the server.
+      assertTrue(h.remote.created.isEmpty())
       val state = resolve { scans.getScanState(it) }
       assertEquals("ok", state.getString("status"))
       assertTrue(state.isNull("run"))
@@ -346,6 +363,14 @@ class CloudSyncModuleTest {
       val selectable = resolve { scans.listSelectableEntries(active.getString("snapshotId")!!, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1"), it) }
       assertEquals("ok", selectable.getString("status"))
       assertEquals(2, selectable.getMap("selectable")!!.getArray("entryIds")!!.size())
+
+      // carrySelection into the same snapshot keeps every selected file under its own ID (009 R9).
+      val snapshotId = active.getString("snapshotId")!!
+      val ids = selectable.getMap("selectable")!!.getArray("entryIds")!!
+      val carried = resolve { scans.carrySelection(snapshotId, snapshotId, ids, it) }
+      assertEquals("ok", carried.getString("status"))
+      assertEquals(2, carried.getArray("carried")!!.size())
+      assertEquals(0, carried.getInt("dropped"))
     } finally {
       scans.invalidate()
       h.close()
@@ -502,7 +527,7 @@ class CloudSyncModuleTest {
       )
       for (include in listOf(false, true)) {
         val result = resolve { deletions.executeLocalDeletion("plan", include, it) }
-        assertEquals(6, result.getInt("contractVersion"))
+        assertEquals(7, result.getInt("contractVersion"))
         assertEquals("PLAN_NOT_FOUND", result.getMap("error")!!.getString("code"))
       }
     } finally {

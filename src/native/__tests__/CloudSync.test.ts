@@ -4,6 +4,7 @@ import {
   CloudSync,
   approveSftpHostKey,
   cancelScan,
+  carrySelection,
   executeLocalDeletion,
   getBrowsePreferences,
   getLocalImageHandle,
@@ -13,6 +14,7 @@ import {
   launchSourcePicker,
   listSelectableEntries,
   listSources,
+  localImageHandleOf,
   prepareLocalDeletion,
   queryFiles,
   rejectSftpHostKey,
@@ -31,6 +33,7 @@ import {
   LOCAL_IMAGE_MAX_EDGE_PX,
   LOCAL_IMAGE_MIN_EDGE_PX,
   MAX_PAGE_SIZE,
+  type CarrySelectionResult,
 } from '../CloudSyncContracts';
 import type { Spec } from '../specs/NativeCloudSync';
 
@@ -385,6 +388,8 @@ const runningRun = {
   },
   error: null,
   cancelReason: null,
+  recheckedFolders: null,
+  promotedFiles: null,
 };
 
 const activeSnapshot = {
@@ -583,6 +588,50 @@ describe('CloudSync scan wrappers', () => {
       }
     });
 
+    it('carries the refresh re-check counters of the run (contract v7)', async () => {
+      const refresh = {
+        ...runningRun,
+        mode: 'LOCAL_REFRESH',
+        phase: 'PUBLISHED',
+        terminalState: 'COMPLETED',
+        recheckedFolders: 3,
+        promotedFiles: 2,
+      };
+      mockNative({
+        getScanState: jest.fn().mockResolvedValue({
+          contractVersion: 7,
+          status: 'ok',
+          run: refresh,
+          active: null,
+        }),
+      });
+
+      const result = await getScanState();
+
+      expect(result.status === 'ok' && result.run).toEqual(refresh);
+    });
+
+    it('reads missing or malformed re-check counters as null', async () => {
+      for (const value of [undefined, null, '3', Number.NaN, -1]) {
+        mockNative({
+          getScanState: jest.fn().mockResolvedValue({
+            contractVersion: 7,
+            status: 'ok',
+            run: { ...runningRun, recheckedFolders: value, promotedFiles: value },
+            active: null,
+          }),
+        });
+
+        const result = await getScanState();
+
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok') {
+          expect(result.run?.recheckedFolders).toBeNull();
+          expect(result.run?.promotedFiles).toBeNull();
+        }
+      }
+    });
+
     it('reads the unread remote folders and defaults them to none (contract v6)', async () => {
       const cases: [unknown, string[]][] = [
         [
@@ -688,7 +737,28 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
     expect(result).toEqual({
       contractVersion: v,
       status: 'ok',
-      handle: { uri: 'file:///cache/thumbnails/e-1_256.jpg' },
+      handle: {
+        uri: 'file:///cache/thumbnails/e-1_256.jpg',
+        durationMillis: null,
+      },
+    });
+  });
+
+  it('passes a video duration through (contract v7)', async () => {
+    mockNative({
+      getLocalImageHandle: jest.fn().mockResolvedValue({
+        contractVersion: v,
+        status: 'ok',
+        handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: 2000 },
+      }),
+    });
+
+    expect(
+      await getLocalImageHandle('snap-1', 'e-1', { maxEdgePx: 256 }),
+    ).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: 2000 },
     });
   });
 
@@ -794,6 +864,52 @@ describe('CloudSync getLocalImageHandle wrapper (contract v4)', () => {
   });
 });
 
+describe('localImageHandleOf (contract v7)', () => {
+  const uri = 'file:///cache/thumbnails/a.jpg';
+
+  it.each([
+    [0, 0],
+    [2000, 2000],
+    [3723000, 3723000],
+    [1500.5, 1500.5],
+  ])('keeps the finite non-negative duration %p', (durationMillis, kept) => {
+    expect(localImageHandleOf({ uri, durationMillis })).toEqual({
+      uri,
+      durationMillis: kept,
+    });
+  });
+
+  it.each([
+    ['a negative value', -1],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['a string', '2000'],
+    ['null', null],
+    ['a missing value', undefined],
+  ])('turns %s into a null duration', (_label, durationMillis) => {
+    expect(localImageHandleOf({ uri, durationMillis })).toEqual({
+      uri,
+      durationMillis: null,
+    });
+  });
+
+  it('drops stray fields', () => {
+    expect(
+      localImageHandleOf({ uri, durationMillis: 5, stray: 'ignored' }),
+    ).toEqual({ uri, durationMillis: 5 });
+  });
+
+  it.each([
+    ['null', null],
+    ['a string', 'file:///a.jpg'],
+    ['no uri', { durationMillis: 5 }],
+    ['a non-string uri', { uri: 42, durationMillis: 5 }],
+  ])('is null for %s', (_label, handle) => {
+    expect(localImageHandleOf(handle)).toBeNull();
+  });
+});
+
 describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -805,8 +921,28 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     entryIds: ['e-1', 'e-2', 'e-3'],
     sizes: [70, -1, 0],
     statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
-    images: [true, true, false],
+    media: [true, true, false],
   };
+
+  it('passes a whole-source tree query through unchanged (009 R11)', async () => {
+    const native = jest
+      .fn()
+      .mockResolvedValue({ contractVersion: v, status: 'ok', selectable: wire });
+    mockNative({ listSelectableEntries: native });
+    const tree = {
+      filter: 'UNSYNCED',
+      view: 'LIST',
+      sort: 'NAME_ASC',
+      sourceId: 's-1',
+      parentId: null,
+      wholeSource: true,
+    } as const;
+
+    const result = await listSelectableEntries('snap-1', tree);
+
+    expect(native).toHaveBeenCalledWith('snap-1', tree);
+    expect(result.status).toBe('ok');
+  });
 
   it('passes the snapshot and query through and maps -1 to null', async () => {
     const native = jest.fn().mockResolvedValue({
@@ -826,7 +962,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
         entryIds: ['e-1', 'e-2', 'e-3'],
         sizes: [70, null, 0],
         statuses: ['SYNCED', 'UNKNOWN', 'UNSYNCED'],
-        images: [true, true, false],
+        media: [true, true, false],
       },
     });
   });
@@ -836,7 +972,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
       listSelectableEntries: jest.fn().mockResolvedValue({
         contractVersion: v,
         status: 'ok',
-        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
+        selectable: { entryIds: [], sizes: [], statuses: [], media: [] },
       }),
     });
 
@@ -879,7 +1015,16 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
       'statuses longer than entryIds',
       { ...wire, statuses: [...wire.statuses, 'SYNCED'] },
     ],
-    ['images shorter than entryIds', { ...wire, images: [true] }],
+    ['media shorter than entryIds', { ...wire, media: [true] }],
+    [
+      'the contract 6 images field instead of media',
+      {
+        entryIds: wire.entryIds,
+        sizes: wire.sizes,
+        statuses: wire.statuses,
+        images: wire.media,
+      },
+    ],
     [
       'a missing array',
       { entryIds: wire.entryIds, sizes: wire.sizes, statuses: wire.statuses },
@@ -890,7 +1035,7 @@ describe('CloudSync listSelectableEntries wrapper (contract v5)', () => {
     ],
     ['a non-numeric size', { ...wire, sizes: [70, '1', 0] }],
     ['a non-string entryId', { ...wire, entryIds: ['e-1', 2, 'e-3'] }],
-    ['a non-boolean image flag', { ...wire, images: [true, 1, false] }],
+    ['a non-boolean media flag', { ...wire, media: [true, 1, false] }],
     ['no selectable payload', undefined],
   ])('turns %s into a typed INTERNAL_ERROR', async (_label, selectable) => {
     mockNative({
@@ -1916,6 +2061,104 @@ describe('CloudSync deletion wrappers (contract v5)', () => {
   });
 });
 
+describe('CloudSync carrySelection wrapper (contract v7, research R9)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const v = CLOUD_SYNC_CONTRACT_VERSION;
+  const carried = [
+    { from: 'old-1', to: 'new-1', status: 'SYNCED' },
+    { from: 'old-2', to: 'new-2', status: 'UNSYNCED' },
+  ];
+
+  it('passes both snapshots and a copy of the IDs through and returns what was carried', async () => {
+    const native = jest.fn().mockResolvedValue({
+      contractVersion: v,
+      status: 'ok',
+      carried: carried.map(c => ({ ...c, stray: 1 })),
+      dropped: 3,
+    });
+    mockNative({ carrySelection: native });
+    const ids = ['old-1', 'old-2', 'old-3'];
+
+    const result: CarrySelectionResult = await carrySelection(
+      'snap-1',
+      'snap-2',
+      ids,
+    );
+
+    expect(native).toHaveBeenCalledWith('snap-1', 'snap-2', ids);
+    expect(native.mock.calls[0][2]).not.toBe(ids);
+    expect(result).toEqual({
+      contractVersion: v,
+      status: 'ok',
+      carried,
+      dropped: 3,
+    });
+    expect(CloudSync.carrySelection).toBe(carrySelection);
+  });
+
+  it('normalises SNAPSHOT_NOT_FOUND and INVALID_QUERY', async () => {
+    for (const [code, field] of [
+      ['SNAPSHOT_NOT_FOUND', undefined],
+      ['INVALID_QUERY', 'entryIds'],
+    ] as const) {
+      mockNative({
+        carrySelection: jest.fn().mockResolvedValue({
+          contractVersion: v,
+          status: 'error',
+          error: { code, message: 'No.', action: null, field },
+        }),
+      });
+
+      const result = await carrySelection('snap-1', 'snap-2', ['old-1']);
+
+      expect(result.status).toBe('error');
+      if (result.status === 'error') {
+        expect(result.error.code).toBe(code);
+      }
+    }
+  });
+
+  it.each([
+    ['no carried array', { carried: undefined, dropped: 0 }],
+    ['a carried entry without to', { carried: [{ from: 'a', status: 'SYNCED' }], dropped: 0 }],
+    ['a non-string from', { carried: [{ from: 1, to: 'b', status: 'SYNCED' }], dropped: 0 }],
+    ['an unknown status', { carried: [{ from: 'a', to: 'b', status: 'GONE' }], dropped: 0 }],
+    ['a null entry', { carried: [null], dropped: 0 }],
+    ['a negative dropped', { carried, dropped: -1 }],
+    ['a fractional dropped', { carried, dropped: 1.5 }],
+    ['a missing dropped', { carried, dropped: undefined }],
+  ])('turns %s into a typed INTERNAL_ERROR', async (_label, payload) => {
+    mockNative({
+      carrySelection: jest
+        .fn()
+        .mockResolvedValue({ contractVersion: v, status: 'ok', ...payload }),
+    });
+
+    const result = await carrySelection('snap-1', 'snap-2', ['a']);
+
+    expect(result.status === 'error' && result.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+  });
+
+  it('turns a rejected call into INTERNAL_ERROR and a missing module into NATIVE_MODULE_UNAVAILABLE', async () => {
+    mockNative({ carrySelection: jest.fn().mockRejectedValue(new Error('boom')) });
+    const rejected = await carrySelection('snap-1', 'snap-2', ['a']);
+    expect(rejected.status === 'error' && rejected.error.code).toBe(
+      'INTERNAL_ERROR',
+    );
+
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+    const missing = await carrySelection('snap-1', 'snap-2', ['a']);
+    expect(missing.status === 'error' && missing.error.code).toBe(
+      'NATIVE_MODULE_UNAVAILABLE',
+    );
+  });
+});
+
 describe('CloudSync browse preference wrappers (contract v6)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -1953,9 +2196,27 @@ describe('CloudSync browse preference wrappers (contract v6)', () => {
     });
   });
 
+  it('getBrowsePreferences keeps a stored TREE view (009)', async () => {
+    mockNative({
+      getBrowsePreferences: jest.fn().mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        preferences: {
+          view: 'TREE',
+          gallerySort: 'TIME_DESC',
+          listSort: 'NAME_ASC',
+        },
+      }),
+    });
+
+    const result = await getBrowsePreferences();
+
+    expect(result.status === 'ok' && result.preferences.view).toBe('TREE');
+  });
+
   it('getBrowsePreferences reads each unknown or missing value as its default', async () => {
     const cases: unknown[] = [
-      { view: 'TREE', gallerySort: 'COLOUR_ASC', listSort: 7 },
+      { view: 'FOLDERS', gallerySort: 'COLOUR_ASC', listSort: 7 },
       {},
       null,
       'GALLERY',

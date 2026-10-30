@@ -28,6 +28,7 @@ import {
 import { GalleryTile, galleryTileSize } from '../files/GalleryTile';
 import { placeholderLabel } from '../files/a11y';
 import { useFiles } from '../files/useFiles';
+import { useOpenPreview } from '../files/useOpenPreview';
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
@@ -147,10 +148,11 @@ function PlaceholderTile({ size }: { size: number }): React.JSX.Element {
 
 /**
  * The gallery (FR-001): a virtualized three-column grid of the active
- * snapshot's images in the gallery's own sort (007 FR-003, newest first on
+ * snapshot's photos and videos (009 FR-004) in the gallery's own sort (007 FR-003, newest first on
  * first run), read through `queryFiles` under the shared filter.
  * A sort change reloads from page 1 and keeps the filter and the selection. A long-press starts the
- * selection; while selecting, a tap toggles a tile (FR-015).
+ * selection; while selecting, a tap toggles a tile (FR-015). Otherwise a tap on
+ * a media tile opens its preview (009 research R8).
  *
  * Page 1 and the scroll index are read together (007 research R7): once the
  * index is in, the grid has its full length, with placeholder tiles for the
@@ -173,6 +175,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
   const { filter, sorts } = useFiles();
   const sort = sorts.GALLERY;
   const { isSelected, isSelecting, items, longPress, toggle } = useSelection();
+  const openPreview = useOpenPreview(snapshotId);
   const { width, height: windowHeight } = useWindowDimensions();
   const tileSize = galleryTileSize(width);
   const rowLength = tileSize + density.tileGap;
@@ -340,7 +343,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
           alias={aliases.get(item.sourceId)}
           entry={item}
           onLongPress={longPress}
-          onPress={isSelecting ? toggle : undefined}
+          onPress={isSelecting ? toggle : openPreview}
           selected={isSelected(item.entryId)}
           snapshotId={snapshotId}
         />
@@ -351,6 +354,7 @@ export function GalleryScreen(props: FilesViewProps): React.JSX.Element {
       isSelected,
       isSelecting,
       longPress,
+      openPreview,
       toggle,
       tileSize,
       sized,

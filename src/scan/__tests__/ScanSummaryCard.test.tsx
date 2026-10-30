@@ -2,8 +2,18 @@ import React from 'react';
 import {render, screen, within} from '@testing-library/react-native';
 import {PaperProvider} from 'react-native-paper';
 
-import type {ActiveSnapshotDto} from '../../native/CloudSyncContracts';
-import {ScanSummaryCard, formatAge, formatTimestamp} from '../ScanSummaryCard';
+import type {
+  ActiveSnapshotDto,
+  ScanRunDto,
+} from '../../native/CloudSyncContracts';
+import {
+  RESCAN_NEW_FOLDERS_TEXT,
+  ScanSummaryCard,
+  formatAge,
+  formatTimestamp,
+  recheckText,
+} from '../ScanSummaryCard';
+import {PHASE_TEXT} from '../useScan';
 
 const NOW = 1_800_000_000_000;
 
@@ -28,10 +38,37 @@ function active(overrides: Partial<ActiveSnapshotDto> = {}): ActiveSnapshotDto {
   };
 }
 
-function renderCard(snapshot: ActiveSnapshotDto, isStale = false) {
+function lastRun(overrides: Partial<ScanRunDto> = {}): ScanRunDto {
+  return {
+    runId: 'run-2',
+    generation: 2,
+    mode: 'LOCAL_REFRESH',
+    phase: 'PUBLISHED',
+    terminalState: 'COMPLETED',
+    startedAtMillis: NOW - 5_000,
+    finishedAtMillis: NOW - 1_000,
+    progress: {
+      remoteDirectoriesListed: 0,
+      remoteFilesListed: 0,
+      localFilesEnumerated: 7,
+      localFilesMatched: 7,
+    },
+    error: null,
+    cancelReason: null,
+    recheckedFolders: 1,
+    promotedFiles: 1,
+    ...overrides,
+  };
+}
+
+function renderCard(
+  snapshot: ActiveSnapshotDto,
+  isStale = false,
+  run: ScanRunDto | null = null,
+) {
   return render(
     <PaperProvider>
-      <ScanSummaryCard active={snapshot} isStale={isStale} now={NOW} />
+      <ScanSummaryCard active={snapshot} isStale={isStale} now={NOW} run={run} />
     </PaperProvider>,
   );
 }
@@ -149,6 +186,78 @@ describe('ScanSummaryCard', () => {
 
     renderCard(active(), true);
     expect(screen.getByLabelText('Rescan suggested')).toBeOnTheScreen();
+  });
+});
+
+describe('ScanSummaryCard refresh re-check (FR-003)', () => {
+  it('shows how many server folders were re-checked and files are now backed up, singular', () => {
+    renderCard(active(), false, lastRun());
+
+    expect(
+      within(screen.getByLabelText('Refresh re-check')).getByText(
+        'Re-checked 1 server folder, 1 file now backed up',
+      ),
+    ).toBeOnTheScreen();
+  });
+
+  it('uses plural forms', () => {
+    expect(recheckText(3, 2)).toBe(
+      'Re-checked 3 server folders, 2 files now backed up',
+    );
+    renderCard(active(), false, lastRun({recheckedFolders: 2, promotedFiles: 5}));
+    expect(
+      screen.getByText('Re-checked 2 server folders, 5 files now backed up'),
+    ).toBeOnTheScreen();
+  });
+
+  it('shows no re-check line when no file was promoted, on a full scan or without a run', () => {
+    for (const run of [
+      lastRun({recheckedFolders: 3, promotedFiles: 0}),
+      lastRun({mode: 'FULL', recheckedFolders: null, promotedFiles: null}),
+      null,
+    ]) {
+      const view = renderCard(active(), false, run);
+      expect(screen.queryByLabelText('Refresh re-check')).toBeNull();
+      expect(screen.queryByText(/^Re-checked/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('keeps the hint to rescan for new folders while files are still not backed up', () => {
+    const withUnsynced = renderCard(active(), false, lastRun());
+    expect(
+      within(screen.getByLabelText('Rescan to check new folders')).getByText(
+        RESCAN_NEW_FOLDERS_TEXT,
+      ),
+    ).toBeOnTheScreen();
+    expect(RESCAN_NEW_FOLDERS_TEXT).toMatch(/^Rescan to check new folders/);
+    withUnsynced.unmount();
+
+    // Also when nothing was promoted: a refresh cannot find files in new folders.
+    const nonePromoted = renderCard(
+      active(),
+      false,
+      lastRun({recheckedFolders: 0, promotedFiles: 0}),
+    );
+    expect(screen.getByLabelText('Rescan to check new folders')).toBeOnTheScreen();
+    nonePromoted.unmount();
+
+    // Nothing left to find, or no refresh: no hint.
+    const allSynced = renderCard(
+      active({summary: {...active().summary, unsynced: 0}}),
+      false,
+      lastRun(),
+    );
+    expect(screen.queryByLabelText('Rescan to check new folders')).toBeNull();
+    allSynced.unmount();
+    renderCard(active(), false, lastRun({mode: 'FULL', recheckedFolders: null, promotedFiles: null}));
+    expect(screen.queryByLabelText('Rescan to check new folders')).toBeNull();
+  });
+
+  it('labels the re-check phase', () => {
+    expect(PHASE_TEXT.RECHECKING_REMOTE).toBe(
+      'Checking the server for new backups',
+    );
   });
 });
 

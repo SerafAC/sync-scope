@@ -1,0 +1,52 @@
+# Subflow: configure the given protocol's live container repository on the
+# remote tree set (<P>_ROOT/scan/tree) through the debug seam, add its device
+# side (SyncScopeE2E/ScanTree, alias "ScanTree") as the only source and run a
+# full scan to the summary (feature 009, contracts/maestro-tree-preview.md).
+# Never run on its own.
+#
+# Params (runFlow env):
+#   PROTOCOL  FTP, SFTP or WEBDAV. The port, account and fixture root come
+#             from that protocol's <P>_PORT, <P>_USER, <P>_PASSWORD and
+#             <P>_ROOT, which android-flow.sh passes to every flow.
+#   SCAN      optional: "false" stops once the source is added (staged/09-a:
+#             the repository and the source, no scan); a full scan otherwise
+#
+# The device folder is ScanTree, not Scan/tree: shared storage is
+# case-insensitive, so Scan/tree would add the set to the Scan source, and
+# "Tree" alone would collide with the Tree view choice (fixture-images.sh).
+#
+# Expects a cleared app (the caller starts from clearState, as every workspace
+# flow does) with no source selected yet. The seam leaves
+# ConfigureRepositoryActivity open, so MainActivity is launched again before
+# navigating (open-sources is navigation only, feature 008 R12).
+appId: com.syncscope
+---
+# Only the chosen protocol's variables are read: the conditional is lazy.
+- evalScript: "${output.treePort = PROTOCOL == 'FTP' ? FTP_PORT : PROTOCOL == 'SFTP' ? SFTP_PORT : WEBDAV_PORT}"
+- evalScript: "${output.treeUser = PROTOCOL == 'FTP' ? FTP_USER : PROTOCOL == 'SFTP' ? SFTP_USER : WEBDAV_USER}"
+- evalScript: "${output.treePassword = PROTOCOL == 'FTP' ? FTP_PASSWORD : PROTOCOL == 'SFTP' ? SFTP_PASSWORD : WEBDAV_PASSWORD}"
+- evalScript: "${output.treeBase = PROTOCOL == 'FTP' ? FTP_ROOT : PROTOCOL == 'SFTP' ? SFTP_ROOT : WEBDAV_ROOT}"
+- evalScript: "${output.treeRoot = (output.treeBase.endsWith('/') ? output.treeBase.slice(0, -1) : output.treeBase) + '/scan/tree'}"
+- evalScript: "${output.treeScan = typeof SCAN === 'undefined' || SCAN != 'false'}"
+- runFlow:
+    file: configure-repository.yaml
+    env:
+      PROTOCOL: "${PROTOCOL}"
+      PORT: "${output.treePort}"
+      USER: "${output.treeUser}"
+      PASSWORD: "${output.treePassword}"
+      ROOT: "${output.treeRoot}"
+- launchApp
+- runFlow:
+    file: add-scan-source.yaml
+    env:
+      SOURCES: "ScanTree"
+- runFlow:
+    when:
+      true: "${output.treeScan}"
+    commands:
+      - runFlow: open-scan.yaml
+      - runFlow: start-scan.yaml
+      - assertVisible: "Completed .+"
+      - assertVisible: "Scan summary"
+      - assertNotVisible: "Scan failed"

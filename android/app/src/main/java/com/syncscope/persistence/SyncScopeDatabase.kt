@@ -17,7 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * `repository_config.webdavHttps` (default `0`) the same way. Version 5 (feature 007) renames
  * `repository_config.remoteRoot` to `remoteRoots`, adds `local_node.sortName` with the
  * `(snapshotId, kind, sizeBytes)` and `(snapshotId, kind, sortName)` indexes, and adds the nullable
- * `remote_ambiguity.remotePath`, through [Migration4To5]. There is
+ * `remote_ambiguity.remotePath`, through [Migration4To5]. Version 6 (feature 009) adds the
+ * `(snapshotId, sourceId, documentId)` index on `local_node` and the nullable `scan_run.recheckedFolders` and
+ * `promotedFiles`, with no data rewrite. There is
  * deliberately no destructive-migration fallback, so an unexpected on-disk
  * schema fails loudly instead of silently deleting a user's scan history.
  */
@@ -36,13 +38,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     RepositoryConfigEntity::class,
     ActiveSnapshotEntity::class,
   ],
-  version = 5,
+  version = 6,
   exportSchema = true,
   autoMigrations = [
     AutoMigration(from = 1, to = 2),
     AutoMigration(from = 2, to = 3),
     AutoMigration(from = 3, to = 4),
     AutoMigration(from = 4, to = 5, spec = Migration4To5::class),
+    AutoMigration(from = 5, to = 6),
   ],
 )
 abstract class SyncScopeDatabase : RoomDatabase() {

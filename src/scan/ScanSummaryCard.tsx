@@ -4,6 +4,7 @@ import {Surface, Text, useTheme} from 'react-native-paper';
 
 import type {
   ActiveSnapshotDto,
+  ScanRunDto,
   SkippedSourceDto,
 } from '../native/CloudSyncContracts';
 import {STATUS_LABEL} from '../theme/statusLabels';
@@ -62,9 +63,26 @@ export function unreadableFoldersText(count: number): string {
   return `${count} remote ${count === 1 ? 'folder' : 'folders'} could not be read`;
 }
 
+/** The refresh re-check's outcome (FR-003), e.g. "Re-checked 1 server folder, 1 file now backed up". */
+export function recheckText(folders: number, promoted: number): string {
+  return `Re-checked ${plural(folders, 'server folder')}, ${plural(
+    promoted,
+    'file',
+  )} now backed up`;
+}
+
+/**
+ * The refresh re-checks only the server folders of backed-up neighbours, so a
+ * file in a new folder needs a full scan (research R5's limitation).
+ */
+export const RESCAN_NEW_FOLDERS_TEXT =
+  'Rescan to check new folders: the automatic refresh only re-checks folders that already hold backed-up files.';
+
 type ScanSummaryCardProps = {
   active: ActiveSnapshotDto;
   isStale: boolean;
+  /** The latest run: a LOCAL_REFRESH carries the re-check counters (contract v7). */
+  run?: ScanRunDto | null;
   /** The time the age is measured against; defaults to now. */
   now?: number;
 };
@@ -79,6 +97,7 @@ export function ScanSummaryCard({
   active,
   isStale,
   now,
+  run,
 }: ScanSummaryCardProps): React.JSX.Element {
   const theme = useTheme();
   const themed = useMemo(
@@ -88,6 +107,11 @@ export function ScanSummaryCard({
   const {summary} = active;
   const interruption = summary.remoteListingInterruptedBy;
   const listedAt = active.remoteListedAtMillis;
+  // Only a LOCAL_REFRESH that ran the re-check carries its counters (FR-003).
+  const recheck =
+    run != null && run.mode === 'LOCAL_REFRESH' && run.recheckedFolders != null
+      ? {folders: run.recheckedFolders, promoted: run.promotedFiles ?? 0}
+      : null;
 
   return (
     <Surface accessibilityLabel="Scan summary" elevation={1} style={styles.card}>
@@ -123,6 +147,18 @@ export function ScanSummaryCard({
           {`Skipped ${source.alias}: ${SKIP_REASON_TEXT[source.reason]}`}
         </Text>
       ))}
+      {recheck != null && recheck.promoted > 0 ? (
+        <View accessibilityLabel="Refresh re-check">
+          <Text variant="bodyMedium">
+            {recheckText(recheck.folders, recheck.promoted)}
+          </Text>
+        </View>
+      ) : null}
+      {recheck != null && summary.unsynced > 0 ? (
+        <View accessibilityLabel="Rescan to check new folders">
+          <Text variant="bodySmall">{RESCAN_NEW_FOLDERS_TEXT}</Text>
+        </View>
+      ) : null}
       <View accessibilityLabel="Remote listing age">
         <Text variant="bodySmall">
           {`Remote listing from ${formatTimestamp(listedAt)} (${formatAge(

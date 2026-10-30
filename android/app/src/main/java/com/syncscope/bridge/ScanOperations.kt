@@ -1,10 +1,12 @@
 package com.syncscope.bridge
 
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import com.syncscope.image.ImageUnavailable
 import com.syncscope.image.LocalImageStore
+import com.syncscope.media.MediaKind
 import com.syncscope.persistence.FileFilter
 import com.syncscope.persistence.FilePage
 import com.syncscope.persistence.FileKind
@@ -22,16 +24,14 @@ import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.StaleGenerationException
 import com.syncscope.scan.FileStatus
 import com.syncscope.scan.ScanCoordinator
-import com.syncscope.scan.ScanEngine
 import com.syncscope.scan.ScanInProgress
 import com.syncscope.scan.ScanMode
 import com.syncscope.scan.ScanNotFound
 import com.syncscope.scan.ScanRefused
-import com.syncscope.scan.ScanRunView
 
 /**
  * startScan / cancelScan / getScanState / queryFiles / queryTreeChildren / getLocalImageHandle /
- * listSelectableEntries / getScrollIndex,
+ * listSelectableEntries / getScrollIndex / carrySelection,
  * resolved as envelopes (contracts/cloudsync-scan.md and cloudsync-browse.md "Behaviour"). No
  * `documentId`, `documentUri`, path or host ever goes into a result: rows are mapped field by field,
  * image handles are cache files named by a hash, and run errors were redacted when they were stored.
@@ -86,7 +86,7 @@ class ScanOperations(
     val view = coordinator().state()
     val snapshot = store().activeSnapshot()?.snapshotId?.let { store().snapshot(it) }?.takeIf { it.publishable }
     return envelope.ok().apply {
-      if (view == null) putNull("run") else putMap("run", runDto(view))
+      if (view == null) putNull("run") else putMap("run", envelope.scanRun(view))
       if (snapshot == null) putNull("active") else putMap("active", activeDto(snapshot))
     }
   }
@@ -105,7 +105,9 @@ class ScanOperations(
    * `ListSelectableEntriesResult` (contracts/cloudsync-mvp.md "listSelectableEntries"): every `FILE` row
    * [querySpec] would show, for "Select all". Only the active snapshot can be selected from: a missing
    * or staged one is `SNAPSHOT_NOT_FOUND`, a published one that was replaced is `STALE_GENERATION`.
-   * The query is validated as `queryFiles` does; a LIST selection also needs its `sourceId`.
+   * The query is validated as `queryFiles` does; a LIST selection also needs its `sourceId`. An optional
+   * boolean `wholeSource` (009 research R11, the tree view's "Select all") takes every matching file of
+   * the source at any depth; it needs a LIST query without a `parentId`, otherwise it is `INVALID_QUERY`.
    */
   suspend fun listSelectableEntries(snapshotId: String, querySpec: ReadableMap): WritableMap {
     val query =
@@ -114,6 +116,13 @@ class ScanOperations(
         is ParsedQuery.Valid -> parsed.query
       }
     if (query.view == FileView.LIST && query.sourceId == null) return invalidQuery("sourceId")
+    val wholeSource =
+      when {
+        !querySpec.hasKey("wholeSource") || querySpec.isNull("wholeSource") -> false
+        querySpec.getType("wholeSource") != ReadableType.Boolean -> return invalidQuery("wholeSource")
+        else -> querySpec.getBoolean("wholeSource")
+      }
+    if (wholeSource && (query.view != FileView.LIST || query.parentId != null)) return invalidQuery("wholeSource")
     val snapshot = store().snapshot(snapshotId)
     if (snapshot == null || !snapshot.publishable) return snapshotNotFound()
     if (store().activeSnapshot()?.snapshotId != snapshotId) {
@@ -125,12 +134,34 @@ class ScanOperations(
     }
     val entries =
       try {
-        store().selectableEntries(snapshotId, query)
+        store().selectableEntries(snapshotId, query, wholeSource)
       } catch (_: SnapshotNotFoundException) {
         return snapshotNotFound()
       }
     return envelope.selectable(entries)
   }
+
+  /**
+   * `CarrySelectionResult` (009 contracts/cloudsync-tree-preview.md "carrySelection", research R9): maps the
+   * selected [entryIds] of [fromSnapshotId] to the unchanged files of [toSnapshotId] ([SnapshotStore.carrySelection]).
+   * [entryIds] is null when it was not a list of at most [CloudSyncContracts.MAX_CARRY_SELECTION_IDS] strings
+   * ([entryIdsOf]): `INVALID_QUERY` on `entryIds`. Either snapshot missing or staged is `SNAPSHOT_NOT_FOUND`.
+   * Reads the store only: it never opens a remote connection or touches a file, and returns entry IDs only.
+   */
+  suspend fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: List<String>?): WritableMap {
+    if (entryIds == null) return invalidQuery("entryIds")
+    val carry =
+      try {
+        store().carrySelection(fromSnapshotId, toSnapshotId, entryIds)
+      } catch (_: SnapshotNotFoundException) {
+        return snapshotNotFound()
+      }
+    return envelope.carry(carry)
+  }
+
+  /** [carrySelection] over a bridge array, read on the calling thread. */
+  suspend fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: ReadableArray): WritableMap =
+    carrySelection(fromSnapshotId, toSnapshotId, entryIdsOf(entryIds))
 
   /**
    * `ScrollIndexResult` (contracts/cloudsync-polish.md "getScrollIndex"): the bands of the files [querySpec] shows, in
@@ -196,21 +227,24 @@ class ScanOperations(
     )
 
   /**
-   * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle"): a `file://` URI of
-   * a cached JPEG thumbnail of an `image/` `FILE` entry of a published snapshot. Reads local storage
-   * only and never opens a remote connection.
+   * `LocalImageHandleResult` (contracts/cloudsync-browse.md "getLocalImageHandle", changed by 009
+   * contracts/cloudsync-tree-preview.md): a `file://` URI of a cached JPEG thumbnail of an `image/` or
+   * `video/` `FILE` entry of a published snapshot, with the video's `durationMillis` (null for an image
+   * and for a duration that cannot be read). Reads local storage only and never opens a remote
+   * connection; neither the document URI nor its ID is returned or logged.
    */
   suspend fun imageHandle(snapshotId: String, entryId: String, spec: ReadableMap): WritableMap {
     val entry =
       try {
-        store().imageEntry(snapshotId, entryId)
+        store().mediaEntry(snapshotId, entryId)
       } catch (_: SnapshotNotFoundException) {
         return snapshotNotFound()
       }
-    if (entry == null || entry.mimeType?.startsWith(IMAGE_MIME_PREFIX) != true) {
+    val kind = entry?.let { MediaKind.of(it.mimeType) }
+    if (entry == null || kind == null) {
       return envelope.error(
         CloudSyncErrorCode.INVALID_QUERY,
-        "The image entryId is invalid.",
+        "The media entryId is invalid.",
         "Reload the gallery and try again.",
         field = "entryId",
       )
@@ -224,8 +258,7 @@ class ScanOperations(
           field = "maxEdgePx",
         )
     return try {
-      val uri = images().handle(entryId, entry.documentUri, edge)
-      envelope.ok("handle", envelope.map().apply { putString("uri", uri) })
+      envelope.ok("handle", envelope.localImageHandle(images().handle(entryId, entry.documentUri, edge, kind)))
     } catch (_: ImageUnavailable) {
       envelope.sourceError(CloudSyncErrorCode.IMAGE_UNAVAILABLE)
     }
@@ -250,43 +283,6 @@ class ScanOperations(
     }
 
   // --- getScanState ---
-
-  /** `ScanRunDto`: `error` only on FAILED, `cancelReason` only on CANCELLED. */
-  private fun runDto(view: ScanRunView): WritableMap {
-    val run = view.run
-    return envelope.map().apply {
-      putString("runId", run.runId)
-      putDouble("generation", run.generation.toDouble())
-      putString("mode", run.mode)
-      putString("phase", view.phase)
-      putNullableString("terminalState", run.terminalState)
-      putDouble("startedAtMillis", run.startedAtMillis.toDouble())
-      putNullableNumber("finishedAtMillis", run.finishedAtMillis)
-      putMap(
-        "progress",
-        envelope.map().apply {
-          putDouble("remoteDirectoriesListed", view.progress.remoteDirectoriesListed.toDouble())
-          putDouble("remoteFilesListed", view.progress.remoteFilesListed.toDouble())
-          putDouble("localFilesEnumerated", view.progress.localFilesEnumerated.toDouble())
-          putDouble("localFilesMatched", view.progress.localFilesMatched.toDouble())
-        },
-      )
-      if (run.terminalState == ScanEngine.TERMINAL_FAILED) {
-        putMap(
-          "error",
-          envelope.map().apply {
-            putString("code", run.errorCode ?: CloudSyncErrorCode.INTERNAL_ERROR.name)
-            putString("message", CloudSyncEnvelope.redact(run.errorSummary ?: run.errorCode ?: "The scan failed."))
-            putNullableString("action", view.failureAction)
-          },
-        )
-      } else {
-        putNull("error")
-      }
-      val reason = run.errorSummary.takeIf { run.terminalState == ScanCoordinator.TERMINAL_CANCELLED && it in CANCEL_REASONS }
-      putNullableString("cancelReason", reason)
-    }
-  }
 
   /** `ActiveSnapshotDto`; the summary reads `snapshot_counts` and `remote_ambiguity` only, never a full count. */
   private suspend fun activeDto(snapshot: SnapshotEntity): WritableMap {
@@ -450,12 +446,20 @@ class ScanOperations(
     if (value == null) putNull(key) else putString(key, value)
   }
 
-  private fun WritableMap.putNullableNumber(key: String, value: Long?) {
-    if (value == null) putNull(key) else putDouble(key, value.toDouble())
-  }
-
-  private companion object {
-    val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
-    const val IMAGE_MIME_PREFIX = "image/"
+  companion object {
+    /**
+     * The entry IDs of a `carrySelection` call, copied from the bridge array; null when there are more than
+     * [CloudSyncContracts.MAX_CARRY_SELECTION_IDS] or any element is not a string.
+     */
+    fun entryIdsOf(array: ReadableArray): List<String>? {
+      val size = array.size()
+      if (size > CloudSyncContracts.MAX_CARRY_SELECTION_IDS) return null
+      val ids = ArrayList<String>(size)
+      for (i in 0 until size) {
+        if (array.getType(i) != ReadableType.String) return null
+        ids += array.getString(i) ?: return null
+      }
+      return ids
+    }
   }
 }

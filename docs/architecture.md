@@ -49,7 +49,7 @@ record that holds its rationale, which this page does not repeat.
   background dispatcher, and any throwable becomes a redacted `INTERNAL_ERROR` envelope, so no Kotlin
   exception crosses the bridge. The Kotlin and TypeScript error-code lists are kept in the same order, and a
   parity test compares them.
-- The contract is at version 6 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
+- The contract is at version 7 (`CLOUD_SYNC_CONTRACT_VERSION` in TypeScript, `CONTRACT_VERSION` in
   Kotlin); the parity test checks that both sides carry the same version. Version 2 added the optional
   re-grant source ID to `launchSourcePicker`. Version 3 (feature 004) made `startScan` take an optional
   mode (`FULL` or `LOCAL_REFRESH`), implemented `startScan`, `cancelScan`, `getScanState`, `queryFiles`
@@ -73,7 +73,18 @@ record that holds its rationale, which this page does not repeat.
   `FileEntryDto.sortName`, the file issue code `REMOTE_FOLDER_UNREAD`, the summary's
   `unreadRemoteFolders`, a per-folder connection test result, `remoteRoots` in place of `remoteRoot`, and
   an optional `fieldIndex` on error envelopes; the details are in the
-  [007 contract](../specs/007-sort-scroll-remote-folders/contracts/cloudsync-polish.md).
+  [007 contract](../specs/007-sort-scroll-remote-folders/contracts/cloudsync-polish.md). Version 7
+  (feature 009) added `carrySelection(fromSnapshotId, toSnapshotId, entryIds)` (the selection kept across
+  a new snapshot, below), let `getLocalImageHandle` take videos and return `durationMillis`, widened the
+  gallery to photos and videos (`SelectableEntries.images` became `media`), added
+  `QuerySpec.wholeSource` for tree view's "Select all", the `RECHECKING_REMOTE` scan phase, the run's
+  `recheckedFolders` and `promotedFiles`, and `TREE` as a remembered view; the details are in the
+  [009 contract](../specs/009-tree-view-image-preview/contracts/cloudsync-tree-preview.md).
+- Since feature 009 there is also one Codegen **native view**, `SyncScopeVideoView` (spec in
+  `src/native/specs/SyncScopeVideoViewNativeComponent.ts`, registered by `CloudSyncPackage`), for video
+  playback in the preview. It takes ids, never a URI; see
+  [Local thumbnails](#local-thumbnails-never-remote-content) and
+  [D024](./decisions/0024-video-preview-native-view.md).
 
 ### Room scan store; credentials never touch it
 
@@ -87,7 +98,7 @@ full persistence surface — entities, DAOs, `SyncScopeDatabase`, `SnapshotQuery
 are reviewed source for migrations, and a mismatched on-disk schema fails rather than falling back to a
 destructive migration.
 
-The schema is at **version 5** (feature 007). Each step is a Room `@AutoMigration`, covered by
+The schema is at **version 6** (feature 009). Each step is a Room `@AutoMigration`, covered by
 `MigrationTest`:
 
 - Version 2 (feature 004) added `scan_run.mode` (`FULL` or `LOCAL_REFRESH`, default `FULL`) and the
@@ -109,6 +120,10 @@ The schema is at **version 5** (feature 007). Each step is a Room `@AutoMigratio
   `remote_ambiguity.remotePath`, the configured folder a `REMOTE_FOLDER` gap could not read. The
   migration fills `sortName` from `lower(name)` in SQL; the next scan or refresh rewrites it with accents
   folded ([007 data model](../specs/007-sort-scroll-remote-folders/data-model.md#schema-change-version-4--5)).
+- Version 6 (feature 009) added the index `(snapshotId, sourceId, documentId)` on `local_node`, which
+  `carrySelection` joins the old and new snapshot on, and the nullable `scan_run.recheckedFolders` and
+  `promotedFiles`, the refresh re-check's outcome, `NULL` on `FULL` runs and on rows written before
+  version 6 ([009 data model](../specs/009-tree-view-image-preview/data-model.md#schema-change-version-5--6)).
 
 The password never enters Room: `repository_config` refers to it only by `credentialVersion`, and the
 secret itself lives in `CredentialStore` (Android Keystore-backed `EncryptedSharedPreferences`,
@@ -140,7 +155,11 @@ both modes ([004 research R2](../specs/004-scan-engine-matching/research.md#r2-s
   `LocalSourceEnumerator`, applies the `Matcher` rule table to each file, rolls statuses up to
   directories (`DirectoryRollup`) and publishes.
 - **`LOCAL_REFRESH`** (on app open) copies the active snapshot's remote keys and remote-side failures, and
-  re-enumerates only the local side.
+  re-enumerates only the local side. Since feature 009 it first runs the `RECHECKING_REMOTE` phase
+  (`RefreshRecheck`): it lists, read-only, at most 32 server folders in 20 s, those that hold the
+  backed-up neighbours of not-backed-up files, adds the keys it finds to the copied index, and lets the
+  unchanged `Matcher` decide. It never demotes a file, a failure never fails the refresh, and with
+  nothing to re-check it does not connect ([D023](./decisions/0023-refresh-recheck-of-unsynced-files.md)).
 
 `ScanCoordinator` holds at most one run at a time, publishes progress at most every 250 ms, and cancels
 the run on `cancelScan` or when the host activity pauses. Every attempt is one `scan_run` with a fresh
@@ -166,12 +185,16 @@ All three views read one consistent snapshot ([D010](./decisions/0010-snapshot-p
 The read rules since contract version 4 (feature 005,
 [data model](../specs/005-gallery-list-filtering/data-model.md#read-rules-changes-to-snapshotstorequeryfilepage)):
 
-- The gallery (`view: GALLERY`) reads `FILE` rows with an `image/*` MIME type only.
+- The gallery (`view: GALLERY`) reads `FILE` rows with an `image/*` MIME type only; since contract
+  version 7, `image/*` or `video/*`. The one media rule is `MediaKind` in Kotlin (`media` package, its
+  `SQL_MEDIA` predicate replacing every `LIKE 'image/%'`) and `isMediaMime` / `mediaKindOf` in
+  `src/files/media.ts`, kept in step by a parity test.
 - `queryTreeChildren` always returns every directory child; the filter narrows file rows only. Each
   directory carries `matchingFileCount`, its descendant count for the active filter, read from the
   version 3 columns.
-- First-page `counts` are scoped by view (images only in the gallery) and by `sourceId`, never by the
-  filter, the parent or the search, so the chip counts match what the view can show.
+- First-page `counts` are scoped by view (media only in the gallery: images, and since contract version
+  7 videos) and by `sourceId`, never by the filter, the parent or the search, so the chip counts match
+  what the view can show.
 - `nameInOtherSource` is set on a gallery row when a file with the same name exists in another source of
   the snapshot (one indexed `EXISTS` probe per row). It drives the origin badge
   ([D010](./decisions/0010-snapshot-paging-and-origin-badge.md)) and is always false in list reads.
@@ -218,6 +241,15 @@ most four decodes at once. It reads local storage only, never opens a remote con
 passes or logs a document URI. An unreadable image is the typed `IMAGE_UNAVAILABLE` error. The cache is
 left to the OS to reclaim ([005 research R7](../specs/005-gallery-list-filtering/research.md#r7-gallery-thumbnails-getlocalimagehandle-moved-from-007-user-decision-2026-10-01)).
 
+Since feature 009 the method also takes videos: the frame comes from `loadThumbnail`, or from
+`MediaMetadataRetriever` as a fallback, and the handle carries `durationMillis`, cached next to the
+thumbnail in a `<hash>.meta` sidecar. `MediaThumbnail` draws it, with a play badge and the duration, on
+gallery tiles and on the 40 dp list and tree row thumbnails. Videos play in the preview through the native
+view `SyncScopeVideoView` (`media` package): it takes `snapshotId` and `entryId`, resolves the document
+through `SnapshotStore.mediaEntry` natively, plays it in the platform `VideoView` with a `MediaController`,
+starts muted, reports only a `reason` in `onPlaybackError`, and releases its player on detach and when the
+app goes to the background ([D024](./decisions/0024-video-preview-native-view.md)).
+
 ### Material 3 shell: one theme module
 
 `src/theme/` is the single source of the UI's look ([005 research R9](../specs/005-gallery-list-filtering/research.md#r9-material-3-shell-theme-spacing-and-density-no-inline-styles-fr-004)):
@@ -237,7 +269,8 @@ The `deletion` package (feature 006) implements the two phases
   delete, not backed up and refused. UNKNOWN entries are refused outright
   ([D006](./decisions/0006-unknown-status-never-deletable.md)). Every SYNCED entry is re-checked on the
   server by `DeletionRecheck`, which lists only the folders stored for its match key
-  ([D020](./decisions/0020-pre-delete-server-recheck.md)). It returns a plan token, the counts and byte
+  ([D020](./decisions/0020-pre-delete-server-recheck.md)) through `ServerFolderLister` (`remote`
+  package), the connect-once, list-with-retry step that the refresh re-check shares (feature 009). It returns a plan token, the counts and byte
   totals, how many files the re-check moved, and the listing age. The single plan lives in memory, is
   single-use and expires after 15 minutes.
 - **`executeLocalDeletion(planToken, includeUnsynced)`** checks each file through SAF and deletes it with
@@ -248,9 +281,17 @@ The `deletion` package (feature 006) implements the two phases
   (`SCAN_IN_PROGRESS`, `DELETION_IN_PROGRESS`).
 
 On the JS side, `src/selection/` holds the selection (`SelectionProvider`, an ID map tied to one
-snapshot, filled by `listSelectableEntries` for "select all"), its summary and `formatBytes`, the
+snapshot, filled by `listSelectableEntries` for "select all"; in tree view one `wholeSource` query per
+source), its summary and `formatBytes`, the
 `SelectionBar` that replaces the tab bar while selecting, and `DeleteFlow`, the checking, confirmation and
 result dialogs. The safety rules are in [sync and deletion safety](./sync-and-deletion-safety.md).
+
+When a new snapshot replaces the results (feature 009), `SelectionProvider` calls
+`carrySelection(from, to, entryIds)` instead of clearing: it keeps every selected file whose
+`(sourceId, documentId)`, size and modified time are the same in the new snapshot, with the new row's
+status, and returns how many were dropped, which a notice names. It reads only, and is budgeted at
+300 ms for 50 k selected files. If it fails, the selection is cleared as before. Carrying changes nothing
+in the deletion phases: `prepareLocalDeletion` still re-checks every SYNCED file on the server.
 
 ### Local sources through the Storage Access Framework
 
@@ -276,13 +317,14 @@ All under `android/app/src/main/java/com/syncscope/`:
 | Package | Role |
 | --- | --- |
 | `bridge` | `CloudSyncModule` and `CloudSyncPackage`, the envelope builder (`CloudSyncEnvelope`), native contract constants (`CloudSyncContracts`), `RepositoryOperations`, which saves, summarises and tests the repository configuration, `ScanOperations`, which turns `startScan`, `cancelScan`, `getScanState`, `queryFiles`, `queryTreeChildren`, `getScrollIndex`, `listSelectableEntries` and `getLocalImageHandle` into envelopes, and `BrowsePreferences` (feature 007), the remembered view and sorts in `SharedPreferences`. `RepositoryOperations` also serves `browseRemoteFolders`. |
-| `deletion` | Feature 006: `DeletionOperations` (the plan store and the prepare and execute orchestration), `DeletionRecheck` (the server re-check of SYNCED files, [D020](./decisions/0020-pre-delete-server-recheck.md)) and `LocalDeleter` (SAF verify-then-delete per file). |
+| `deletion` | Feature 006: `DeletionOperations` (the plan store and the prepare and execute orchestration), `DeletionRecheck` (the server re-check of SYNCED files through `ServerFolderLister`, [D020](./decisions/0020-pre-delete-server-recheck.md)) and `LocalDeleter` (SAF verify-then-delete per file). |
 | `persistence` | The Room database (`SyncScopeDatabase`), its entities and DAOs, `SnapshotStore`, snapshot queries and the opaque page-token codec. |
-| `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), `RemoteRoots` (feature 007: the remote folder list's normalization, overlap check and encoding, [D022](./decisions/0022-several-remote-folders-partial-scan.md)), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
+| `remote` | The read-only `RemoteClient` interface and its FTP, SFTP and WebDAV implementations (`RemoteClientFactory`, `PropfindParser` for WebDAV), `RemoteRoots` (feature 007: the remote folder list's normalization, overlap check and encoding, [D022](./decisions/0022-several-remote-folders-partial-scan.md)), `ServerFolderLister` (feature 009: lists given server folders read-only once, with the walk's retry policy, for the deletion and refresh re-checks), plus SFTP host-key trust (`HostKeyTrustStore`, `TofuHostKeyVerifier`). |
 | `credential` | `CredentialStore`: the repository password in `EncryptedSharedPreferences` under an Android Keystore `AES256_GCM` master key. |
 | `source` | Local folder selection through the Storage Access Framework: `SourceTree` (tree URI to volume, path and `canonicalRoot`, plus the overlap rule), `SourceAlias` (generated aliases), `SafAccess` (the seam over `ContentResolver` and `StorageManager`, with `ContentResolverSafAccess` as the production implementation), `SourceAvailability` (the computed availability check), `SourcePicker` (the single-slot activity-result bridge for `launchSourcePicker`), `SourceOperations` (list, add, re-grant and remove as envelopes) and `LocalSourceEnumerator` (the enumeration contract the scan consumes). Rules: [D016](./decisions/0016-saf-source-identity-and-availability.md). |
-| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first listing of every remote folder with retries, `REMOTE_FOLDER` gaps and the `FAILED` boundary), `SortName` (the one name folding, feature 007), `ScrollBands` (the letter, date and size band rules of the scroll index, feature 007), `DirectoryRollup` (worst-of directory status and per-status descendant file counts), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation, and `runExclusive` for deletions) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
-| `image` | `LocalImageStore` (feature 005): local-only thumbnails for `getLocalImageHandle`, cached under `cacheDir/thumbnails/`; see [Local thumbnails](#local-thumbnails-never-remote-content). |
+| `scan` | The scan engine (feature 004): `MatchIndex` (the NFC name, size and bucket key, with `bucketOf` and `MTIME_UNKNOWN_BUCKET`), `Matcher` (the pure matching rule table), `RemoteWalker` (breadth-first listing of every remote folder with retries, `REMOTE_FOLDER` gaps and the `FAILED` boundary), `SortName` (the one name folding, feature 007), `ScrollBands` (the letter, date and size band rules of the scroll index, feature 007), `DirectoryRollup` (worst-of directory status and per-status descendant file counts), `ScanEngine` (`FULL` and `LOCAL_REFRESH` end to end), `RefreshRecheck` (feature 009: the refresh's `RECHECKING_REMOTE` phase, [D023](./decisions/0023-refresh-recheck-of-unsynced-files.md)), `ScanCoordinator` and `ScanProgress` (the single running scan, its progress and cancellation, and `runExclusive` for deletions) and `ScanPacing` (a no-op in release; a debug-only per-file pause for the e2e flows). Rules: [D003](./decisions/0003-directory-agnostic-sync-matching.md), [D019](./decisions/0019-match-name-normalization-and-strict-buckets.md). |
+| `image` | `LocalImageStore` (feature 005): local-only thumbnails for `getLocalImageHandle`, cached under `cacheDir/thumbnails/`, and since feature 009 video frames with a duration sidecar; see [Local thumbnails](#local-thumbnails-never-remote-content). |
+| `media` | Feature 009: `MediaKind` (the one `image/` or `video/` rule and its `SQL_MEDIA` predicate) and `SyncScopeVideoView` with its view manager (the preview's video player, [D024](./decisions/0024-video-preview-native-view.md)). |
 
 ## Remote clients
 
@@ -301,21 +343,21 @@ through `approveSftpHostKey` / `rejectSftpHostKey` (trust on first use,
 | --- | --- |
 | `App.tsx`, `index.js` | App entry point. |
 | `src/native/` | The TurboModule spec, contracts and typed client, with their Jest tests in `src/native/__tests__/` (including `NativeCloudSyncBoundary.test.ts`, the guard on the JS boundary). |
-| `src/navigation/`, `src/screens/` | The navigation shell and screens. The root is a native stack (`@react-navigation/native-stack`) with two routes: `Tabs` (the bottom tabs Scan, Files and Settings) and `Repository` (`RepositoryScreen`, the server form, with a discard prompt on `beforeRemove`). The tabs hold `SettingsScreen`, `ScanScreen` and the Files tab's `FilesScreen`, which switches between `GalleryScreen` and `ListScreen` under one set of filter chips. `fixTargets.ts` maps an error code to the place that fixes it, for the "Go there" buttons. |
+| `src/navigation/`, `src/screens/` | The navigation shell and screens. The root is a native stack (`@react-navigation/native-stack`) with three routes: `Tabs` (the bottom tabs Scan, Files and Settings), `Repository` (`RepositoryScreen`, the server form, with a discard prompt on `beforeRemove`) and, since feature 009, `Preview` (`PreviewScreen`, the photo or video preview, opened by tapping a media file when nothing is selected). The tabs hold `SettingsScreen`, `ScanScreen` and the Files tab's `FilesScreen`, which switches between `GalleryScreen`, `ListScreen` and `TreeScreen` under one set of filter chips. `fixTargets.ts` maps an error code to the place that fixes it, for the "Go there" buttons. |
 | `src/repository/` | The Settings › Repository UI (feature 006): `useRepository` (the save, test and host-key state machine), `RepositorySection` and `HostKeyDialog`; since feature 007 also `RemoteFolderBrowser`, the modal server folder browser behind each remote folder's **Browse** button. It calls `browseRemoteFolders` with the form's details, so a typed password stays in the form's state, reuses `HostKeyDialog` for an untrusted SFTP key, and ignores the answer for a folder the user already left. |
 | `src/setup/` | `useSetupChecklist`, the derived "server set up, folder available" state behind the Scan tab's checklist and the Files tab's empty state. |
 | `src/selection/` | Multi-select and deletion (feature 006): `SelectionProvider`, `summary.ts`, `formatBytes.ts`, `SelectionBar` and `DeleteFlow`. |
 | `src/theme/` | The Material 3 shell: Paper and navigation themes, spacing and density, status and filter labels. |
-| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list, and since feature 007 each view's sort, loaded from and saved to the browse preferences), `usePagedQuery` (band-segmented paging with snapshot-change recovery and anchor restore), `SortMenu` and `ViewMenu` (the two drop-downs, on `ChoiceMenu`), `FastScroller` (the scrollbar, on `PanResponder` and `Animated`, adjustable for TalkBack) with `bandLabel.ts`, `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 009 reuses the hooks for the tree view. |
+| `src/files/` | The Files tab's building blocks (feature 005): `FilesProvider` (the view and filter shared by gallery and list, and since feature 007 each view's sort, loaded from and saved to the browse preferences), `usePagedQuery` (band-segmented paging with snapshot-change recovery and anchor restore), `SortMenu` and `ViewMenu` (the two drop-downs, on `ChoiceMenu`), `FastScroller` (the scrollbar, on `PanResponder` and `Animated`, adjustable for TalkBack) with `bandLabel.ts`, `useListNavigation` (breadcrumb, descend, ascend, relocation by name), `useLocalImage`, `FilterChips`, `StatusChip`, `GalleryTile`, `Breadcrumb` and the accessibility-label builders in `a11y.ts`. Feature 009 added the tree view (`useTree`, which splices `queryTreeChildren` pages into one flat list of fixed-height rows and keeps expanded folders and the first visible row as name paths, and `TreeView`), `FileRow` and `FolderRow` (the row parts list and tree share), `MediaThumbnail` (thumbnail, play badge and duration), `media.ts` (`isMediaMime`, `mediaKindOf`, `formatDuration`) and `useOpenPreview`. |
 | `src/sources/` | The Settings › Device folders UI: `useSources` and `SourcesSection`. |
-| `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`. |
+| `src/scan/` | App-wide scan state: `ScanProvider` (wraps the app, polls `getScanState` while a run is active and starts a `LOCAL_REFRESH` on open and on return to the foreground), `useScan` (state and actions for screens, including the 7-day staleness check) and `ScanSummaryCard`, which since feature 009 shows the refresh re-check's outcome. |
 | `android/app/src/main/java/com/syncscope/` | `MainActivity`, `MainApplication` and the native packages above. |
 | `android/app/src/debug/` | Debug-only code, not in the release build: the `ReleaseGrantsActivity` grant-release seam ([D017](./decisions/0017-debug-grant-release-seam.md)), the `ConfigureRepositoryActivity` configure-repository seam ([D018](./decisions/0018-debug-repository-seam.md)) and the debug `ScanPacing`. `android/app/src/release/` holds the release no-op `ScanPacing`. |
 | `android/app/src/test/` | JVM unit tests (Robolectric + Room), including the persistence contract tests and `robolectric.properties`. |
 | `android/app/src/androidTest/` | Instrumented tests, including `ProtocolConnectInstrumentedTest` against the live containers. |
 | `scripts/validation/` | Container, emulator, fixture and audit orchestration, with its `node --test` suites. |
 | `validation/services/` | The Compose file and server configs for the protocol containers. |
-| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`, `browse/`, `mvp/`, `polish/`), with shared `subflows/` and a pinned `config.yaml` order, plus the `staged/` pairs, which run outside the workspace. |
+| `validation/maestro/` | Maestro end-to-end flows, one directory per feature area (`sources/`, `scan/`, `browse/`, `mvp/`, `polish/`, `tree/`), with shared `subflows/` and a pinned `config.yaml` order, plus the `staged/` pairs, which run outside the workspace. |
 
 ## Validation infrastructure
 
@@ -358,7 +400,7 @@ The validation stack proves behaviour against real servers and real emulators.
   approval, and `android-flow.sh` passes the per-run container credentials to Maestro as `-e` variables.
   After the workspace, `android-flow.sh` runs the `staged/` a/b pairs with a host- or device-side hook
   between the parts (a server file removed, a container paused, a device file changed).
-  `pnpm e2e:android:release-smoke` builds, installs and checks the release APK with no Metro running. The layout, selector, assertion, seam and fixture conventions are in
+  The layout, selector, assertion, seam and fixture conventions are in
   [DEVELOPMENT.md](../DEVELOPMENT.md#end-to-end-flows-maestro).
 - **Credentials to the device.** Gradle forwards the per-run container credentials into
   `testInstrumentationRunnerArguments`, and the emulator reaches the host at `10.0.2.2`
@@ -384,4 +426,4 @@ reassigned from 005 ([005 spec, Dependencies](../specs/005-gallery-list-filterin
 new `listSelectableEntries`.
 
 `getLocalImageHandle` moved from feature 009 to feature 005, which delivers it for the gallery thumbnails;
-009 reuses it for the full preview.
+009 reuses it for the full preview and extends it to videos.

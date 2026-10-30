@@ -65,7 +65,7 @@ beforeEach(() => {
   getLocalImageHandleMock.mockResolvedValue({
     contractVersion: 4,
     status: 'ok',
-    handle: { uri: 'file:///cache/thumbnails/a.jpg' },
+    handle: { uri: 'file:///cache/thumbnails/a.jpg', durationMillis: null },
   });
 });
 
@@ -152,6 +152,74 @@ describe('GalleryTile', () => {
     );
 
     expect(() => a11ySweep(result)).not.toThrow();
+  });
+
+  describe('videos (research R6, FR-004)', () => {
+    const video = { entryId: 'v-1', name: 'clip.mp4', mimeType: 'video/mp4' };
+
+    it('shows the frame with a play badge and the duration', async () => {
+      getLocalImageHandleMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: 2000 },
+      });
+      renderTile(entry(video), 'Gallery');
+
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image').props.source).toEqual({
+          uri: 'file:///cache/thumbnails/v.jpg',
+        }),
+      );
+      expect(screen.getByTestId('gallery-tile-play')).toBeOnTheScreen();
+      expect(screen.getByTestId('gallery-tile-duration')).toHaveTextContent(
+        '0:02',
+      );
+      expect(screen.getByLabelText('clip.mp4, Unsynced')).toBeOnTheScreen();
+      expect(screen.getByText('Unsynced')).toBeOnTheScreen();
+    });
+
+    it('shows the play badge but no duration when it is unknown', async () => {
+      getLocalImageHandleMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'ok',
+        handle: { uri: 'file:///cache/thumbnails/v.jpg', durationMillis: null },
+      });
+      renderTile(entry(video), 'Gallery');
+
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-play')).toBeOnTheScreen(),
+      );
+      expect(screen.queryByTestId('gallery-tile-duration')).toBeNull();
+    });
+
+    it('shows the video-off placeholder when the frame cannot be read', async () => {
+      getLocalImageHandleMock.mockResolvedValue({
+        contractVersion: 7,
+        status: 'error',
+        error: {
+          code: CloudSyncErrorCode.IMAGE_UNAVAILABLE,
+          message: 'This image could not be read on the device.',
+          action: 'Check that the folder is still available, then rescan.',
+        },
+      });
+      renderTile(entry(video), 'Gallery');
+
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-video-off')).toBeOnTheScreen(),
+      );
+      expect(screen.queryByTestId('gallery-tile-broken')).toBeNull();
+      expect(screen.queryByTestId('gallery-tile-image')).toBeNull();
+    });
+
+    it('shows no play badge on an image', async () => {
+      renderTile(entry(), 'Gallery');
+
+      await waitFor(() =>
+        expect(screen.getByTestId('gallery-tile-image')).toBeOnTheScreen(),
+      );
+      expect(screen.queryByTestId('gallery-tile-play')).toBeNull();
+      expect(screen.queryByTestId('gallery-tile-duration')).toBeNull();
+    });
   });
 
   describe('selection (FR-015, FR-017)', () => {

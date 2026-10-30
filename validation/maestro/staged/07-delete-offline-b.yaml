@@ -6,6 +6,20 @@ appId: com.syncscope
 name: staged/07-delete-offline-b
 ---
 - launchApp
+# Opening the app starts the automatic local refresh, and its re-check of
+# not-backed-up files tries the paused server until its connect times out
+# (feature 009 FR-003). A delete during a running refresh is refused with "A
+# scan is already running.", so the refresh is let finish first.
+- runFlow: ../subflows/open-scan.yaml
+- extendedWaitUntil:
+    visible: "Local refresh"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible: "In progress"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Completed .+"
+    timeout: 60000
 - runFlow: ../subflows/open-files.yaml
 - extendedWaitUntil:
     visible: "beach.png, Synced"

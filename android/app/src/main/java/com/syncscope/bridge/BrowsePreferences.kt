@@ -5,12 +5,12 @@ import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import com.syncscope.persistence.FileSort
-import com.syncscope.persistence.FileView
 
 /**
  * The Files tab's view mode and each view's sort, remembered across restarts in `SharedPreferences` file
  * [FILE_NAME] (research R10, data-model "Browse preferences"); `getBrowsePreferences` and
- * `setBrowsePreferences` (contract version 6). The filter is not stored (005 R10).
+ * `setBrowsePreferences` (contract version 6). The view is one of [VIEWS]: 009 adds `TREE`, which sorts its
+ * files with `listSort`. The filter is not stored (005 R10).
  *
  * A missing or unknown stored value reads as its default, so a value written by a newer build never breaks
  * an older one. A write validates every given field before storing any of them.
@@ -57,7 +57,7 @@ class BrowsePreferences(
 
   /** The stored keys, their allowed values and first-run defaults. */
   private enum class Field(val key: String, val allowed: Set<String>, val default: String) {
-    VIEW("view", FileView.entries.mapTo(HashSet()) { it.name }, FileView.GALLERY.name),
+    VIEW("view", VIEWS, "GALLERY"),
     GALLERY_SORT("gallerySort", SORTS, FileSort.TIME_DESC.name),
     LIST_SORT("listSort", SORTS, FileSort.NAME_ASC.name);
 
@@ -71,6 +71,8 @@ class BrowsePreferences(
   companion object {
     const val FILE_NAME = "browse_preferences"
     const val PAYLOAD_KEY = "preferences"
+    /** The remembered view modes, mirrored by the TS `BrowseView`; not a query's `FileView`. */
+    val VIEWS: Set<String> = setOf("GALLERY", "LIST", "TREE")
     private val SORTS: Set<String> = FileSort.entries.mapTo(HashSet()) { it.name }
   }
 }

@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
  * [ScanOperations] over one [ScanCoordinator] running on this module's scope; a
  * `LifecycleEventListener` cancels an active run when the host pauses (FR-001).
  * `getLocalImageHandle` delegates to [ScanOperations] over one shared [LocalImageStore], whose
- * dispatcher caps concurrent decodes at four. `listSelectableEntries` and `getScrollIndex` delegate to
+ * dispatcher caps concurrent decodes at four. `listSelectableEntries`, `getScrollIndex` and `carrySelection` delegate to
  * [ScanOperations].
  * `prepareLocalDeletion` and `executeLocalDeletion` delegate to one [DeletionOperations], built on first
  * use on the background dispatcher and gated by the same [ScanCoordinator] (`runExclusive`), so a
@@ -283,6 +283,12 @@ class CloudSyncModule(
 
   override fun getScrollIndex(snapshotId: String, querySpec: ReadableMap, anchor: ReadableMap?, promise: Promise) =
     runOperation("getScrollIndex", promise) { scans.scrollIndex(snapshotId, querySpec, anchor) }
+
+  override fun carrySelection(fromSnapshotId: String, toSnapshotId: String, entryIds: ReadableArray, promise: Promise) {
+    // Copied and checked on the calling thread: the bridge array is not read from the background dispatcher.
+    val ids = ScanOperations.entryIdsOf(entryIds)
+    runOperation("carrySelection", promise) { scans.carrySelection(fromSnapshotId, toSnapshotId, ids) }
+  }
 
   override fun browseRemoteFolders(config: ReadableMap, transientPassword: String?, path: String?, promise: Promise) =
     runOperation("browseRemoteFolders", promise) { repositories.browse(config, transientPassword, path) }

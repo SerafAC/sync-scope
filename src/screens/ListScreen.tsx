@@ -1,5 +1,4 @@
 import React, {
-  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -8,7 +7,6 @@ import React, {
 } from 'react';
 import {
   FlatList,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -16,7 +14,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { List, useTheme, type MD3Theme } from 'react-native-paper';
 
 import { Breadcrumb } from '../files/Breadcrumb';
 import { FastScroller } from '../files/FastScroller';
@@ -27,31 +24,25 @@ import {
   useReportToFilesScreen,
   type FilesViewProps,
 } from '../files/FilesViewParts';
-import { StatusChip } from '../files/StatusChip';
-import { fileRowLabel, folderRowLabel, placeholderLabel } from '../files/a11y';
+import { FileRow, formatSize } from '../files/FileRow';
+import { FolderRow, PlaceholderRow } from '../files/FolderRow';
 import { useFiles } from '../files/useFiles';
+import { useOpenPreview } from '../files/useOpenPreview';
+import { sumCounts, useSourceCounts } from '../files/useSourceCounts';
 import { useListNavigation } from '../files/useListNavigation';
 import {
   isPlaceholder,
   PAGED_QUERY_PAGE_SIZE,
+  readTreeChildren,
   scrollAnchorOf,
   usePagedQuery,
   type IndexReader,
   type PagedRow,
-  type PageReader,
 } from '../files/usePagedQuery';
-import { getScrollIndex, queryTreeChildren } from '../native/CloudSync';
-import type {
-  FileEntryDto,
-  FileFilter,
-  FileStatus,
-  QuerySpec,
-  ScrollAnchor,
-  StatusCountDto,
-} from '../native/CloudSyncContracts';
-import { formatTimestamp } from '../scan/ScanSummaryCard';
+import { getScrollIndex } from '../native/CloudSync';
+import type { QuerySpec, ScrollAnchor } from '../native/CloudSyncContracts';
 import { useSelection } from '../selection/SelectionProvider';
-import { density, spacing } from '../theme/spacing';
+import { density } from '../theme/spacing';
 import { chipCount } from '../theme/statusLabels';
 
 export const NO_SOURCES_TEXT = 'No folders added yet.';
@@ -68,24 +59,7 @@ export interface ListScreenProps extends FilesViewProps {
   onFolderChange?: (folder: ListFolder | null) => void;
 }
 
-const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-/** `512 B`, `1.5 KB`, `12 MB`: one decimal below 10 units. */
-export function formatSize(bytes: number): string {
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  const shown =
-    unit === 0 || value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${shown} ${UNITS[unit]}`;
-}
-
-/** `queryTreeChildren` as a {@link PageReader}: the parent travels in `query.parentId`. */
-const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
-  queryTreeChildren(snapshotId, query.parentId ?? null, query, pageToken);
+export { formatSize };
 
 /** The scroll index of a folder's files: the query carries the folder (research R4). */
 const readIndex: IndexReader = (snapshotId, query, anchor) =>
@@ -118,184 +92,6 @@ function keyOf(row: PagedRow): string {
   return isPlaceholder(row) ? row.key : row.entryId;
 }
 
-/** Adds up per-status counts; null when any part is not known. */
-function sumCounts(
-  parts: readonly (StatusCountDto[] | null | undefined)[],
-): StatusCountDto[] | null {
-  const totals = new Map<FileStatus, number>();
-  for (const part of parts) {
-    if (part == null) {
-      return null;
-    }
-    for (const { status, count } of part) {
-      totals.set(status, (totals.get(status) ?? 0) + count);
-    }
-  }
-  return [...totals].map(([status, count]) => ({ status, count }));
-}
-
-interface SourceCounts {
-  key: string;
-  bySource: ReadonlyMap<string, StatusCountDto[] | null>;
-}
-
-/**
- * Each source's page-1 `counts` from a one-row `queryTreeChildren` read of
- * its root (research R4). Counts are scoped by source and never narrowed by
- * the filter, so the chip model turns them into the filter's count.
- */
-function useSourceCounts(
-  snapshotId: string | null,
-  sourceIds: readonly string[],
-  filter: FileFilter,
-  reloadKey: number,
-): ReadonlyMap<string, StatusCountDto[] | null> | null {
-  const key = `${snapshotId}\u0000${filter}\u0000${reloadKey}\u0000${sourceIds.join(
-    '\u0000',
-  )}`;
-  const [loaded, setLoaded] = useState<SourceCounts | null>(null);
-
-  useEffect(() => {
-    if (snapshotId == null) {
-      return;
-    }
-    let live = true;
-    Promise.all(
-      sourceIds.map(async sourceId => {
-        try {
-          const result = await queryTreeChildren(
-            snapshotId,
-            null,
-            { filter, view: 'LIST', sort: 'NAME_ASC', sourceId, pageSize: 1 },
-            null,
-          );
-          return [
-            sourceId,
-            result.status === 'ok' ? result.page.counts : null,
-          ] as const;
-        } catch {
-          return [sourceId, null] as const;
-        }
-      }),
-    ).then(entries => {
-      if (live) {
-        setLoaded({ key, bySource: new Map(entries) });
-      }
-    });
-    return () => {
-      live = false;
-    };
-    // `key` covers snapshotId, filter, reloadKey and sourceIds.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  return loaded != null && loaded.key === key ? loaded.bySource : null;
-}
-
-function themedStyles(theme: MD3Theme) {
-  return StyleSheet.create({
-    dimmed: { color: theme.colors.onSurfaceDisabled },
-  });
-}
-
-function FolderIcon({ color }: { color: string }): React.JSX.Element {
-  return <List.Icon color={color} icon="folder-outline" />;
-}
-
-function FileIcon({ color }: { color: string }): React.JSX.Element {
-  return <List.Icon color={color} icon="file-outline" />;
-}
-
-/** A selected file row's icon: a check mark, so the state is not colour alone (FR-017). */
-function SelectedIcon({ color }: { color: string }): React.JSX.Element {
-  return (
-    <View testID="list-row-selected">
-      <List.Icon color={color} icon="check-circle" />
-    </View>
-  );
-}
-
-/** A source or directory row: `N matching`, dimmed at 0 and still pressable (clarification 3). */
-function FolderRow({
-  name,
-  matching,
-  onPress,
-}: {
-  name: string;
-  matching: number | null;
-  onPress: () => void;
-}): React.JSX.Element {
-  const theme = useTheme();
-  const themed = useMemo(() => themedStyles(theme), [theme]);
-  const dimmed = matching === 0;
-  return (
-    <List.Item
-      accessibilityLabel={folderRowLabel(name, matching)}
-      description={matching == null ? undefined : `${matching} matching`}
-      descriptionStyle={dimmed ? themed.dimmed : undefined}
-      left={FolderIcon}
-      onPress={onPress}
-      style={styles.row}
-      title={name}
-      titleStyle={dimmed ? themed.dimmed : undefined}
-    />
-  );
-}
-
-/**
- * A file row: name, size, modified time and status; never an origin badge
- * (FR-002). A long-press starts the selection; [onPress] (given only while
- * selecting) toggles it. A selected row shows a check mark and announces
- * `, selected` (FR-015, FR-017).
- */
-const FileRow = memo(function FileRowBody({
-  entry,
-  selected,
-  onPress,
-  onLongPress,
-}: {
-  entry: FileEntryDto;
-  selected: boolean;
-  onPress?: (entry: FileEntryDto) => void;
-  onLongPress: (entry: FileEntryDto) => void;
-}): React.JSX.Element {
-  const details = [
-    entry.sizeBytes == null ? null : formatSize(entry.sizeBytes),
-    entry.modifiedUtcMillis == null
-      ? null
-      : formatTimestamp(entry.modifiedUtcMillis),
-  ].filter(part => part != null);
-  return (
-    <Pressable
-      accessibilityLabel={fileRowLabel(entry.name, entry.status, selected)}
-      accessibilityState={{ selected }}
-      onLongPress={() => onLongPress(entry)}
-      onPress={onPress ? () => onPress(entry) : undefined}
-      style={styles.fileRow}
-    >
-      <List.Item
-        description={details.join(' · ')}
-        left={selected ? SelectedIcon : FileIcon}
-        style={styles.fileItem}
-        title={entry.name}
-      />
-      <StatusChip status={entry.status} />
-    </Pressable>
-  );
-});
-
-/** A row of a band not read yet: the fixed row height, no spinner (research R7). */
-function PlaceholderRow(): React.JSX.Element {
-  return (
-    <View
-      accessibilityLabel={placeholderLabel()}
-      accessible
-      style={styles.row}
-      testID="list-placeholder"
-    />
-  );
-}
-
 /**
  * The list view (FR-002): the sources at the top level, then each source's
  * folders through `queryTreeChildren`, with a breadcrumb back up.
@@ -313,6 +109,7 @@ function PlaceholderRow(): React.JSX.Element {
  * Under a filter, every folder stays visible with its matching-file count.
  * File rows are selectable (FR-015); source and directory rows never are,
  * and tapping one navigates while the selection is kept (Story 5 sc. 7).
+ * With nothing selected, a tap on a media file opens its preview (009 R8).
  */
 export function ListScreen(props: ListScreenProps): React.JSX.Element {
   const {
@@ -415,6 +212,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
   );
 
   const { openFolder } = nav;
+  const openPreview = useOpenPreview(readSnapshot);
   const renderEntry = useCallback(
     ({ item }: { item: PagedRow }) =>
       isPlaceholder(item) ? (
@@ -429,11 +227,20 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
         <FileRow
           entry={item}
           onLongPress={longPress}
-          onPress={isSelecting ? toggle : undefined}
+          onPress={isSelecting ? toggle : openPreview}
           selected={isSelected(item.entryId)}
+          snapshotId={readSnapshot}
         />
       ),
-    [openFolder, isSelected, isSelecting, longPress, toggle],
+    [
+      openFolder,
+      isSelected,
+      isSelecting,
+      longPress,
+      openPreview,
+      readSnapshot,
+      toggle,
+    ],
   );
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
@@ -641,22 +448,7 @@ export function ListScreen(props: ListScreenProps): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  fileItem: {
-    flex: 1,
-    paddingVertical: 0,
-  },
-  fileRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    height: density.rowHeight,
-    paddingRight: spacing.lg,
-  },
   folder: {
     flex: 1,
-  },
-  row: {
-    height: density.rowHeight,
-    justifyContent: 'center',
-    paddingVertical: 0,
   },
 });

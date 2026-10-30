@@ -15,6 +15,7 @@ This guide is for people working on the SyncScope code. For what the app does an
 | Docker Compose | 5.5.1 (checked by `scripts/validation/`) | Protocol validation services |
 | Maestro | 2.10.0 | End-to-end emulator flows |
 | ImageMagick | 7 (the `magick` command) | Only `scripts/icon/generate-icons.sh`; not needed to build, test or run the app |
+| FFmpeg | any recent build with `libx264` (the `ffmpeg` command) | Only `scripts/validation/fixture-images.sh --regenerate`, which rebuilds the checked-in 2 s MP4 and JPEG fixtures (feature 009); not needed to build, test, seed or run the flows (`--check` needs no `ffmpeg`) |
 
 The API 31 and API 36 emulators (AVDs `dependency_api31` and `dependency_api36`, each with an SD card)
 are needed for the connected tests, the S01 live gate and the end-to-end flows; see
@@ -314,8 +315,8 @@ validation/maestro/
 │   ├── 03-first-run.yaml
 │   ├── 04-select-size.yaml
 │   ├── 05-delete-synced.yaml
-│   ├── 90-release-smoke.yaml       # also the release-smoke mode's flow
-│   └── 91-release-update.yaml      # release-smoke only: after an in-place update
+│   ├── 90-standalone-setup.yaml
+│   └── 91-relaunch-keeps-data.yaml
 ├── polish/          # feature 007
 │   ├── 01-sort.yaml
 │   ├── 02-sort-persists.yaml
@@ -327,11 +328,20 @@ validation/maestro/
 │   └── 08-add-large-folder.yaml
 ├── performance/     # feature 008 regressions, after the 39 original flows
 │   └── 01-field-replacement.yaml   # real-form field matrix: empty/prefilled/secure/numeric, long roots
+├── tree/            # feature 009, after performance/
+│   ├── 01-expand-collapse-sftp.yaml
+│   ├── 02-filter-dimmed-ftp.yaml
+│   ├── 03-preview-image-webdav.yaml
+│   ├── 04-video-gallery-preview-sftp.yaml
+│   └── 05-tree-select-delete-ftp.yaml
 └── staged/          # feature 006: a/b(/c) parts with a hook between them; not in config.yaml
     ├── pairs.txt
     ├── 06-recheck-removed-{a,b}.yaml
     ├── 07-delete-offline-{a,b,c}.yaml
-    └── 08-changed-{a,b}.yaml
+    ├── 08-changed-{a,b}.yaml
+    ├── 09-resync-{a,b,c}.yaml             # feature 009
+    ├── 10-selection-survives-{a,b}.yaml   # feature 009
+    └── 11-toolbar-halves-{a,b}.yaml       # feature 009
 ```
 
 - Flow files are named `NN-<verb>-<object>.yaml`, where `NN` is the order within the directory.
@@ -480,6 +490,26 @@ For sorting, the scrollbar, several server folders and the picker (feature 007,
 | `SyncScopeE2E/Narrow` | 200 padded PNGs, all 3–5 MB with at least 8 distinct sizes, within 21 days, so the size bands must be narrow | `polish/03` |
 | `DCIM/Big` | 10 000 empty `.jpg` files, made with one `adb shell` loop | `polish/08` and the picker spike |
 
+For the tree view, the preview and the refresh re-check (feature 009,
+`specs/009-tree-view-image-preview/contracts/maestro-tree-preview.md`, Fixtures) it seeds the immutable
+`tree` set in `SyncScopeE2E/ScanTree`, the device side of the remote `scan/tree`, all with one fixed mtime:
+
+| Path | Contents |
+| --- | --- |
+| `Album/2024/` | `a1.jpg`–`a5.jpg` |
+| `Album/2025/` | `b1.jpg`, `new.jpg` and `clip.mp4` (2 s, 64×64, H.264, no audio) |
+| `Album/Docs/` | `doc.pdf` |
+| `Empty/` | nothing |
+| `Loose.jpg` | at the top |
+
+`tree_fixture_files` in `fixture-images.sh` defines the set once for both sides. It is kept while its
+marker validates, like the other immutable sets. Within one API run the staged lines see what the
+workspace flows left: `tree/05` deletes `a1`–`a3` only, `staged/10` touches `a4`, and the changed set is
+reseeded before the next API level. `scripts/validation/fixture-images.sh --check` decodes every embedded
+fixture, checks its type and the MP4's codec and 2 s duration, and lists them; `--regenerate` rebuilds
+`JPG_TREE` and `MP4_CLIP` with `ffmpeg`, rewrites them in the script and runs `--check`. The script
+contract is `tree-fixtures.test.mjs`.
+
 #### Fixture reuse (feature 008)
 
 The five large, immutable sets (`Bulk`, `GalleryBulk`, `Narrow`, `Scroll` and `DCIM/Big`) are kept
@@ -553,6 +583,12 @@ passes the server re-check. The `polish/` flows use `scan/clean/a`, `scan/clean/
 `scan/partial/restricted`, `gallery-partial/restricted` (two unreadable folders) and `gallery/` as remote
 folders; the `Scroll` and `Narrow` files are local only.
 
+Feature 009 adds `scan/tree/`, the same files as the device `tree` set, **including**
+`Album/2025/new.jpg`, on all three servers and in the services' before-manifest. `staged/09-resync`
+removes `new.jpg` from the SFTP tree and puts it back (`remove-recheck-file.sh` and
+`restore-recheck-file.sh` with the path), and the runner's cleanup restores it too, so an interrupted run
+leaves the seeded tree.
+
 When the tree changes, update the exact-tree expectations in `ProtocolConnectInstrumentedTest` and
 `scripts/validation/validation-infrastructure.test.mjs` in the same change.
 
@@ -611,8 +647,8 @@ The `mvp/` flows (feature 006) run after `browse/`. The full scenario mapping is
 | `03-first-run` | clearState | the Scan checklist, the Files empty state, the folder picker hint and DCIM start folder, then a first scan |
 | `04-select-size` | SFTP, `gallery`; Select | long-press, tap, Select all, the count and size, hidden by filter, back clears |
 | `05-delete-synced` | SFTP, `gallery-partial`, then `gallery`; Delete | real deletion of the SYNCED files, UNKNOWN files survive, folders stay; then the not-backed-up opt-in |
-| `90-release-smoke` | clearState, no seam | setup, folder, scan and results; valid on debug and release |
-| `91-release-update` | after `adb install -r` | the server, folders and results survive an update (release-smoke only) |
+| `90-standalone-setup` | clearState, no seam | setup, folder, scan and results, all through the UI |
+| `91-relaunch-keeps-data` | after `90` | the server, folders and results survive a relaunch |
 
 ### Polish flow order
 
@@ -631,6 +667,20 @@ sizes and band labels come from the [scroll manifest](#device-fixtures), never f
 | `07-results-updated-keeps-place` | WebDAV; Scroll | a rescan keeps the first visible file on top in the list and in the hidden gallery, with "Results updated" |
 | `08-add-large-folder` | clearState | the large-folder hint, then `DCIM/Big` (10 000 files) added by opening it and tapping Use this folder at once |
 
+### Tree flow order
+
+The `tree/` flows (feature 009) run after `performance/`. The full scenario mapping, with the recorded
+deviations, is in `specs/009-tree-view-image-preview/contracts/maestro-tree-preview.md`. Every flow scans
+the `tree` set.
+
+| Flow | Protocol | Proves |
+| --- | --- | --- |
+| `01-expand-collapse-sftp` | SFTP | the Tree view: expand and collapse, indented children, the same folders as list view |
+| `02-filter-dimmed-ftp` | FTP | under Unsynced, `Album/Docs` is dimmed with "0" and still expands |
+| `03-preview-image-webdav` | WebDAV | tapping `Loose.jpg` in gallery, list and tree opens the image preview; Back returns to the same view and place |
+| `04-video-gallery-preview-sftp` | SFTP | the MP4 tile's play badge and "0:02", row thumbnails with the badge, and the muted video preview with pause and seek |
+| `05-tree-select-delete-ftp` | FTP | selection in tree view and from the preview, then the existing delete flow; leaves `a4`, `a5`, `Album/2025` and `Loose.jpg` for the staged lines |
+
 ### Staged pairs and hooks
 
 A scenario that needs server or device state to change between two steps is split into parts in
@@ -641,31 +691,15 @@ workspace, `android-flow.sh` reads `staged/pairs.txt`: each line alternates flow
 
 | Hook | Does | Line |
 | --- | --- | --- |
-| `remove-recheck-file.sh` | deletes `recheck/beach.png` from the fixture tree the containers serve | `06-recheck-removed`: the server re-check moves the file, and it is not deleted |
+| `remove-recheck-file.sh [<fixture path>]` | deletes `recheck/beach.png`, or the given file, from the fixture tree the containers serve | `06-recheck-removed`: the server re-check moves the file, and it is not deleted; `09-resync` (feature 009) with `scan/tree/Album/2025/new.jpg`, before the full scan |
 | `pause-service.sh <protocol>` / `resume-service.sh <protocol>` | `docker compose pause` / `unpause` of one container | `07-delete-offline`: with the server unreachable, nothing is deleted |
-| `change-device-files.sh` | through `adb`, removes `Changed/beach.png` and sets a new mtime on `Changed/sunset.png` while the confirmation is open | `08-changed`: per-file `Already gone` and `Changed since the scan` |
-| `restore-recheck-file.sh` | puts `recheck/beach.png` back after the staged lines | run by the runner, so the protocol audit and the next API level see the seeded tree |
+| `change-device-files.sh [<fixture path>]` | through `adb`, removes `Changed/beach.png` and sets a new mtime on `Changed/sunset.png` while the confirmation is open; with a path such as `scan/tree/Album/2024/a4.jpg`, sets the new mtime on that device file | `08-changed`: per-file `Already gone` and `Changed since the scan`; `10-selection-survives` (feature 009): the changed `a4.jpg` is dropped from the selection, `a5.jpg` stays |
+| `assert-equal-halves.sh` | reads a `uiautomator dump` and fails unless the buttons `files-sort` and `files-view` are each 50 % ± 2 % of `files-toolbar` (it measures the buttons, not their `-control` wrappers) | `11-toolbar-halves` (feature 009, FR-006); covered by `assert-equal-halves.test.mjs` |
+| `restore-recheck-file.sh [<fixture path>]` | puts `recheck/beach.png`, or the given file, back | `09-resync` with `scan/tree/Album/2025/new.jpg`, before the relaunch whose automatic refresh must find it; also run by the runner after the staged lines for both files, so the protocol audit and the next API level see the seeded tree |
 
 A pause registers its resume in the runner's `trap` before it runs, so a failed flow never leaves a
 container paused. The staged flows all use the SFTP container. The hooks are covered by
 `validation-infrastructure.test.mjs`.
-
-### Release smoke
-
-`pnpm e2e:android:release-smoke` (`android-flow.sh release-smoke --api 31`) proves the installable APK:
-
-1. `pnpm assemble:release` with no `SYNCSCOPE_RELEASE_*` properties must fail with "Release signing is
-   not configured". The run refuses to start if `~/.gradle/gradle.properties` sets them.
-2. It generates a throwaway keystore in a temp directory and builds with `pnpm assemble:release` through
-   `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_*`.
-3. `aapt2 dump badging` must report the `versionName` and `versionCode` derived from `package.json`.
-4. It installs the release APK with Metro stopped, and asserts that `syncscope-debug://configure-repository`
-   resolves to no activity.
-5. It runs `mvp/90-release-smoke`, re-installs the same APK with `adb install -r`, and runs
-   `mvp/91-release-update`.
-6. It deletes the keystore.
-
-It needs the protocol containers like `pnpm e2e:android`, and runs on API 31 only.
 
 ### Running one flow
 
@@ -768,7 +802,6 @@ repository.
    Instead of the file, you can export them as environment variables named
    `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE`, `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_PASSWORD`,
    `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_ALIAS` and `ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_KEY_PASSWORD`.
-   `pnpm e2e:android:release-smoke` does this with a throwaway key.
 
 3. Build with `pnpm assemble:release`. The APK is
    `android/app/build/outputs/apk/release/app-release.apk`. It bundles the JavaScript, so it runs without

@@ -22,6 +22,7 @@ import com.syncscope.remote.RemoteEntry
 import com.syncscope.remote.RemoteEntryType
 import com.syncscope.remote.RemoteProtocol
 import com.syncscope.remote.RemoteRoots
+import com.syncscope.remote.ServerFolderLister
 import com.syncscope.source.LocalFile
 import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SourceAvailability
@@ -194,6 +195,7 @@ class ScanHarness(context: Context) {
     clients = remote,
     enumerator = enumerator,
     walker = RemoteWalker(delay = {}),
+    lister = ServerFolderLister(credentials, remote, delay = {}),
     clock = clock,
     newId = newId,
     perFilePause = { pauses.incrementAndGet() },

@@ -25,6 +25,14 @@ export interface ChoiceMenuProps<T extends string> {
  * that opens a Paper `Menu` of the options, with the current one marked by a
  * check and its selected state. Picking an option closes the menu; picking
  * the current one changes nothing.
+ *
+ * Layout (feature 009 R10, FR-006): the `control` wrapper takes half the
+ * toolbar row and Paper's anchor wrapper stretches to it, so the button's
+ * `width: '100%'` fills the half (measured on the device by the staged hook
+ * assert-equal-halves.sh). Paper's `Menu` `style` styles the open menu, not
+ * the anchor, so it is left unset. Paper draws the label on one line; `label`
+ * lets it shrink, so a long choice truncates inside its half instead of
+ * overflowing the button.
  */
 export function ChoiceMenu<T extends string>({
   value,
@@ -47,6 +55,7 @@ export function ChoiceMenu<T extends string>({
             accessibilityLabel={buttonLabel}
             compact
             icon={icon}
+            labelStyle={styles.label}
             mode="outlined"
             onPress={show}
             style={styles.button}
@@ -91,5 +100,8 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
+  },
+  label: {
+    flexShrink: 1,
   },
 });

@@ -8,7 +8,9 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.syncscope.image.LocalImageStore
+import com.syncscope.image.Thumbnail
 import com.syncscope.image.ThumbnailSource
+import com.syncscope.media.MediaKind
 import com.syncscope.persistence.stagingSnapshot
 import com.syncscope.scan.REMOTE_HOST
 import com.syncscope.scan.REMOTE_ROOT
@@ -40,6 +42,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 /** One envelope test per `startScan` row of contracts/cloudsync-scan.md, plus cancel, state and queries. */
 @RunWith(RobolectricTestRunner::class)
@@ -514,6 +517,19 @@ class ScanOperationsTest {
     val top = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1")))
     assertEquals(setOf(idOf.getValue("solo.png")), top.keys)
 
+    // wholeSource (009 R11): every file of the source at any depth, only for a LIST query without a folder.
+    val whole = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", true)))
+    assertEquals(setOf(idOf.getValue("a.png"), idOf.getValue("notes.txt"), idOf.getValue("solo.png")), whole.keys)
+    val notWhole = selectable(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", false)))
+    assertEquals(setOf(idOf.getValue("solo.png")), notWhole.keys)
+    for (bad in listOf(
+      JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "parentId", idOf.getValue("Photos"), "wholeSource", true),
+      JavaOnlyMap.of("view", "GALLERY", "wholeSource", true),
+      JavaOnlyMap.of("view", "LIST", "sourceId", "src-1", "wholeSource", "yes"),
+    )) {
+      assertEquals("wholeSource", assertError(ops.listSelectableEntries(snapshotId, bad), "INVALID_QUERY").getString("field"))
+    }
+
     // The query is validated as queryFiles does, and a LIST selection names its source.
     assertEquals("filter", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("filter", "SIDEWAYS")), "INVALID_QUERY").getString("field"))
     assertEquals("sourceId", assertError(ops.listSelectableEntries(snapshotId, JavaOnlyMap.of("view", "LIST")), "INVALID_QUERY").getString("field"))
@@ -525,6 +541,89 @@ class ScanOperationsTest {
     val old = h.store.beginRun("run-old", "FULL", 1L, "CONNECTING", 0L)
     h.store.stageSnapshot(stagingSnapshot("snap-old", old.runId).copy(publishable = true))
     assertError(ops.listSelectableEntries("snap-old", JavaOnlyMap.of("view", "GALLERY")), "STALE_GENERATION")
+  }
+
+  // --- carrySelection (009 contracts/cloudsync-tree-preview.md, research R9) ---
+
+  @Test
+  fun carrySelectionFollowsTheContract() = runBlocking<Unit> {
+    ready()
+    h.remote.dir(REMOTE_ROOT, remoteFile("kept.png", 10L))
+    h.enumerator.files(
+      "src-1",
+      image("doc-kept", "kept.png").copy(sizeBytes = 10L),
+      image("doc-changed", "changed.png").copy(sizeBytes = 20L),
+      image("doc-gone", "gone.png"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val first = h.store.activeSnapshot()!!.snapshotId!!
+    val before = idsByName(first)
+
+    // The next scan: one file changed size, one is gone; entry IDs are new in every scan.
+    h.enumerator.files(
+      "src-1",
+      image("doc-kept", "kept.png").copy(sizeBytes = 10L),
+      image("doc-changed", "changed.png").copy(sizeBytes = 21L),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val second = h.store.activeSnapshot()!!.snapshotId!!
+    assertTrue(first != second)
+    val after = idsByName(second)
+    val clientsBefore = h.remote.created.size
+
+    val result = ops.carrySelection(first, second, JavaOnlyArray.from(before.values.toList()))
+
+    assertEquals("ok", result.getString("status"))
+    assertEquals(CloudSyncContracts.CONTRACT_VERSION, result.getInt("contractVersion"))
+    assertEquals(setOf("contractVersion", "status", "carried", "dropped"), result.toHashMap().keys)
+    val carried = result.getArray("carried")!!
+    assertEquals(1, carried.size())
+    val entry = carried.getMap(0)!!
+    assertEquals(setOf("from", "to", "status"), entry.toHashMap().keys)
+    assertEquals(before.getValue("kept.png"), entry.getString("from"))
+    assertEquals(after.getValue("kept.png"), entry.getString("to"))
+    assertEquals("SYNCED", entry.getString("status"))
+    assertEquals(2.0, result.getDouble("dropped"), 0.0)
+    // It reads the store only: no server connection, and no document ID or URI crosses the bridge.
+    assertEquals(clientsBefore, h.remote.created.size)
+    assertNoPathOrHost(result)
+    val text = dump(result)
+    for (documentId in listOf("doc-kept", "doc-changed", "doc-gone")) {
+      assertFalse("'$documentId' crossed the bridge: $text", text.contains(documentId))
+    }
+
+    // The same snapshot on both sides carries every existing file to itself.
+    val same = ops.carrySelection(second, second, JavaOnlyArray.from(after.values.toList()))
+    assertEquals(after.size, same.getArray("carried")!!.size())
+    assertEquals(0.0, same.getDouble("dropped"), 0.0)
+
+    // Either snapshot missing is SNAPSHOT_NOT_FOUND.
+    for ((from, to) in listOf("no-such-snapshot" to second, first to "no-such-snapshot")) {
+      val gone = ops.carrySelection(from, to, JavaOnlyArray.of(before.getValue("kept.png")))
+      assertError(gone, "SNAPSHOT_NOT_FOUND")
+      assertFalse(gone.hasKey("carried"))
+    }
+
+    // More than 50 000 IDs, or an ID that is not a string, is INVALID_QUERY on entryIds.
+    val tooMany = JavaOnlyArray.from((0..CARRY_MAX_IDS).map { "e$it" })
+    val invalid =
+      listOf(
+        tooMany,
+        JavaOnlyArray.of("e1", 2.0),
+        JavaOnlyArray.of("e1", null),
+        JavaOnlyArray.of(JavaOnlyMap()),
+      )
+    for (ids in invalid) {
+      val error = assertError(ops.carrySelection(first, second, ids), "INVALID_QUERY")
+      assertEquals("entryIds", error.getString("field"))
+    }
+    // Exactly 50 000 is accepted.
+    val atLimit = ops.carrySelection(first, second, JavaOnlyArray.from((1..CARRY_MAX_IDS).map { "e$it" }))
+    assertEquals("ok", atLimit.getString("status"))
+    assertEquals(CARRY_MAX_IDS.toDouble(), atLimit.getDouble("dropped"), 0.0)
+    assertEquals(clientsBefore, h.remote.created.size)
   }
 
   // --- getScrollIndex ---
@@ -629,7 +728,9 @@ class ScanOperationsTest {
 
     assertError(ops.imageHandle("no-such-snapshot", photo, edge), "SNAPSHOT_NOT_FOUND")
     for (entryId in listOf("no-such-entry", idOf.getValue("Photos"), idOf.getValue("notes.txt"))) {
-      assertEquals(entryId, "entryId", assertError(ops.imageHandle(snapshotId, entryId, edge), "INVALID_QUERY").getString("field"))
+      val invalid = assertError(ops.imageHandle(snapshotId, entryId, edge), "INVALID_QUERY")
+      assertEquals(entryId, "entryId", invalid.getString("field"))
+      assertEquals(entryId, "The media entryId is invalid.", invalid.getString("message"))
     }
     for (bad in listOf(JavaOnlyMap(), JavaOnlyMap.of("maxEdgePx", "256"), JavaOnlyMap.of("maxEdgePx", Double.NaN))) {
       assertEquals("maxEdgePx", assertError(ops.imageHandle(snapshotId, photo, bad), "INVALID_QUERY").getString("field"))
@@ -643,7 +744,9 @@ class ScanOperationsTest {
     assertTrue(uri, uri.startsWith("file://"))
     assertFalse(uri, uri.contains("secret"))
     assertFalse(uri, uri.contains("content://"))
-    assertEquals(setOf("uri"), ok.getMap("handle")!!.toHashMap().keys)
+    assertEquals(setOf("uri", "durationMillis"), ok.getMap("handle")!!.toHashMap().keys)
+    // An image has no duration.
+    assertTrue(ok.getMap("handle")!!.isNull("durationMillis"))
     assertNoPathOrHost(ok)
     assertEquals(1, thumbnails.loads)
     // A clamped edge is the same cache entry: no second decode.
@@ -657,15 +760,66 @@ class ScanOperationsTest {
     assertNoPathOrHost(unavailable)
   }
 
-  /** Returns a small bitmap, or throws [failure] when set. */
+  @Test
+  fun aVideoHandleCarriesItsDurationAndNothingLocatesTheDocument() = runBlocking<Unit> {
+    ShadowLog.clear()
+    ready()
+    h.enumerator.files(
+      "src-1",
+      localDir("d1", "Camera"),
+      video("d2", "secret-clip.mp4", parent = "d1"),
+      video("d3", "no-duration.mp4", parent = "d1"),
+    )
+    ops.start(null)
+    coordinator.awaitIdle()
+    val snapshotId = h.store.activeSnapshot()!!.snapshotId!!
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    val idOf = (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
+    val edge = JavaOnlyMap.of("maxEdgePx", 256.0)
+
+    thumbnails.durationMillis = 2_000L
+    val clip = ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), edge)
+    assertEquals("ok", clip.getString("status"))
+    val handle = clip.getMap("handle")!!
+    assertEquals(setOf("uri", "durationMillis"), handle.toHashMap().keys)
+    assertEquals(2_000.0, handle.getDouble("durationMillis"), 0.0)
+    assertTrue(handle.getString("uri")!!.startsWith("file://"))
+    assertEquals(MediaKind.VIDEO, thumbnails.kinds.last())
+    assertNoPathOrHost(clip)
+    // A cache hit answers with the same duration and no decode.
+    val hit = ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), edge)
+    assertEquals(2_000.0, hit.getMap("handle")!!.getDouble("durationMillis"), 0.0)
+    assertEquals(1, thumbnails.loads)
+
+    thumbnails.durationMillis = null
+    val unknown = ops.imageHandle(snapshotId, idOf.getValue("no-duration.mp4"), edge)
+    assertEquals("ok", unknown.getString("status"))
+    assertTrue(unknown.getMap("handle")!!.isNull("durationMillis"))
+
+    thumbnails.failure = FileNotFoundException("content://gone/secret-clip.mp4")
+    assertError(ops.imageHandle(snapshotId, idOf.getValue("secret-clip.mp4"), JavaOnlyMap.of("maxEdgePx", 512.0)), "IMAGE_UNAVAILABLE")
+
+    // No document URI, document ID or file name reached the log.
+    for (item in ShadowLog.getLogs()) {
+      val text = "${item.msg} ${item.throwable}"
+      for (secret in listOf("content://", "primary:", "secret-clip")) {
+        assertFalse("'$secret' was logged: $text", text.contains(secret))
+      }
+    }
+  }
+
+  /** Returns a small bitmap with [durationMillis], or throws [failure] when set; records each kind. */
   private class FakeThumbnails : ThumbnailSource {
     @Volatile var loads = 0
     @Volatile var failure: Exception? = null
+    @Volatile var durationMillis: Long? = null
+    val kinds: MutableList<MediaKind> = java.util.Collections.synchronizedList(mutableListOf())
 
-    override fun load(documentUri: String, edgePx: Int): Bitmap? {
+    override fun load(documentUri: String, edgePx: Int, kind: MediaKind): Thumbnail? {
       loads++
+      kinds += kind
       failure?.let { throw it }
-      return Bitmap.createBitmap(edgePx, edgePx, Bitmap.Config.ARGB_8888)
+      return Thumbnail(Bitmap.createBitmap(edgePx, edgePx, Bitmap.Config.ARGB_8888), durationMillis)
     }
   }
 
@@ -678,22 +832,32 @@ class ScanOperationsTest {
   private fun image(documentId: String, name: String, parent: String? = null) =
     localFile(documentId, name, parent = parent).copy(mimeType = "image/png")
 
+  private fun video(documentId: String, name: String, parent: String? = null) =
+    localFile(documentId, name, parent = parent).copy(mimeType = "video/mp4")
+
   private fun spec(pageSize: Double? = null): ReadableMap =
     JavaOnlyMap.of("filter", "ALL", "view", "LIST", "sort", "NAME_ASC").apply { pageSize?.let { putDouble("pageSize", it) } }
 
-  /** The `selectable` arrays of an ok result as entryId → (size, status, image), checking they are parallel. */
+  /** The `selectable` arrays of an ok result as entryId → (size, status, media), checking they are parallel. */
   private fun selectable(result: ReadableMap): Map<String, Triple<Double, String, Boolean>> {
     assertEquals("ok", result.getString("status"))
     val dto = result.getMap("selectable")!!
-    assertEquals(setOf("entryIds", "sizes", "statuses", "images"), dto.toHashMap().keys)
+    // Contract v7 renamed the wire field `images` to `media`.
+    assertEquals(setOf("entryIds", "sizes", "statuses", "media"), dto.toHashMap().keys)
     val ids = dto.getArray("entryIds")!!
     val sizes = dto.getArray("sizes")!!
     val statuses = dto.getArray("statuses")!!
-    val images = dto.getArray("images")!!
-    for (array in listOf(sizes, statuses, images)) assertEquals(ids.size(), array.size())
+    val media = dto.getArray("media")!!
+    for (array in listOf(sizes, statuses, media)) assertEquals(ids.size(), array.size())
     return (0 until ids.size()).associate {
-      ids.getString(it)!! to Triple(sizes.getDouble(it), statuses.getString(it)!!, images.getBoolean(it))
+      ids.getString(it)!! to Triple(sizes.getDouble(it), statuses.getString(it)!!, media.getBoolean(it))
     }
+  }
+
+  /** Every row of [snapshotId] as name → entryId. */
+  private suspend fun idsByName(snapshotId: String): Map<String, String> {
+    val rows = ops.queryFiles(snapshotId, spec(), null).getMap("page")!!.getArray("entries")!!
+    return (0 until rows.size()).map { rows.getMap(it)!! }.associate { it.getString("name")!! to it.getString("entryId")!! }
   }
 
   private fun names(entries: ReadableArray): List<String> = (0 until entries.size()).map { entries.getMap(it)!!.getString("name")!! }
@@ -744,3 +908,6 @@ class ScanOperationsTest {
       else -> value.toString()
     }
 }
+
+/** contracts/cloudsync-tree-preview.md "carrySelection": at most this many entry IDs. */
+private const val CARRY_MAX_IDS = 50_000

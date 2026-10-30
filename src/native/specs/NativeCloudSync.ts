@@ -72,6 +72,8 @@ export type QuerySpecInput = {
   pageSize?: number | null;
   /** 'DIRECTORY' | 'FILE': narrows the rows; part of the token fingerprint (contract v6). */
   kind?: string | null;
+  /** listSelectableEntries only: every file of the source at any depth (009 R11). */
+  wholeSource?: boolean | null;
 };
 
 export interface Spec extends TurboModule {
@@ -143,6 +145,15 @@ export interface Spec extends TurboModule {
     snapshotId: string,
     querySpec: QuerySpecInput,
     anchor?: Object | null,
+  ): Promise<OperationResultDto>;
+  /**
+   * Maps the selected entries of one snapshot to the unchanged files of
+   * another, payload keys `carried` and `dropped`; reads only (contract v7).
+   */
+  carrySelection(
+    fromSnapshotId: string,
+    toSnapshotId: string,
+    entryIds: Array<string>,
   ): Promise<OperationResultDto>;
   /**
    * Lists the folders under `path` (null or empty: '/') on the server the

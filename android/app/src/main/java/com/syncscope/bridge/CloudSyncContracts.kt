@@ -8,7 +8,11 @@ package com.syncscope.bridge
  */
 object CloudSyncContracts {
   const val MODULE_NAME = "CloudSync"
-  const val CONTRACT_VERSION = 6
+  /**
+   * Version 7 (feature 009): the `RECHECKING_REMOTE` scan phase and `SelectableEntries.media` (was
+   * `images`), plus the later 009 additions (`durationMillis`, `carrySelection`).
+   */
+  const val CONTRACT_VERSION = 7
 
   /** Hard bridge bounds; the engine never returns a page larger than this. */
   const val MAX_PAGE_SIZE = 200
@@ -19,6 +23,9 @@ object CloudSyncContracts {
 
   /** A deletion plan expires this long after prepareLocalDeletion made it (`MAX_DELETION_PLAN_AGE_MILLIS`). */
   const val MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000L
+
+  /** `carrySelection` takes at most this many entry IDs (`MAX_CARRY_SELECTION_IDS`, contract version 7). */
+  const val MAX_CARRY_SELECTION_IDS = 50_000
 
   /**
    * Scroll index band bounds (`SCROLL_BANDS_MIN` / `SCROLL_BANDS_MAX`, contract version 6): a date scrollbar

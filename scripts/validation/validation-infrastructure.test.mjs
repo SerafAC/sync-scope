@@ -1640,15 +1640,15 @@ test('e2e mode passes the per-run container credentials to Maestro without loggi
 const HOOKS = new URL('hooks/', import.meta.url);
 const STAGED = new URL('../../validation/maestro/staged/', import.meta.url);
 
-test('android-flow accepts the release-smoke mode and still rejects unknown modes', async t => {
+test('android-flow accepts its modes and rejects unknown ones', async t => {
   const source = await text('scripts/validation/android-flow.sh');
   assert.match(
     source,
-    /case "\$mode" in connected\|e2e\|release-smoke\|measure\) ;; \*\) exit 64 ;; esac/,
+    /case "\$mode" in connected\|e2e\|measure\) ;; \*\) exit 64 ;; esac/,
   );
 
   const {home, sdk} = await fakeSdk(t);
-  for (const mode of ['bogus', '']) {
+  for (const mode of ['bogus', '', 'release-smoke']) {
     const run = spawnSync(
       'sh',
       [new URL('android-flow.sh', import.meta.url).pathname, mode],
@@ -1658,10 +1658,7 @@ test('android-flow accepts the release-smoke mode and still rejects unknown mode
   }
 
   const packageJson = JSON.parse(await text('package.json'));
-  assert.equal(
-    packageJson.scripts['e2e:android:release-smoke'],
-    'scripts/validation/android-flow.sh release-smoke --api 31',
-  );
+  assert.equal(packageJson.scripts['e2e:android:release-smoke'], undefined);
   // Feature 008 T046: normal validation uses the ranked automatic graphics
   // profile on both APIs; a bare android-flow.sh call keeps the legacy launch.
   assert.equal(
@@ -1735,7 +1732,7 @@ const ORIGINAL_WORKSPACE = [
   'browse/01-gallery-thousands', 'browse/02-gallery-filters', 'browse/03-gallery-issues-unknown',
   'browse/04-list-browse', 'mvp/01-setup-ftp', 'mvp/01-setup-sftp', 'mvp/01-setup-webdav',
   'mvp/02-setup-errors', 'mvp/03-first-run', 'mvp/04-select-size', 'mvp/05-delete-synced',
-  'mvp/90-release-smoke', 'mvp/91-release-update', 'polish/01-sort', 'polish/02-sort-persists',
+  'mvp/90-standalone-setup', 'mvp/91-relaunch-keeps-data', 'polish/01-sort', 'polish/02-sort-persists',
   'polish/03-fast-scroll', 'polish/04-remote-folders-webdav', 'polish/05-remote-folder-unread-ftp',
   'polish/06-remote-browse-sftp', 'polish/07-results-updated-keeps-place',
   'polish/08-add-large-folder',
@@ -1747,17 +1744,51 @@ test('the workspace keeps the 39 original flows in order, then appends the regre
   const ordered = [...config.matchAll(/^ {4}- ([a-z0-9/-]+)$/gm)].map(match => match[1]);
   assert.equal(ORIGINAL_WORKSPACE.length, 39);
   assert.deepEqual(ordered.slice(0, 39), ORIGINAL_WORKSPACE);
-  assert.deepEqual(ordered.slice(39), APPENDED_REGRESSIONS);
+  assert.deepEqual(ordered.slice(39, 39 + APPENDED_REGRESSIONS.length), APPENDED_REGRESSIONS);
   const globs = [...config.matchAll(/^ {2}- "([a-z]+)\/\*"$/gm)].map(match => match[1]);
-  assert.deepEqual(globs, ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance']);
+  assert.deepEqual(globs.slice(0, 6), ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance']);
   assert.match(config, /continueOnFailure: false/);
-  for (const flow of ordered) {
+  for (const flow of ordered.slice(0, 39 + APPENDED_REGRESSIONS.length)) {
     const source = await text(`validation/maestro/${flow}.yaml`);
     assert.match(source, new RegExp(`^name: ${flow}$`, 'm'), `${flow} declares its name`);
   }
   const hotspots = JSON.parse(await text('validation/performance/hotspots.json'));
   assert.ok(hotspots.scenarios.every(s => !s.flow.includes('/performance/')),
     'the frozen H01-H08 subjects stay original flows');
+});
+
+// Feature 009 (T006, contracts/maestro-tree-preview.md): the tree flows come
+// after 008's part, in the order of the contract table; staged/ stays unlisted.
+const TREE_FLOWS = [
+  'tree/01-expand-collapse-sftp',
+  'tree/02-filter-dimmed-ftp',
+  'tree/03-preview-image-webdav',
+  'tree/04-video-gallery-preview-sftp',
+  'tree/05-tree-select-delete-ftp',
+];
+
+test('the workspace appends the tree glob and the five tree flows after the 008 regressions (feature 009)', async () => {
+  const config = await text('validation/maestro/config.yaml');
+  const ordered = [...config.matchAll(/^ {4}- ([a-z0-9/-]+)$/gm)].map(match => match[1]);
+  const after008 = 39 + APPENDED_REGRESSIONS.length;
+  assert.deepEqual(ordered.slice(after008), TREE_FLOWS);
+  const globs = [...config.matchAll(/^ {2}- "([a-z]+)\/\*"$/gm)].map(match => match[1]);
+  assert.deepEqual(globs, ['sources', 'scan', 'browse', 'mvp', 'polish', 'performance', 'tree']);
+  assert.ok((await lstat(new URL('../../validation/maestro/tree', import.meta.url))).isDirectory());
+  assert.doesNotMatch(config, /staged/);
+  // Each tree flow lands with its part (tasks.md Phases 3-6); one that exists
+  // declares its name, so it matches flowsOrder.
+  for (const flow of TREE_FLOWS) {
+    const source = await text(`validation/maestro/${flow}.yaml`).catch(error => {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    });
+    if (source !== null) {
+      assert.match(source, new RegExp(`^name: ${flow}$`, 'm'), `${flow} declares its name`);
+    }
+  }
 });
 
 test('the field replacement regression covers the real-form matrix with real authentication (feature 008)', async () => {
@@ -2064,49 +2095,54 @@ test('e2e mode runs the staged pairs after the workspace with hooks in between',
   assert.doesNotMatch(source, /SIZE_[A-Z0-9_]+=[0-9]/);
 });
 
-test('release-smoke mode follows the contract steps in order', async () => {
+// Feature 009 T068: staged/09-resync removes the tree set's new.jpg between
+// parts a and b, and part c's hook puts it back. A run interrupted in between
+// must still leave the seeded tree, so cleanup restores it beside the
+// recheck file, under the same SFTP receipt, and a failure marks the
+// restoration failed exactly like the existing call.
+test('cleanup also restores the staged/09 resync file and reports a failed restoration', async () => {
   const source = await text('scripts/validation/android-flow.sh');
-  const steps = [
-    'Release signing is not configured',
-    'keytool" -genkeypair',
-    'ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_STORE_FILE',
-    'pnpm assemble:release',
-    'dump badging',
-    "grep '^application:'",
-    'dump xmltree --file',
-    'E: monochrome',
-    'uninstall com.syncscope',
-    'device-fixtures.sh',
-    'Error: Activity not started, unable to resolve Intent',
-    'mvp/90-release-smoke.yaml',
-    'install -r',
-    'mvp/91-release-update.yaml',
-  ];
-  const start = source.indexOf('release_smoke_build() {');
-  assert.ok(start !== -1, 'release-smoke builds in release_smoke_build');
-  let at = start;
-  for (const step of steps) {
-    const found = source.indexOf(step, at);
-    assert.ok(found !== -1, `release-smoke must contain '${step}' after the previous step`);
-    at = found;
-  }
-  for (const suffix of ['STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']) {
-    assert.ok(
-      source.includes(`ORG_GRADLE_PROJECT_SYNCSCOPE_RELEASE_${suffix}`),
-      `${suffix} must be exported for the signed build`,
-    );
-  }
-  assert.match(source, /mktemp -d/);
   const cleanup = source.slice(
     source.indexOf('cleanup() {'),
     source.indexOf('trap cleanup EXIT'),
   );
-  assert.match(cleanup, /keystore_dir/, 'the keystore is removed in cleanup');
-  assert.match(source, /syncscope-debug:\/\/configure-repository/);
-  // Release-smoke never starts Metro.
+  const receipt = cleanup.indexOf('validation_read_receipt "$claims/sftp"');
+  assert.ok(receipt !== -1, 'cleanup restores under the SFTP receipt');
+  const block = cleanup.slice(receipt, cleanup.indexOf('esac', receipt));
+  const recheck = block.indexOf('"$hooks/restore-recheck-file.sh" ||');
+  const resync = block.indexOf(
+    '"$hooks/restore-recheck-file.sh" scan/tree/Album/2025/new.jpg ||',
+  );
+  assert.ok(recheck !== -1, 'the recheck file is still restored');
+  assert.ok(resync > recheck, 'new.jpg is restored beside the recheck file');
+  const call = block.slice(resync);
   assert.match(
-    source,
-    /if \[ "\$mode" = e2e \] \|\| \[ "\$mode" = measure \]; then\n\s+validation_phase_begin shared services\n\s+SYNCSCOPE_RESOURCE_RECEIPT="\$claims\/metro" "\$repo\/scripts\/validation\/metro-service\.sh" start/,
+    call,
+    /^"\$hooks\/restore-recheck-file\.sh" scan\/tree\/Album\/2025\/new\.jpg \|\|\n\s+\{ restoration=failed; \[ "\$status" -ne 0 \] \|\| \{ status=1; failure_code=restoration; \}; \}/,
+    'a failed restore sets restoration=failed like the existing call',
+  );
+  assert.match(
+    block.slice(0, recheck),
+    /SYNCSCOPE_STATE_ROOT=\$staged_state $/,
+    'the recheck restore runs against the staged state',
+  );
+  assert.match(
+    block.slice(recheck, resync),
+    /SYNCSCOPE_STATE_ROOT=\$staged_state $/,
+    'the resync restore runs against the staged state',
+  );
+
+  // The staged line restores it itself; after the staged pairs, so does the runner.
+  const pairs = await readFile(new URL('pairs.txt', STAGED), 'utf8');
+  assert.ok(
+    pairs.includes(
+      'staged/09-resync-a.yaml|remove-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-b.yaml|restore-recheck-file.sh scan/tree/Album/2025/new.jpg|staged/09-resync-c.yaml',
+    ),
+  );
+  const staged = source.indexOf('run_staged_pairs "$@"');
+  assert.ok(
+    source.indexOf('restore-recheck-file.sh" scan/tree/Album/2025/new.jpg', staged) !== -1,
+    'the e2e run restores new.jpg after the staged pairs',
   );
 });
 
@@ -2500,8 +2536,8 @@ test('the committed launcher icons are SyncScope’s own', async () => {
   await lstat(new URL('assets/icon/play-store-512.png', root));
 });
 
-test('the release smoke flow finds the app in the launcher', async () => {
-  const flow = await text('validation/maestro/mvp/90-release-smoke.yaml');
+test('the standalone setup flow finds the app in the launcher', async () => {
+  const flow = await text('validation/maestro/mvp/90-standalone-setup.yaml');
   const home = flow.indexOf('- pressKey: Home');
   assert.ok(home !== -1, 'the flow returns to the launcher');
   assert.match(flow.slice(home), /visible: "SyncScope"/);

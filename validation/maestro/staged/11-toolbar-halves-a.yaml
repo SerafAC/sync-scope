@@ -1,0 +1,29 @@
+# US1 sc. 7, FR-006 (SFTP), part a of a staged pair (feature 009, research
+# R10, contracts/maestro-tree-preview.md): Files shows NoScanResults and no
+# toolbar until a snapshot exists, so the tree set is scanned first. The flow
+# stops with Files open and both drop-downs on screen; the host hook
+# assert-equal-halves.sh then measures the buttons files-sort and files-view
+# against the row files-toolbar in a uiautomator dump.
+# Starts from clearState: the first flow of its pairs.txt line.
+appId: com.syncscope
+name: staged/11-toolbar-halves-a
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+- runFlow: ../subflows/open-files.yaml
+- extendedWaitUntil:
+    visible:
+      id: "files-toolbar"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "files-sort"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "files-view"
+    timeout: 15000

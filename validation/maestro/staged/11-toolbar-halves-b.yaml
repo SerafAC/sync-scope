@@ -1,0 +1,44 @@
+# US1 sc. 7, FR-006 (SFTP), part b of a staged pair: runs after
+# assert-equal-halves.sh found each drop-down button at half the toolbar row.
+# No launchApp and no state reset: Files is still open from part a. Both
+# drop-downs are still on screen and each opens its menu. Each menu is closed
+# by picking its current option (Date, newest first and Gallery, the
+# defaults part a starts from), which changes nothing; the back key would
+# leave the app.
+appId: com.syncscope
+name: staged/11-toolbar-halves-b
+---
+- assertVisible:
+    id: "files-sort"
+- assertVisible:
+    id: "files-view"
+- tapOn:
+    id: "files-sort"
+- extendedWaitUntil:
+    visible:
+      id: "files-sort-option-NAME_ASC"
+    timeout: 15000
+- tapOn:
+    id: "files-sort-option-TIME_DESC"
+- extendedWaitUntil:
+    notVisible:
+      id: "files-sort-option-NAME_ASC"
+    timeout: 15000
+- assertVisible: "Sort: Date, newest first"
+- tapOn:
+    id: "files-view"
+- extendedWaitUntil:
+    visible:
+      id: "files-view-option-LIST"
+    timeout: 15000
+- tapOn:
+    id: "files-view-option-GALLERY"
+- extendedWaitUntil:
+    notVisible:
+      id: "files-view-option-LIST"
+    timeout: 15000
+- assertVisible:
+    id: "files-sort"
+- assertVisible:
+    id: "files-view"
+- assertVisible: "View: Gallery"

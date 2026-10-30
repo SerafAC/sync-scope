@@ -133,7 +133,7 @@ export function validateRun(run) {
     'serviceRestarts'], ['serviceRestarts']);
   if (Object.hasOwn(run, 'serviceRestarts')) { validateServiceRestarts(run.serviceRestarts); }
   if (run.schemaVersion !== 1) { invalid('unsupported-schema-version'); }
-  opaque(run.invocationId); choice(run.mode, ['connected', 'e2e', 'release-smoke', 'measure']);
+  opaque(run.invocationId); choice(run.mode, ['connected', 'e2e', 'measure']);
   choice(run.status, ['running', 'passed', 'failed', 'interrupted']); choice(run.failureCode, failures);
   object(run.source, ['revision', 'inputFingerprint']);
   if (run.source.revision !== null && !/^[a-f0-9]{40}$/.test(run.source.revision)) { invalid('invalid-revision'); }
@@ -520,10 +520,10 @@ async function initialRun(repository, mode, apis, requested) {
       os: 'linux', kernel: parsedVersion(release()), cpu: hash(JSON.stringify(cpus().map(c => c.model))),
       tools, power: power.length ? hash(power) : null},
     workloadFingerprint: manifest.definitionFingerprint,
-    // e2e/measure build one emulator-only x86_64 debug APK (T041); release and
-    // connected builds keep their default ABIs.
-    build: {apkDigest: null, abi: mode === 'release-smoke' ? 'release-default' : mode === 'connected' ? 'instrumented' : 'x86_64',
-      cachePolicy: mode === 'release-smoke' ? 'default' : 'no-daemon', cacheState: 'unknown', tasks: 'unknown'},
+    // e2e/measure build one emulator-only x86_64 debug APK (T041); connected
+    // builds keep their default ABIs.
+    build: {apkDigest: null, abi: mode === 'connected' ? 'instrumented' : 'x86_64',
+      cachePolicy: 'no-daemon', cacheState: 'unknown', tasks: 'unknown'},
     fixtureSet: {fingerprint: hash(JSON.stringify(manifest.fixtureParameters) +
       (await Promise.all(manifest.fixtureAuthorities.map(p => bytes(join(repository, p))))).map(b => hash(b)).join('')),
       counts: {bulkFiles: manifest.fixtureParameters.bulkFiles, galleryBulkFiles: manifest.fixtureParameters.galleryBulkFiles,

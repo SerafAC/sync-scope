@@ -8,7 +8,12 @@
  */
 
 export const CLOUD_SYNC_MODULE_NAME = 'CloudSync';
-export const CLOUD_SYNC_CONTRACT_VERSION = 6;
+/**
+ * Version 7 (feature 009): the `RECHECKING_REMOTE` scan phase and
+ * `SelectableEntries.media` (was `images`), plus the later 009 additions
+ * (`durationMillis`, `carrySelection`).
+ */
+export const CLOUD_SYNC_CONTRACT_VERSION = 7;
 
 /**
  * Hard bridge bounds. The native engine enforces the same limits; these
@@ -29,6 +34,9 @@ export const REPOSITORY_DEFAULT_PORTS = {
   WEBDAV: 80,
   WEBDAV_HTTPS: 443,
 } as const;
+
+/** carrySelection takes at most this many entry IDs (contract version 7). */
+export const MAX_CARRY_SELECTION_IDS = 50_000;
 
 /** A deletion plan expires this long after prepareLocalDeletion made it (contract version 5). */
 export const MAX_DELETION_PLAN_AGE_MILLIS = 15 * 60 * 1000;
@@ -449,6 +457,13 @@ export interface QuerySpec {
   pageSize?: number | null;
   /** Narrows the rows to folders or files; part of the token fingerprint (contract v6, research R3). */
   kind?: FileKind | null;
+  /**
+   * `listSelectableEntries` only (009 research R11, the tree view's "Select
+   * all"): every matching file of `sourceId` at any depth instead of its top
+   * level. Needs a LIST query without `parentId`, otherwise INVALID_QUERY.
+   * Page reads ignore it.
+   */
+  wholeSource?: boolean | null;
 }
 
 export interface FileEntryDto {
@@ -526,11 +541,19 @@ export interface ScrollIndexOk {
 export type ScrollIndexResult = ScrollIndexOk | OperationError;
 
 /**
+ * The Files tab's view mode as remembered (007 research R10); TREE is added
+ * by 009 (research R1). Not a query's `FileView`: the tree reads LIST queries.
+ * Mirrored by the Kotlin `BrowsePreferences.VIEWS`.
+ */
+export type BrowseView = 'GALLERY' | 'LIST' | 'TREE';
+
+/**
  * The remembered browse choices (contract v6, research R10). Missing or
- * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC.
+ * unknown stored values read as GALLERY, TIME_DESC and NAME_ASC. The tree
+ * view sorts its files with `listSort`.
  */
 export interface BrowsePreferencesDto {
-  view: 'GALLERY' | 'LIST';
+  view: BrowseView;
   gallerySort: FileSort;
   listSort: FileSort;
 }
@@ -608,6 +631,11 @@ export interface LocalImageSpec {
 export interface LocalImageHandleDto {
   /** `file://` URI of a JPEG in the app's own cache. Never a document URI or a user path. */
   uri: string;
+  /**
+   * A video's duration in milliseconds (contract v7); null for an image and
+   * for a video whose duration cannot be read.
+   */
+  durationMillis: number | null;
 }
 
 export interface LocalImageHandleOk {
@@ -681,7 +709,8 @@ export interface SelectableEntriesDto {
   /** Same order as entryIds; -1 = size unknown. */
   sizes: number[];
   statuses: FileStatus[];
-  images: boolean[];
+  /** Same order as entryIds; true for an image or a video (contract v7). */
+  media: boolean[];
 }
 
 export interface ListSelectableEntriesOk {
@@ -702,7 +731,8 @@ export interface SelectableEntries {
   entryIds: string[];
   sizes: Array<number | null>;
   statuses: FileStatus[];
-  images: boolean[];
+  /** Same order as entryIds; true for an image or a video (contract v7). */
+  media: boolean[];
 }
 
 export interface SelectableEntriesOk {
@@ -712,6 +742,28 @@ export interface SelectableEntriesOk {
 }
 
 export type SelectableEntriesResult = SelectableEntriesOk | OperationError;
+
+/**
+ * One selected file carried to a new snapshot (carrySelection, contract v7,
+ * research R9): its entry ID in the old snapshot, its entry ID in the new one,
+ * and its status there (a refresh may have promoted it).
+ */
+export interface CarriedEntry {
+  from: string;
+  to: string;
+  status: FileStatus;
+}
+
+export interface CarrySelectionOk {
+  contractVersion: number;
+  status: 'ok';
+  carried: CarriedEntry[];
+  /** Selected IDs with no unchanged FILE in the new snapshot. */
+  dropped: number;
+}
+
+/** SNAPSHOT_NOT_FOUND (either snapshot) or INVALID_QUERY (`entryIds`) on error. */
+export type CarrySelectionResult = CarrySelectionOk | OperationError;
 
 /** What prepareLocalDeletion found after the server re-check (contract v5). */
 export interface DeletionPlanDto {
@@ -781,6 +833,8 @@ export type ScanPhase =
   | 'CONNECTING'
   | 'LISTING_REMOTE'
   | 'COPYING_REMOTE'
+  /** LOCAL_REFRESH only: listing server folders for unsynced files (v7). */
+  | 'RECHECKING_REMOTE'
   | 'ENUMERATING_LOCAL'
   | 'PUBLISHING'
   | 'PUBLISHED'
@@ -815,6 +869,16 @@ export interface ScanRunDto {
   error: CloudSyncError | null;
   /** CANCELLED only. */
   cancelReason: 'USER' | 'BACKGROUNDED' | null;
+  /**
+   * LOCAL_REFRESH only (contract v7, FR-003): the server folders the refresh
+   * re-check listed. null on FULL runs and on runs from before the re-check.
+   */
+  recheckedFolders: number | null;
+  /**
+   * LOCAL_REFRESH only (contract v7): the files not backed up before the
+   * refresh that it found backed up. null where `recheckedFolders` is.
+   */
+  promotedFiles: number | null;
 }
 
 export interface SkippedSourceDto {

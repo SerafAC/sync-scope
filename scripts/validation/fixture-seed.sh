@@ -93,6 +93,18 @@ write_png "$PNG_HARBOR" "$root/gallery-partial/restricted/hidden.png"
 rm -rf "$root/recheck"
 cp -Rp "$root/gallery" "$root/recheck"
 
+# Tree fixture (feature 009, contracts/maestro-tree-preview.md › Fixtures):
+# the server side of the device ScanTree source, every file of the tree set
+# (Album/2025/new.jpg included) defined once in fixture-images.sh. The
+# staged resync line removes new.jpg on the host and puts it back
+# (hooks/remove-recheck-file.sh and restore-recheck-file.sh with its path),
+# so the before-manifest the services compare when they stop holds it.
+tree="$root/$TREE_FIXTURE_PATH"
+mkdir -p "$tree/Album/2024" "$tree/Album/2025" "$tree/Album/Docs" "$tree/$TREE_EMPTY_DIRS"
+tree_fixture_files | while read -r tree_path tree_variable; do
+  write_fixture "$(fixture_value "$tree_variable")" "$tree/$tree_path"
+done
+
 # The host owner retains cleanup rights. Container accounts map to different
 # UIDs and receive only read/execute bits, while each server also enforces its
 # protocol-level read-only mode.
@@ -130,6 +142,7 @@ touch -d '@1704067200.000000000' \
   "$root/recheck/sunset.png" \
   "$root/recheck/beach.png" \
   "$root/recheck/album/forest.png"
+find "$tree" -type f -exec touch -d "@$TREE_MTIME.000000000" {} +
 touch -d '@1704067200.000000000' "$root/timestamps/bucket-start.bin"
 touch -d '@1704067200.999000000' "$root/timestamps/bucket-end.bin"
 touch -h -d '@1704067200.000000000' "$root/non-regular/escape-link"

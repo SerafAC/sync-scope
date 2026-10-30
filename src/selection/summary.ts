@@ -1,7 +1,7 @@
 import type {
+  BrowseView,
   FileFilter,
   FileStatus,
-  FileView,
 } from '../native/CloudSyncContracts';
 
 /** What the selection keeps of one selected `FILE` row (data-model "Selection"). */
@@ -9,7 +9,8 @@ export interface SelectionItem {
   /** null when the size is unknown. */
   sizeBytes: number | null;
   status: FileStatus;
-  isImage: boolean;
+  /** An image or a video (`isMediaMime`): what the gallery shows. */
+  isMedia: boolean;
 }
 
 export interface SelectionSummary {
@@ -29,13 +30,14 @@ const FILTER_STATUS: Record<Exclude<FileFilter, 'ALL'>, FileStatus> = {
 
 /**
  * The derived values the selection bar shows. An item is hidden when its
- * status is not in [filter], or when it is not an image in gallery view.
- * Files in other list folders are not hidden: the user navigated away from
- * them knowingly (research R9).
+ * status is not in [filter], or when it is not media (an image or a video)
+ * in gallery view.
+ * Files in other list folders, or in collapsed tree folders, are not hidden:
+ * the user navigated away from them knowingly (research R9).
  */
 export function selectionSummary(
   items: ReadonlyMap<string, SelectionItem>,
-  view: FileView,
+  view: BrowseView,
   filter: FileFilter,
 ): SelectionSummary {
   let knownBytes = 0;
@@ -49,7 +51,7 @@ export function selectionSummary(
     }
     const filteredOut =
       filter !== 'ALL' && item.status !== FILTER_STATUS[filter];
-    if (filteredOut || (view === 'GALLERY' && !item.isImage)) {
+    if (filteredOut || (view === 'GALLERY' && !item.isMedia)) {
       hiddenByFilterCount += 1;
     }
   }

@@ -45,12 +45,21 @@ import { selectAllQuery } from '../FilesScreen';
 import { density } from '../../theme/spacing';
 import { ListScreen, formatSize, type ListFolder } from '../ListScreen';
 
+const mockNavigation = { navigate: jest.fn(), setOptions: jest.fn() };
+
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => mockNavigation,
+}));
+
 jest.mock('../../native/CloudSync', () => ({
   getBrowsePreferences: jest.fn(),
   setBrowsePreferences: jest.fn(),
   listSelectableEntries: jest.fn(),
   queryTreeChildren: jest.fn(),
   getScrollIndex: jest.fn(),
+  // Media rows read their thumbnail; it stays loading here (FileRow has its own tests).
+  getLocalImageHandle: jest.fn(() => new Promise(() => {})),
 }));
 
 const getScrollIndexMock = getScrollIndex as jest.MockedFunction<
@@ -163,7 +172,10 @@ function children(parentId: string | null, filter: FileFilter): FileEntryDto[] {
     case 'd-album':
       return files([
         file('f-forest', 'forest.png', 'SYNCED'),
-        file('f-notes', 'notes.txt', 'UNSYNCED'),
+        entry('f-notes', 'notes.txt', {
+          mimeType: 'text/plain',
+          status: 'UNSYNCED',
+        }),
       ]);
     case 'd-drafts':
       return files([file('f-draft', 'draft.png', 'UNSYNCED')]);
@@ -706,7 +718,7 @@ describe('ListScreen', () => {
       listSelectableEntriesMock.mockResolvedValue({
         contractVersion: 6,
         status: 'ok',
-        selectable: { entryIds: [], sizes: [], statuses: [], images: [] },
+        selectable: { entryIds: [], sizes: [], statuses: [], media: [] },
       });
       renderList();
       await openGallery();
@@ -779,12 +791,44 @@ describe('ListScreen', () => {
       return result;
     }
 
-    it('does nothing on a file tap before anything is selected', async () => {
+    it('opens the preview on a tap of a media file before anything is selected (009 research R8)', async () => {
       await openGallerySource();
       fireEvent.press(screen.getByLabelText('beach.png, Synced'));
 
+      expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('Preview', {
+        snapshotId: 'snap-1',
+        entryId: 'f-beach',
+        name: 'beach.png',
+        mimeType: 'image/png',
+        sizeBytes: 2048,
+        status: 'SYNCED',
+      });
+      // The tap opened the preview; it did not select.
       expect(screen.getByLabelText('beach.png, Synced')).not.toBeSelected();
       expect(screen.queryByTestId('list-row-selected')).toBeNull();
+    });
+
+    it('does nothing on a tap of a non-media file', async () => {
+      await openGallerySource();
+      fireEvent.press(screen.getByLabelText('Folder album, 2 matching'));
+      fireEvent.press(await screen.findByLabelText('notes.txt, Unsynced'));
+
+      expect(mockNavigation.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('list-row-selected')).toBeNull();
+    });
+
+    it('toggles on a tap while selecting and does not open the preview', async () => {
+      await openGallerySource();
+      fireEvent(screen.getByLabelText('beach.png, Synced'), 'longPress');
+      await screen.findByLabelText('beach.png, Synced, selected');
+
+      fireEvent.press(screen.getByLabelText('harbor.png, Unsynced'));
+
+      expect(
+        await screen.findByLabelText('harbor.png, Unsynced, selected'),
+      ).toBeSelected();
+      expect(mockNavigation.navigate).not.toHaveBeenCalled();
     });
 
     it('starts on a long-press and toggles file rows on a tap, with a check mark', async () => {

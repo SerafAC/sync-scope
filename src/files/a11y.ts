@@ -2,7 +2,7 @@ import type {
   FileFilter,
   FileSort,
   FileStatus,
-  FileView,
+  BrowseView,
 } from '../native/CloudSyncContracts';
 import { FILTER_LABEL, STATUS_LABEL } from '../theme/statusLabels';
 
@@ -34,6 +34,20 @@ export function galleryTileLabel(
   return withSelected(withOrigin, selected);
 }
 
+/**
+ * `sunset.png, image`, or `clip.mp4, video` plus `, 0:02` once the
+ * duration is known: a media thumbnail names its file and its kind
+ * (009 research R6). [duration] is already formatted (`formatDuration`).
+ */
+export function mediaThumbnailLabel(
+  name: string,
+  kind: 'image' | 'video',
+  duration?: string | null,
+): string {
+  const label = `${name}, ${kind}`;
+  return duration ? `${label}, ${duration}` : label;
+}
+
 /** `Origin GalleryTwin`. */
 export function originBadgeLabel(alias: string): string {
   return `Origin ${alias}`;
@@ -50,6 +64,11 @@ export function folderRowLabel(name: string, matching: number | null): string {
   }
   const counted = `${label}, ${matching} matching`;
   return matching === 0 ? `${counted}, no matches` : counted;
+}
+
+/** `Expand Album` or `Collapse Album`: a tree row's chevron (009 research R1). */
+export function folderToggleLabel(name: string, expanded: boolean): string {
+  return `${expanded ? 'Collapse' : 'Expand'} ${name}`;
 }
 
 /** `sunset.png, Synced`, plus `, selected` while the row is selected (FR-017). */
@@ -105,13 +124,14 @@ export function sortMenuLabel(sort: FileSort): string {
   return `Sort: ${SORT_LABEL[sort].spoken}`;
 }
 
-export const VIEW_LABEL: Readonly<Record<FileView, string>> = {
+export const VIEW_LABEL: Readonly<Record<BrowseView, string>> = {
   GALLERY: 'Gallery',
   LIST: 'List',
+  TREE: 'Tree',
 };
 
 /** `View: Gallery`: the view drop-down with its current choice. */
-export function viewMenuLabel(view: FileView): string {
+export function viewMenuLabel(view: BrowseView): string {
   return `View: ${VIEW_LABEL[view]}`;
 }
 

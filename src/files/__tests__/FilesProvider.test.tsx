@@ -11,6 +11,7 @@ import type {
 } from '../../native/CloudSyncContracts';
 import {FilesProvider} from '../FilesProvider';
 import {useFiles} from '../useFiles';
+import {INITIAL_TREE_STATE, type TreeState} from '../useTree';
 
 jest.mock('../../native/CloudSync', () => ({
   getBrowsePreferences: jest.fn(),
@@ -61,7 +62,7 @@ describe('FilesProvider', () => {
     expect(result.current).toMatchObject({
       view: 'GALLERY',
       filter: 'ALL',
-      sorts: {GALLERY: 'TIME_DESC', LIST: 'NAME_ASC'},
+      sorts: {GALLERY: 'TIME_DESC', LIST: 'NAME_ASC', TREE: 'NAME_ASC'},
     });
     expect(getMock).toHaveBeenCalledTimes(1);
     expect(setMock).not.toHaveBeenCalled();
@@ -114,6 +115,7 @@ describe('FilesProvider', () => {
     expect(result.current.sorts).toEqual({
       GALLERY: 'NAME_DESC',
       LIST: 'SIZE_DESC',
+      TREE: 'SIZE_DESC',
     });
     expect(setMock).toHaveBeenCalledTimes(3);
   });
@@ -227,6 +229,92 @@ describe('FilesProvider', () => {
       view: 'LIST',
       filter: 'ALL',
       sorts: {GALLERY: 'TIME_DESC', LIST: 'SIZE_ASC'},
+    });
+  });
+
+  describe('tree view (009 T050, research R3)', () => {
+    const EXPANDED: TreeState = {
+      expanded: [['s-1'], ['s-1', 'Album']],
+      anchor: ['s-1', 'Album', 'a1.jpg'],
+    };
+
+    it('starts with nothing expanded and no anchor', async () => {
+      const {result} = await renderLoaded();
+
+      expect(result.current.tree).toEqual(INITIAL_TREE_STATE);
+      expect(INITIAL_TREE_STATE).toEqual({expanded: [], anchor: null});
+    });
+
+    it('holds the expanded name paths and the anchor across view switches', async () => {
+      const {result} = await renderLoaded();
+
+      act(() => result.current.setView('TREE'));
+      act(() => result.current.setTree(EXPANDED));
+      act(() => result.current.setView('LIST'));
+      act(() => result.current.setView('GALLERY'));
+      act(() => result.current.setView('TREE'));
+
+      expect(result.current.view).toBe('TREE');
+      expect(result.current.tree).toEqual(EXPANDED);
+    });
+
+    it('takes an update function, as useTree passes it', async () => {
+      const {result} = await renderLoaded();
+
+      act(() => result.current.setTree(EXPANDED));
+      act(() =>
+        result.current.setTree(previous => ({
+          ...previous,
+          expanded: previous.expanded.slice(0, 1),
+        })),
+      );
+
+      expect(result.current.tree).toEqual({
+        expanded: [['s-1']],
+        anchor: ['s-1', 'Album', 'a1.jpg'],
+      });
+    });
+
+    it('remembers the Tree view but never the tree state', async () => {
+      const {result} = await renderLoaded();
+
+      act(() => result.current.setView('TREE'));
+      act(() => result.current.setTree(EXPANDED));
+
+      expect(setMock).toHaveBeenCalledTimes(1);
+      expect(setMock).toHaveBeenLastCalledWith({view: 'TREE'});
+    });
+
+    it('is for the session only: a remount starts collapsed again', async () => {
+      const first = await renderLoaded();
+      act(() => first.result.current.setTree(EXPANDED));
+      first.unmount();
+
+      const second = await renderLoaded();
+
+      expect(second.result.current.tree).toEqual(INITIAL_TREE_STATE);
+    });
+
+    it('applies a stored TREE view', async () => {
+      getMock.mockResolvedValue(stored({...DEFAULTS, view: 'TREE'}));
+
+      const {result} = await renderLoaded();
+
+      expect(result.current.view).toBe('TREE');
+    });
+
+    it('sorts the tree files with the list sort, and a tree sort change is the list sort', async () => {
+      const {result} = await renderLoaded();
+      expect(result.current.sorts.TREE).toBe('NAME_ASC');
+
+      act(() => result.current.setSort('TREE', 'SIZE_DESC'));
+
+      expect(setMock).toHaveBeenLastCalledWith({listSort: 'SIZE_DESC'});
+      expect(result.current.sorts).toEqual({
+        GALLERY: 'TIME_DESC',
+        LIST: 'SIZE_DESC',
+        TREE: 'SIZE_DESC',
+      });
     });
   });
 

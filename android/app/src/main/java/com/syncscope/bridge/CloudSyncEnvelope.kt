@@ -6,12 +6,17 @@ import com.facebook.react.bridge.WritableMap
 import com.syncscope.deletion.DeletionPlanView
 import com.syncscope.deletion.DeletionResultView
 import com.syncscope.deletion.DeletionState
+import com.syncscope.image.LocalImageHandle
 import com.syncscope.persistence.FileEntry
 import com.syncscope.persistence.ScrollIndex
 import com.syncscope.persistence.SelectableEntries
+import com.syncscope.persistence.SelectionCarry
 import com.syncscope.remote.HostKeyChallenge
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.SftpHostKeyException
+import com.syncscope.scan.ScanCoordinator
+import com.syncscope.scan.ScanEngine
+import com.syncscope.scan.ScanRunView
 
 /**
  * Builders for the discriminated envelopes declared by the CloudSync spec
@@ -216,6 +221,58 @@ class CloudSyncEnvelope(
     }
   }
 
+  /**
+   * `LocalImageHandleDto` (contract v7): the cached JPEG's `file://` URI and `durationMillis`, null for an
+   * image or an unreadable video duration. Nothing that locates the document.
+   */
+  fun localImageHandle(handle: LocalImageHandle): WritableMap =
+    newMap().apply {
+      putString("uri", handle.uri)
+      putNullableNumber("durationMillis", handle.durationMillis)
+    }
+
+  /**
+   * `ScanRunDto`: `error` only on FAILED, `cancelReason` only on CANCELLED; `recheckedFolders` and
+   * `promotedFiles` (contract v7) only on a `LOCAL_REFRESH` run that wrote them, `null` otherwise.
+   */
+  fun scanRun(view: ScanRunView): WritableMap {
+    val run = view.run
+    return newMap().apply {
+      putString("runId", run.runId)
+      putDouble("generation", run.generation.toDouble())
+      putString("mode", run.mode)
+      putString("phase", view.phase)
+      putNullableString("terminalState", run.terminalState)
+      putDouble("startedAtMillis", run.startedAtMillis.toDouble())
+      putNullableNumber("finishedAtMillis", run.finishedAtMillis)
+      putMap(
+        "progress",
+        newMap().apply {
+          putDouble("remoteDirectoriesListed", view.progress.remoteDirectoriesListed.toDouble())
+          putDouble("remoteFilesListed", view.progress.remoteFilesListed.toDouble())
+          putDouble("localFilesEnumerated", view.progress.localFilesEnumerated.toDouble())
+          putDouble("localFilesMatched", view.progress.localFilesMatched.toDouble())
+        },
+      )
+      if (run.terminalState == ScanEngine.TERMINAL_FAILED) {
+        putMap(
+          "error",
+          newMap().apply {
+            putString("code", run.errorCode ?: CloudSyncErrorCode.INTERNAL_ERROR.name)
+            putString("message", redact(run.errorSummary ?: run.errorCode ?: "The scan failed."))
+            putNullableString("action", view.failureAction)
+          },
+        )
+      } else {
+        putNull("error")
+      }
+      val reason = run.errorSummary.takeIf { run.terminalState == ScanCoordinator.TERMINAL_CANCELLED && it in CANCEL_REASONS }
+      putNullableString("cancelReason", reason)
+      putNullableNumber("recheckedFolders", run.recheckedFolders)
+      putNullableNumber("promotedFiles", run.promotedFiles)
+    }
+  }
+
   private fun WritableMap.putNullableString(key: String, value: String?) {
     if (value == null) putNull(key) else putString(key, value)
   }
@@ -225,19 +282,19 @@ class CloudSyncEnvelope(
   }
 
   /**
-   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, images}}` for
+   * `{contractVersion, status: "ok", selectable: {entryIds, sizes, statuses, media}}` for
    * `listSelectableEntries`: four parallel arrays in the same order; a size of `-1` is unknown.
    */
   fun selectable(entries: SelectableEntries): WritableMap {
     val ids = newArray()
     val sizes = newArray()
     val statuses = newArray()
-    val images = newArray()
+    val media = newArray()
     for (i in entries.entryIds.indices) {
       ids.pushString(entries.entryIds[i])
       sizes.pushDouble(entries.sizes[i].toDouble())
       statuses.pushString(entries.statuses[i])
-      images.pushBoolean(entries.images[i])
+      media.pushBoolean(entries.media[i])
     }
     return ok(
       "selectable",
@@ -245,9 +302,30 @@ class CloudSyncEnvelope(
         putArray("entryIds", ids)
         putArray("sizes", sizes)
         putArray("statuses", statuses)
-        putArray("images", images)
+        putArray("media", media)
       },
     )
+  }
+
+  /**
+   * `{contractVersion, status: "ok", carried: [{from, to, status}], dropped}` for `carrySelection` (009
+   * contracts/cloudsync-tree-preview.md, research R9): entry IDs and statuses only, never a document ID.
+   */
+  fun carry(carry: SelectionCarry): WritableMap {
+    val carried = newArray()
+    for (entry in carry.carried) {
+      carried.pushMap(
+        newMap().apply {
+          putString("from", entry.from)
+          putString("to", entry.to)
+          putString("status", entry.status)
+        }
+      )
+    }
+    return ok().apply {
+      putArray("carried", carried)
+      putInt("dropped", carry.dropped)
+    }
   }
 
   /**
@@ -413,6 +491,9 @@ class CloudSyncEnvelope(
 
     /** The recovery action of every INTERNAL_ERROR. */
     const val INTERNAL_ERROR_ACTION = "Retry; if it persists, reconnect the repository."
+
+    /** The `cancelReason` values a CANCELLED run may carry; anything else reads `null`. */
+    private val CANCEL_REASONS = setOf(ScanCoordinator.CANCEL_USER, ScanCoordinator.CANCEL_BACKGROUNDED)
 
     /** The action of a host-key failure during the pre-delete re-check (contracts/cloudsync-mvp.md). */
     const val HOST_KEY_DELETION_ACTION = "Check the server in Settings › Repository."

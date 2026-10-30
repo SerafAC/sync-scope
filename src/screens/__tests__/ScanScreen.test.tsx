@@ -65,6 +65,8 @@ function run(overrides: Partial<ScanRunDto> = {}): ScanRunDto {
     },
     error: null,
     cancelReason: null,
+    recheckedFolders: null,
+    promotedFiles: null,
     ...overrides,
   };
 }

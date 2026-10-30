@@ -2,14 +2,19 @@ import {createContext, useContext} from 'react';
 
 import {
   DEFAULT_BROWSE_PREFERENCES,
+  type BrowseView,
   type FileFilter,
   type FileSort,
 } from '../native/CloudSyncContracts';
+import type { TreeState } from './useTree';
 
 /** Which Files tab view is shown. */
-export type FilesView = 'GALLERY' | 'LIST';
+export type FilesView = BrowseView;
 
-/** Each view's own sort (FR-003). */
+/**
+ * Each view's own sort (FR-003). The tree sorts its files with the list's
+ * sort: `TREE` always equals `LIST`, and changing either changes both.
+ */
 export type SortsByView = Readonly<Record<FilesView, FileSort>>;
 
 /**
@@ -37,6 +42,13 @@ export interface FilesState {
   setView: (view: FilesView) => void;
   setFilter: (filter: FileFilter) => void;
   setSort: (view: FilesView, sort: FileSort) => void;
+  /**
+   * The tree view's expanded folders and anchor (009 research R3), beside
+   * the list view's folder: kept across view switches for the session, never
+   * stored.
+   */
+  tree: TreeState;
+  setTree: (next: TreeState | ((previous: TreeState) => TreeState)) => void;
 }
 
 export const INITIAL_VIEW: FilesView = DEFAULT_BROWSE_PREFERENCES.view;
@@ -44,6 +56,7 @@ export const INITIAL_FILTER: FileFilter = 'ALL';
 export const INITIAL_SORTS: SortsByView = {
   GALLERY: DEFAULT_BROWSE_PREFERENCES.gallerySort,
   LIST: DEFAULT_BROWSE_PREFERENCES.listSort,
+  TREE: DEFAULT_BROWSE_PREFERENCES.listSort,
 };
 
 export const FilesContext = createContext<FilesState | null>(null);

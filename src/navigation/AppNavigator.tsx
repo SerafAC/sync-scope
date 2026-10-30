@@ -5,7 +5,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Icon } from 'react-native-paper';
 
 import { FilesProvider } from '../files/FilesProvider';
+import type { FileStatus } from '../native/CloudSyncContracts';
 import { FilesScreen } from '../screens/FilesScreen';
+import { PreviewScreen } from '../screens/PreviewScreen';
 import { RepositoryScreen } from '../screens/RepositoryScreen';
 import { ScanScreen } from '../screens/ScanScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -18,27 +20,39 @@ export type RootTabParamList = {
 };
 
 /**
+ * The preview's params (009 data-model "Preview route params", research R8),
+ * taken from the tapped row so the preview renders at once.
+ */
+export type PreviewParams = {
+  snapshotId: string;
+  entryId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number | null;
+  status: FileStatus;
+};
+
+/**
  * The root stack (research R1): the bottom tabs, with the Repository form pushed
- * above them so back handling and the discard prompt come from the stack.
+ * above them so back handling and the discard prompt come from the stack, and
+ * the image and video preview (009 research R8) above the Files tab.
  */
 export type RootStackParamList = {
   Tabs: undefined;
   Repository: undefined;
+  Preview: PreviewParams;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-/** The Files tab: its view, filter and selection live as long as the tab is mounted. */
+/**
+ * The Files tab. Its view, filter and selection are provided above the root
+ * stack, so the preview pushed above the tabs shares them (009 research R11).
+ */
 function FilesTab(): React.JSX.Element {
   const focused = useIsFocused();
-  return (
-    <FilesProvider>
-      <SelectionProvider>
-        <FilesScreen focused={focused} />
-      </SelectionProvider>
-    </FilesProvider>
-  );
+  return <FilesScreen focused={focused} />;
 }
 
 type TabBarIconProps = {
@@ -93,17 +107,26 @@ function TabsNavigator(): React.JSX.Element {
 
 export function AppNavigator(): React.JSX.Element {
   return (
-    <Stack.Navigator initialRouteName="Tabs">
-      <Stack.Screen
-        component={TabsNavigator}
-        name="Tabs"
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        component={RepositoryScreen}
-        name="Repository"
-        options={{ title: 'Repository' }}
-      />
-    </Stack.Navigator>
+    <FilesProvider>
+      <SelectionProvider>
+        <Stack.Navigator initialRouteName="Tabs">
+          <Stack.Screen
+            component={TabsNavigator}
+            name="Tabs"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            component={RepositoryScreen}
+            name="Repository"
+            options={{ title: 'Repository' }}
+          />
+          <Stack.Screen
+            component={PreviewScreen}
+            name="Preview"
+            options={{ headerShown: false }}
+          />
+        </Stack.Navigator>
+      </SelectionProvider>
+    </FilesProvider>
   );
 }

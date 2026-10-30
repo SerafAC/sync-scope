@@ -11,6 +11,8 @@ package com.syncscope.scan
 class ScanProgress(
   private val clock: () -> Long,
   private val intervalMillis: Long = DEFAULT_INTERVAL_MILLIS,
+  /** Called with every phase the run reports, in order (the refresh's `RECHECKING_REMOTE` included). */
+  private val onPhase: (String) -> Unit = {},
   private val onPublish: (Counters) -> Unit = {},
 ) {
   /** Mirrors `ScanProgressDto`. */
@@ -23,6 +25,10 @@ class ScanProgress(
 
   /** The current `ScanPhase` wire value; phase changes are visible at once, they are not throttled. */
   @Volatile var phase: String = ""
+    set(value) {
+      field = value
+      onPhase(value)
+    }
 
   @Volatile var published: Counters = Counters()
     private set

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { queryTreeChildren } from '../native/CloudSync';
 import {
   CloudSyncErrorCode,
   type CloudSyncError,
@@ -25,6 +26,10 @@ export type PageReader = (
   query: QuerySpec,
   pageToken: string | null,
 ) => Promise<QueryFilesResult>;
+
+/** `queryTreeChildren` as a {@link PageReader}: the parent travels in `query.parentId`. */
+export const readTreeChildren: PageReader = (snapshotId, query, pageToken) =>
+  queryTreeChildren(snapshotId, query.parentId ?? null, query, pageToken);
 
 /**
  * Reads the scroll index of [query] in [snapshotId]: `getScrollIndex`
@@ -234,13 +239,14 @@ interface ReadTarget {
 }
 
 /** Errors after which the held snapshot or token can no longer be read. */
-const SNAPSHOT_LOST_CODES: ReadonlySet<string> = new Set([
+export const SNAPSHOT_LOST_CODES: ReadonlySet<string> = new Set([
   CloudSyncErrorCode.SNAPSHOT_NOT_FOUND,
   CloudSyncErrorCode.PAGE_TOKEN_MISMATCH,
   CloudSyncErrorCode.STALE_GENERATION,
 ]);
 
-const READ_THREW: CloudSyncError = {
+/** What a read that threw reads as. */
+export const READ_THREW: CloudSyncError = {
   code: CloudSyncErrorCode.INTERNAL_ERROR,
   message: 'The files could not be read.',
   action: null,

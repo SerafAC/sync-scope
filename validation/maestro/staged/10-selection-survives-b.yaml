@@ -1,0 +1,37 @@
+# Selection survives an automatic refresh (SFTP), part b of a staged pair:
+# runs after change-device-files.sh scan/tree/Album/2024/a4.jpg gave a4.jpg a
+# new mtime on the device. No state reset and no force stop: the process from
+# part a is still in Files at ScanTree/Album/2024 with a4.jpg and a5.jpg
+# selected. Home sends it to the background, and launchApp with
+# stopApp: false brings the same process back. Returning to the
+# foreground starts the automatic local refresh, which publishes a new
+# snapshot. The selection is carried to it (carrySelection): a5.jpg is
+# unchanged and stays selected; a4.jpg changed, so it is unselected with a
+# notice. device-fixtures.sh reseeds the touched file before the next API
+# level's workspace flows.
+appId: com.syncscope
+name: staged/10-selection-survives-b
+---
+- assertVisible: "Selection 2 selected, .+"
+# Leave the app without ending its process: the selection lives in memory.
+- pressKey: Home
+- launchApp:
+    stopApp: false
+
+# The refresh completes and the carry drops only a4.jpg.
+- extendedWaitUntil:
+    visible: "1 selected file changed or was removed, so it was unselected\\."
+    timeout: 60000
+- assertVisible: "Selection 1 selected, .+"
+- assertNotVisible: "Results were updated, so the selection was cleared\\."
+- extendedWaitUntil:
+    visible: "a5\\.jpg, (Synced|Unsynced|Unknown), selected"
+    timeout: 15000
+- assertVisible: "a4\\.jpg, (Synced|Unsynced|Unknown)"
+- assertNotVisible: "a4\\.jpg, (Synced|Unsynced|Unknown), selected"
+
+# Clear the selection so the next line starts from nothing selected.
+- tapOn: "Clear selection"
+- extendedWaitUntil:
+    notVisible: "Selection .+"
+    timeout: 15000

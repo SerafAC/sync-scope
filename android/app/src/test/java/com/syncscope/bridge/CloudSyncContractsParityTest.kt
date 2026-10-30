@@ -2,8 +2,11 @@ package com.syncscope.bridge
 
 import com.syncscope.persistence.FileKind
 import com.syncscope.persistence.FileSort
+import com.syncscope.persistence.SelectableEntries
+import com.syncscope.scan.ScanPhase
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,8 +77,34 @@ class CloudSyncContractsParityTest {
   }
 
   @Test
-  fun contractVersionIsSix() {
-    assertEquals(6, CloudSyncContracts.CONTRACT_VERSION)
+  fun contractVersionIsSeven() {
+    // Feature 009: RECHECKING_REMOTE, SelectableEntries.media, durationMillis, carrySelection.
+    assertEquals(7, CloudSyncContracts.CONTRACT_VERSION)
+    assertEquals(7, tsNumber("CLOUD_SYNC_CONTRACT_VERSION"))
+  }
+
+  @Test
+  fun scanPhasesMatchTsAndIncludeRecheckingRemoteBeforeTheDeviceIsRead() {
+    val phases =
+      listOf(
+        "CONNECTING", "LISTING_REMOTE", "COPYING_REMOTE", "RECHECKING_REMOTE", "ENUMERATING_LOCAL", "PUBLISHING",
+        "PUBLISHED", "CANCELLED", "FAILED", "ABORTED",
+      )
+    assertEquals(phases, tsUnion("ScanPhase"))
+    assertEquals(phases, ScanPhase.entries.map { it.name })
+  }
+
+  @Test
+  fun selectableEntriesCarryMediaAndNoImages() {
+    // The wire field `images: boolean[]` is renamed `media: boolean[]` (contract v7), on both TS shapes.
+    for (name in listOf("SelectableEntriesDto", "SelectableEntries")) {
+      val body = Regex("""export interface $name \{(.*?)\n\}""", RegexOption.DOT_MATCHES_ALL).find(tsSource)!!.groupValues[1]
+      assertTrue("$name must have media: boolean[]", body.contains("media: boolean[];"))
+      assertFalse("$name must not have images", Regex("""\bimages\b""").containsMatchIn(body))
+    }
+    val fields = SelectableEntries::class.java.declaredFields.map { it.name }
+    assertTrue("SelectableEntries.media must exist: $fields", "media" in fields)
+    assertFalse("SelectableEntries.images must be gone: $fields", "images" in fields)
   }
 
   /** The members of a TS string-literal union `export type <name> = 'A' | 'B' …;`, in source order. */

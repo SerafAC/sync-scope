@@ -2,6 +2,7 @@ package com.syncscope.scan
 
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import com.syncscope.bridge.CloudSyncEnvelope
 import com.syncscope.bridge.CloudSyncErrorCode
 import com.syncscope.bridge.FileIssueCode
@@ -18,16 +19,19 @@ import com.syncscope.persistence.SnapshotEntity
 import com.syncscope.persistence.SnapshotStore
 import com.syncscope.persistence.SourceRootDao
 import com.syncscope.persistence.SourceRootEntity
+import com.syncscope.remote.FolderLister
 import com.syncscope.remote.RemoteClient
 import com.syncscope.remote.RemoteClientException
 import com.syncscope.remote.RemoteClientFactory
 import com.syncscope.remote.RemoteConfig
 import com.syncscope.remote.RemoteProtocol
+import com.syncscope.remote.ServerFolderLister
 import com.syncscope.source.LocalFile
 import com.syncscope.source.LocalSourceEnumerator
 import com.syncscope.source.SourceListing
 import java.io.IOException
 import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -44,6 +48,8 @@ enum class ScanPhase {
   CONNECTING,
   LISTING_REMOTE,
   COPYING_REMOTE,
+  /** `LOCAL_REFRESH` only (contract v7): lists the server folders of unsynced files' neighbours. */
+  RECHECKING_REMOTE,
   ENUMERATING_LOCAL,
   PUBLISHING,
   PUBLISHED,
@@ -109,7 +115,9 @@ class RunControl {
  *
  * - FULL: `CONNECTING` (config, credentials, `connect`, `discoverPrecision`) → `LISTING_REMOTE`
  *   ([RemoteWalker]) → the local phase.
- * - LOCAL_REFRESH: `COPYING_REMOTE` (`copyRemoteState`, [MatchIndex.fromRows]) → the local phase.
+ * - LOCAL_REFRESH: `COPYING_REMOTE` (`copyRemoteState`, [MatchIndex.fromRows]) → `RECHECKING_REMOTE`
+ *   ([RefreshRecheck]: lists the server folders of not-backed-up files' neighbours, never fails the run) →
+ *   the local phase, then the run's `recheckedFolders` and `promotedFiles` (research R5, D023).
  * - Local phase, shared: `ENUMERATING_LOCAL` (enumerate, skip hidden subtrees, [Matcher] per file,
  *   `local_node` batches of [BATCH_SIZE]) → directory rows after [DirectoryRollup] → counts, `SOURCE`
  *   gaps and coverage → `PUBLISHING`.
@@ -125,11 +133,15 @@ class ScanEngine(
   private val clients: RemoteClientFactory,
   private val enumerator: LocalSourceEnumerator,
   private val walker: RemoteWalker = RemoteWalker(),
+  /** The refresh re-check's read-only folder listing, shared with the pre-delete re-check (D020). */
+  lister: FolderLister = ServerFolderLister(credentials, clients),
   private val clock: () -> Long = System::currentTimeMillis,
   private val newId: () -> String = { UUID.randomUUID().toString() },
   /** Called before each local file is matched: the debug-only e2e pause ([ScanPacing]), nothing in release. */
   private val perFilePause: suspend () -> Unit = {},
 ) {
+
+  private val recheck = RefreshRecheck(store, lister, clock)
 
   /**
    * Checks the start preconditions, then creates the run and stages its snapshot. Throws a
@@ -192,7 +204,12 @@ class ScanEngine(
       } catch (e: RemoteClientException) {
         return fail(ticket, e.code, e)
       }
+    val recheckedFolders = if (ticket.mode == ScanMode.LOCAL_REFRESH) recheckRemote(ticket, remoteSide, progress, control) else null
     scanLocal(ticket, remoteSide, progress)
+    if (recheckedFolders != null) {
+      val from = checkNotNull(ticket.refreshFrom).snapshotId
+      store.setRecheckCounts(ticket.run.runId, recheckedFolders.toLong(), store.promotedFiles(from, ticket.snapshotId))
+    }
 
     progress.phase = ScanPhase.PUBLISHING.name
     store.publish(ticket.run.runId, ticket.run.generation, ticket.run.configRevision, TERMINAL_COMPLETED, clock())
@@ -251,6 +268,27 @@ class ScanEngine(
         )
       } ?: ListingState.Complete
     return RemoteSide(MatchIndex.fromRows(keys, precision), listing)
+  }
+
+  // --- LOCAL_REFRESH: RECHECKING_REMOTE ---
+
+  /**
+   * Lists the server folders of not-backed-up files' neighbours into [remote] (research R5). Returns the
+   * number of folders listed. Any failure only skips the re-check: the refresh still publishes. A cancel
+   * propagates, and [control] can close the re-check's client like the full scan's.
+   */
+  private suspend fun recheckRemote(ticket: ScanTicket, remote: RemoteSide, progress: ScanProgress, control: RunControl): Int {
+    progress.phase = ScanPhase.RECHECKING_REMOTE.name
+    val from = checkNotNull(ticket.refreshFrom) { "LOCAL_REFRESH without a source snapshot" }
+    return try {
+      recheck.run(from.snapshotId, ticket.snapshotId, ticket.config, remote.index, onClient = control::attach)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      currentCoroutineContext().ensureActive()
+      Log.w(TAG, "refresh recheck: skipped after ${e.javaClass.simpleName}")
+      0
+    }
   }
 
   private fun fallbackPrecision(ticket: ScanTicket): Long =
@@ -420,6 +458,7 @@ class ScanEngine(
     const val KIND_FILE = "FILE"
     const val KIND_DIRECTORY = "DIRECTORY"
 
+    private const val TAG = "CloudSync"
     private val LOCAL_UNAVAILABLE = FileIssueCode.LOCAL_UNAVAILABLE.name
     private val REMOTE_SCOPES =
       setOf(

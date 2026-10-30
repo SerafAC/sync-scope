@@ -4,16 +4,12 @@
 
 **Created**: 2026-09-28 (seeded from milestone slice M001/S05)
 
-**Status**: Draft (seeded)
+**Status**: Clarified and planned (2026-10-28); see [plan.md](./plan.md) and [tasks.md](./tasks.md)
 
 **Numbering**: Moved from slot 008 to 009 on 2026-10-10 to put E2E performance work next.
 
 **Input**: Roadmap slice M001/S05, "Browsable tree view and image preview" (`risk:medium`,
 `depends:[S04]`).
-
-> This is a seeded draft. It carries the roadmap slice's demo, dependencies and owned requirements
-> verbatim in meaning. It has not been clarified or planned yet: complete it with `/speckit-specify` and
-> `/speckit-clarify` when this feature starts, then `/speckit-plan`.
 
 **Depends on**: [005-gallery-list-filtering](../005-gallery-list-filtering/spec.md), [006-mvp](../006-mvp/spec.md)
 (selection model, selection bar and deletion) and
@@ -61,12 +57,19 @@ Consumes from feature 004 (M001/S03 → M001/S05):
   `index_local_node_snapshotId_sourceId_parentId_kind_name`.
 - `parentId` and `kind` (FILE / DIRECTORY) on every `local_node` row.
 
+## Clarifications
+
+### Session 2026-10-28
+
+- Q: When the automatic refresh runs, how should the app re-check files that are currently unsynced? → A: Each automatic refresh (`LOCAL_REFRESH`, on app open and on return to the foreground) re-checks only the UNSYNCED and UNKNOWN files against the server with targeted, read-only metadata lookups and updates their status; no full relisting, no upload (R026 holds).
+- Q: When the user taps a video, what should the full preview do? → A: Tiles and rows show a frame thumbnail with a play badge and duration; tapping opens an in-app preview that plays the local file (play/pause and seek, muted by default). This narrows R029 to documents only.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Browse the results as a tree and preview images (Priority: P1)
 
 The user expands and collapses directories in tree view, navigating the same hierarchy as list view, and
-taps an image to open a full preview. With a filter applied, directories whose children are all filtered
+taps an image or a video to open a full preview. With a filter applied, directories whose children are all filtered
 out remain visible, dimmed, with a count, rather than dead-ending navigation.
 
 **Why this priority**: users deciding which album to clear out think in hierarchy, and deciding whether a
@@ -82,11 +85,26 @@ photo is worth keeping requires seeing it before an irreversible delete.
    storage.
 3. **Given** a filter that excludes all children of a directory, **When** the user views the tree,
    **Then** the directory stays visible, dimmed, with a count, rather than vanishing.
+4. **Given** a video in any view, **When** the user taps it, **Then** an in-app preview opens and plays the
+   local file, muted, with play/pause and seek.
+5. **Given** the gallery view, **When** the results include videos, **Then** each video shows as a tile
+   with a frame thumbnail, a play badge and its duration.
+6. **Given** list view or tree view, **When** a row is an image or a video, **Then** the row shows a
+   thumbnail of it (with a play badge for videos) within the fixed row height.
+7. **Given** the browse header, **When** the sort and view drop-downs are shown, **Then** they share their
+   row equally, each stretching to half its width.
 
 ### Edge Cases
 
-- A non-image file tapped for preview (video and documents are out of scope, R029).
-- A local file removed since the scan when its preview is opened.
+- A document or other non-media file tapped for preview: no preview opens (documents stay out of scope,
+  R029 as narrowed by this feature).
+- A video whose frame or duration cannot be read, or whose codec the device cannot play: the tile or row
+  shows a generic video placeholder, and the preview shows an error state instead of playing.
+- A local file removed since the scan when its preview is opened: the preview shows "This file is no
+  longer on the device" with a Back button, and nothing is read from the server.
+- The server is unreachable, or a lookup fails, during the automatic refresh's re-check: the affected files
+  keep their previous status, the refresh still publishes its local results, and no file is promoted to
+  SYNCED without a successful lookup.
 
 ## Requirements *(mandatory)*
 
@@ -94,17 +112,32 @@ photo is worth keeping requires seeing it before an irreversible delete.
 
 - **FR-001** (R010, primary-user-loop): The tree view MUST be a browsable, expandable hierarchy over the
   same snapshot, sharing the `queryTreeChildren` contract with list view. Users reasoning about which album
-  to clear out think in hierarchy. [NEEDS CLARIFICATION: when a filter is applied, directories whose
-  children are all filtered out should stay visible, dimmed, with a count, rather than vanish, so
-  navigation does not dead-end. Settle the exact behaviour (which count is shown, whether such directories
-  can be expanded, and whether list view follows the same rule) when this feature is specified.]
-  Settled by feature 005 (clarification 3, shared by list and tree): such a directory stays visible,
+  to clear out think in hierarchy. When a filter is applied, so that navigation does not dead-end, a
+  directory whose children are all filtered out follows the rule settled by feature 005 (clarification 3,
+  shared by list and tree): it stays visible,
   dimmed, with the count of matching files anywhere beneath it (0), and can still be opened
   ([005 spec, Edge Cases](../005-gallery-list-filtering/spec.md#edge-cases)).
-- **FR-002** (R014, core-capability): Users MUST be able to preview an image from any view. Images only for
-  v1 (video and documents are out of scope, R029). Preview uses `getLocalImageHandle`, which reads local
-  storage only and never downloads remote file content. A thumbnail grid alone is not enough to commit to
-  an irreversible delete.
+- **FR-002** (R014, core-capability): Users MUST be able to preview an image or a video from any view.
+  Image preview uses `getLocalImageHandle`. Video preview plays the local file in-app (play/pause and seek,
+  muted by default). Both read local storage only and never download remote file content (R026). Documents
+  stay out of scope (R029, narrowed by this feature to documents only). A thumbnail grid alone is not
+  enough to commit to an irreversible delete.
+
+- **FR-003** (resync of unsynced files): Each automatic refresh (`LOCAL_REFRESH`, on app open and on
+  return to the foreground) MUST re-check every UNSYNCED and UNKNOWN file against the server with
+  targeted, read-only metadata lookups (listing only the remote folders those files could match in, never
+  a full relisting), and MUST update the status of each file whose match is now found or now ruled out.
+  It never uploads, writes remotely or downloads file content (R026). SYNCED files keep the copied remote
+  keys as today.
+
+- **FR-004** (videos in the gallery): The gallery view MUST show video files as tiles alongside images,
+  each with a frame thumbnail read from local storage, a play badge and the duration.
+- **FR-005** (row thumbnails): List view and tree view MUST show a thumbnail for each image and video row
+  (with a play badge for videos), read from local storage only and sized within the fixed row height
+  (`density.rowHeight`), so the segmented reader and scrollbar keep working. Other files and directories
+  keep their icons.
+- **FR-006** (browse header layout): The sort drop-down and the view drop-down MUST stretch to fill their
+  row together, each taking half the width.
 
 Supporting requirements (primary FR in another feature):
 
@@ -155,7 +188,12 @@ flow's "browse, select" steps.
 
 - **SC-001**: The Maestro tree-and-preview flow passes against live containers.
 - **SC-002**: With any filter applied, no directory path dead-ends navigation.
+- **SC-003**: A file that was UNSYNCED and has since appeared on the server shows as SYNCED after the
+  next automatic refresh, with no full scan.
+- **SC-004**: A video can be found in the gallery, list and tree views by its thumbnail and played in the
+  preview, with no remote content downloaded.
 
 ## Assumptions
 
 - Preview reads local content only; the remote side stays listing-and-metadata only (R026, `docs/scope.md`).
+- `docs/scope.md` R029 is amended in this feature's change to exclude documents only (R022).

@@ -65,8 +65,9 @@ that screen and then scan (spec FR-013, SC-002).
 The seam stays, debug-only and unchanged, for the scan, browse and deletion flows whose subject is not
 setup: they need a configured repository quickly and with the per-run `scanDelayMs`, and typing six fields
 through the UI in every flow would slow the suite without proving more (research R16). The seam is absent
-from the release APK, and `android-flow.sh release-smoke` asserts that its link finds no activity there
-([D021](./0021-release-signing-and-cleartext-policy.md)).
+from the release APK ([D021](./0021-release-signing-and-cleartext-policy.md)). The former
+`android-flow.sh release-smoke` mode asserted that its link finds no activity there; it was removed in
+feature 009, and the release build's checks belong to its CI/CD pipeline.
 
 ## Related
 

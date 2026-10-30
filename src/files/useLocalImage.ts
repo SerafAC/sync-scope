@@ -6,6 +6,11 @@ import { GALLERY_THUMBNAIL_EDGE_PX } from '../native/CloudSyncContracts';
 export interface LocalImage {
   /** `file://` URI of the cached JPEG; null while loading or after a failure. */
   uri: string | null;
+  /**
+   * A video's duration in milliseconds (contract v7); null for an image,
+   * for an unreadable duration, and while loading or after a failure.
+   */
+  durationMillis: number | null;
   /** The image could not be read on the device: show the broken-image state. */
   failed: boolean;
 }
@@ -14,10 +19,11 @@ interface Loaded extends LocalImage {
   key: string;
 }
 
-const PENDING: LocalImage = { uri: null, failed: false };
+const PENDING: LocalImage = { uri: null, durationMillis: null, failed: false };
 
 /**
- * A local, downscaled image of [entryId] in [snapshotId] (research R7). It
+ * A local, downscaled image of [entryId] in [snapshotId] (research R7), or a
+ * video's frame with its duration (009 research R6). It
  * asks `getLocalImageHandle` once per `(snapshotId, entryId, edge)`, and a
  * result that arrives after unmount, or for an earlier key, is ignored.
  */
@@ -39,14 +45,19 @@ export function useLocalImage(
         if (live) {
           setLoaded(
             result.status === 'ok'
-              ? { key, uri: result.handle.uri, failed: false }
-              : { key, uri: null, failed: true },
+              ? {
+                  key,
+                  uri: result.handle.uri,
+                  durationMillis: result.handle.durationMillis,
+                  failed: false,
+                }
+              : { key, uri: null, durationMillis: null, failed: true },
           );
         }
       },
       () => {
         if (live) {
-          setLoaded({ key, uri: null, failed: true });
+          setLoaded({ key, uri: null, durationMillis: null, failed: true });
         }
       },
     );
@@ -58,5 +69,9 @@ export function useLocalImage(
   if (loaded == null || loaded.key !== key) {
     return PENDING;
   }
-  return { uri: loaded.uri, failed: loaded.failed };
+  return {
+    uri: loaded.uri,
+    durationMillis: loaded.durationMillis,
+    failed: loaded.failed,
+  };
 }

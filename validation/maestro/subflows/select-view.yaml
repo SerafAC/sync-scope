@@ -2,7 +2,7 @@
 # and wait until the drop-down shows it. Never run on its own.
 #
 # Params (runFlow env):
-#   VIEW  GALLERY or LIST
+#   VIEW  GALLERY, LIST or TREE (feature 009)
 #
 # The drop-down's options are matched by id, because "Gallery" is also a source
 # alias in the list view.
@@ -13,5 +13,5 @@ appId: com.syncscope
 - tapOn:
     id: "${'files-view-option-' + VIEW}"
 - extendedWaitUntil:
-    visible: "${VIEW == 'LIST' ? 'View: List' : 'View: Gallery'}"
+    visible: "${VIEW == 'LIST' ? 'View: List' : VIEW == 'TREE' ? 'View: Tree' : 'View: Gallery'}"
     timeout: 15000

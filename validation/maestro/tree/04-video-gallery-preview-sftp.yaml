@@ -1,0 +1,199 @@
+# US1 sc. 4-6, FR-004, FR-005, SC-004 (SFTP), feature 009
+# (contracts/maestro-tree-preview.md): videos are in the gallery with a frame,
+# a play badge and their duration, and list rows show a thumbnail with the
+# same badge. The fixture clip Album/2025/clip.mp4 of the tree set is 2 s
+# long, so it reads "0:02" (formatDuration).
+# Self-contained: starts from clearState (contracts/maestro-tree-preview.md).
+#
+# The gallery and list-view steps are tasks.md T034, the tree-row step
+# T061 and the preview steps T046.
+#
+# The thumbnail's parts are matched by testID under their tile or row:
+# gallery-tile-play and gallery-tile-duration in GalleryTile, and
+# file-row-thumbnail-image and file-row-thumbnail-play in FileRow (list and
+# tree rows alike)
+# (src/files/MediaThumbnail.tsx prefixes each part with the given testID).
+#
+# The preview's controller is the platform MediaController
+# (SyncScopeVideoView.kt): its play/pause button is android:id/pause, whose
+# description reads "Pause" while playing and "Play" otherwise, rewind is
+# android:id/rew (back 5 s, so to 0:00 in a 2 s clip) and the elapsed time is
+# android:id/time_current, formatted "00:02" by the platform. The clip is
+# only 2 s long, so the steps first let it play to its end: from there the
+# state is known (stopped, the button says "Play") and every later
+# change is a response to a tap, not to the clip running on.
+appId: com.syncscope
+name: tree/04-video-gallery-preview-sftp
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    file: ../subflows/scan-tree-set.yaml
+    env:
+      PROTOCOL: "SFTP"
+- runFlow: ../subflows/open-files.yaml
+
+# 1. The gallery shows the MP4 tile with a play badge and "0:02" (US1 sc. 4-5).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+# The frame and the duration are read from local storage after the tile
+# appears, so the badge is waited for.
+- extendedWaitUntil:
+    visible:
+      id: "gallery-tile-play"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "gallery-tile-duration"
+      text: "0:02"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertNotVisible:
+    id: "gallery-tile-video-off"
+    childOf: "clip\\.mp4, .+"
+
+# 2. In list view, the MP4 row in Album/2025 shows a thumbnail with a play
+# badge (US1 sc. 6, FR-005).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "LIST"
+- extendedWaitUntil:
+    visible: "Folder ScanTree(, .+)?"
+    timeout: 15000
+- tapOn: "Folder ScanTree(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder Album(, .+)?"
+    timeout: 15000
+- tapOn: "Folder Album(, .+)?"
+- extendedWaitUntil:
+    visible: "Folder 2025(, .+)?"
+    timeout: 15000
+- tapOn: "Folder 2025(, .+)?"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "file-row-thumbnail-image"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertVisible:
+    id: "file-row-thumbnail-play"
+    childOf: "clip\\.mp4, .+"
+- assertNotVisible:
+    id: "file-row-icon"
+    childOf: "clip\\.mp4, .+"
+
+# 3. In tree view, the MP4 row under ScanTree → Album → 2025 shows the same
+# thumbnail with a play badge (US1 sc. 6, FR-005).
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "TREE"
+- extendedWaitUntil:
+    visible: "Expand ScanTree"
+    timeout: 15000
+- tapOn: "Expand ScanTree"
+- extendedWaitUntil:
+    visible: "Expand Album"
+    timeout: 15000
+- tapOn: "Expand Album"
+- extendedWaitUntil:
+    visible: "Expand 2025"
+    timeout: 15000
+- tapOn: "Expand 2025"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "file-row-thumbnail-image"
+      childOf: "clip\\.mp4, .+"
+    timeout: 15000
+- assertVisible:
+    id: "file-row-thumbnail-play"
+    childOf: "clip\\.mp4, .+"
+- assertNotVisible:
+    id: "file-row-icon"
+    childOf: "clip\\.mp4, .+"
+
+# 4. Preview (US1 sc. 4, SC-004): back in the gallery, tap the MP4 tile → the
+# video preview opens, muted, and plays the local file to its end.
+- runFlow:
+    file: ../subflows/select-view.yaml
+    env:
+      VIEW: "GALLERY"
+- extendedWaitUntil:
+    visible: "clip\\.mp4, .+"
+    timeout: 15000
+- tapOn: "clip\\.mp4, .+"
+- extendedWaitUntil:
+    visible:
+      id: "preview-video"
+    timeout: 15000
+- assertNotVisible: "This video can't be played"
+# Muted by default: the top-bar toggle offers to unmute.
+- assertVisible:
+    id: "preview-mute"
+    text: "Unmute"
+# The view keeps the controller on screen once prepared and again when the
+# clip ends (SyncScopeVideoView.kt), so no tap is needed to read it. The
+# total reads the clip's 2 s.
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/time"
+      text: "0?0:02"
+    timeout: 15000
+# Played to its end: the button turns back to "Play" when the clip stops.
+# The elapsed time is not read here: after completion the platform player
+# reports position 0 on the emulator, so it shows 00:00, not 00:02.
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/pause"
+      text: "Play"
+    timeout: 10000
+
+# 5. Seek responds: rewind takes the stopped clip back to 00:00.
+- tapOn:
+    id: ".*:id/rew"
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/time_current"
+      text: "0?0:00"
+    timeout: 5000
+
+# 6. Play/pause responds: Play turns the button into Pause and the clip
+# plays again from 00:00.
+- tapOn:
+    id: ".*:id/pause"
+    text: "Play"
+- assertVisible:
+    id: ".*:id/pause"
+    text: "Pause"
+# It plays through again and stops: the button returns to "Play". The
+# elapsed time is not polled here; 0:01 is on screen for under a second on a
+# slow emulator, and after the end the player reports 00:00 again.
+- extendedWaitUntil:
+    visible:
+      id: ".*:id/pause"
+      text: "Play"
+    timeout: 10000
+- assertVisible:
+    id: "preview-mute"
+    text: "Unmute"
+
+# 7. Back returns to the gallery with the tile.
+- back
+- extendedWaitUntil:
+    notVisible:
+      id: "preview"
+    timeout: 15000
+- assertVisible: "View: Gallery"
+- assertVisible: "clip\\.mp4, .+"

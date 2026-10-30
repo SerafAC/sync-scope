@@ -27,6 +27,16 @@ data class ScanRunEntity(
   val errorSummary: String?,
   /** `FULL` or `LOCAL_REFRESH` (schema version 2; version 1 rows read `FULL`). */
   @ColumnInfo(defaultValue = "FULL") val mode: String = "FULL",
+  /**
+   * `LOCAL_REFRESH` runs: the number of server folders the refresh re-check listed (research R5); `NULL` on
+   * `FULL` runs and on rows written before version 6.
+   */
+  val recheckedFolders: Long? = null,
+  /**
+   * `LOCAL_REFRESH` runs: the number of `UNSYNCED` files the refresh re-check promoted to `SYNCED`; `NULL` on
+   * `FULL` runs and on rows written before version 6.
+   */
+  val promotedFiles: Long? = null,
 )
 
 /**
@@ -86,6 +96,8 @@ data class SourceRootEntity(
     Index(value = ["snapshotId", "kind", "modifiedUtcMillis"]),
     Index(value = ["snapshotId", "kind", "sizeBytes"]),
     Index(value = ["snapshotId", "kind", "sortName"]),
+    // Schema version 6: the selection carry-over joins two snapshots on the stable file key (research R9).
+    Index(value = ["snapshotId", "sourceId", "documentId"]),
     Index(value = ["sourceId"]),
   ],
   foreignKeys = [

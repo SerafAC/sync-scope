@@ -36,7 +36,7 @@ class BrowsePreferencesTest {
     val result = preferences.get()
 
     assertEquals("ok", result.getString("status"))
-    assertEquals(6, result.getInt("contractVersion"))
+    assertEquals(7, result.getInt("contractVersion"))
     assertEquals(mapOf("view" to "GALLERY", "gallerySort" to "TIME_DESC", "listSort" to "NAME_ASC"), valuesOf(result))
     // Reading writes nothing.
     assertTrue(prefs.all.isEmpty())
@@ -54,8 +54,20 @@ class BrowsePreferencesTest {
   }
 
   @Test
+  fun theTreeViewIsAcceptedAndRemembered() {
+    val saved = preferences.set(JavaOnlyMap.of("view", "TREE"))
+
+    assertEquals("ok", saved.getString("status"))
+    assertEquals("TREE", prefs.getString("view", null))
+    assertEquals(mapOf("view" to "TREE", "gallerySort" to "TIME_DESC", "listSort" to "NAME_ASC"), valuesOf(preferences.get()))
+    // A fresh instance over the same file reads it back, as after a restart.
+    val restarted = BrowsePreferences({ prefs }, CloudSyncEnvelope({ JavaOnlyMap() }, { JavaOnlyArray() }))
+    assertEquals("TREE", valuesOf(restarted.get())["view"])
+  }
+
+  @Test
   fun anUnknownStoredValueReadsAsItsDefault() {
-    prefs.edit().putString("view", "TREE").putString("gallerySort", "COLOUR_ASC").putString("listSort", "TIME_ASC").commit()
+    prefs.edit().putString("view", "FOLDERS").putString("gallerySort", "COLOUR_ASC").putString("listSort", "TIME_ASC").commit()
 
     assertEquals(mapOf("view" to "GALLERY", "gallerySort" to "TIME_DESC", "listSort" to "TIME_ASC"), valuesOf(preferences.get()))
   }
@@ -84,7 +96,8 @@ class BrowsePreferencesTest {
   fun anUnknownValueIsRejectedAndNothingIsStored() {
     val cases =
       listOf(
-        JavaOnlyMap.of("view", "TREE") to "view",
+        JavaOnlyMap.of("view", "FOLDERS") to "view",
+        JavaOnlyMap.of("view", "tree") to "view",
         JavaOnlyMap.of("view", "LIST", "gallerySort", "COLOUR_ASC") to "gallerySort",
         JavaOnlyMap.of("listSort", "name_asc", "view", "LIST") to "listSort",
         JavaOnlyMap.of("listSort", 3.0) to "listSort",

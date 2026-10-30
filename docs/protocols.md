@@ -51,6 +51,25 @@ it too. A folder that answers "not found" means the files are gone; any other li
 could not be checked, and they are not deleted. A failed `connect` fails the whole prepare, and nothing is
 deleted.
 
+Since feature 009 this connect-and-list step is `ServerFolderLister`, shared with the refresh re-check
+below.
+
+## How the automatic refresh uses the clients
+
+Until feature 009 the app-open refresh (`LOCAL_REFRESH`) never connected. It now **may connect**, once,
+to re-check not-backed-up files ([D023](./decisions/0023-refresh-recheck-of-unsynced-files.md)):
+
+- It connects only when there is something to re-check: a device folder holding both a not-backed-up and
+  a backed-up file, whose backed-up files have stored server folders. Otherwise it stays offline, as
+  before.
+- It uses the same `ServerFolderLister` as the pre-delete re-check: one `connect` with the saved
+  repository and trusted SFTP host key, then one `list` of each candidate folder, at most 32, with the walk's
+  retry policy, within a 20 s budget. It never opens a file and never writes, so the read-only audit below
+  covers it too.
+- Any connect, login, host-key or listing failure skips the re-check (or the folders it affects) and
+  never fails the refresh, which publishes with the copied listing. Only codes are logged.
+- The scan progress shows the phase as "Checking the server for new backups" (`RECHECKING_REMOTE`).
+
 ### Unreadable directories, as observed
 
 Matching ignores directories, so a folder the account cannot read must be reported as an error, never as

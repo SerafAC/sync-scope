@@ -10,6 +10,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.syncscope.media.MediaKind
 
 /**
  * Inserts use ABORT everywhere: uniqueness and foreign-key violations are
@@ -29,6 +30,10 @@ interface ScanRunDao {
   suspend fun nonTerminal(): List<ScanRunEntity>
 
   @Query("SELECT MAX(generation) FROM scan_run") suspend fun maxGeneration(): Long?
+
+  /** A `LOCAL_REFRESH` run's re-check outcome (research R5), written before it publishes. */
+  @Query("UPDATE scan_run SET recheckedFolders = :recheckedFolders, promotedFiles = :promotedFiles WHERE runId = :runId")
+  suspend fun setRecheckCounts(runId: String, recheckedFolders: Long, promotedFiles: Long): Int
 
   /** The run with the highest generation: the running one, else the most recent. */
   @Query("SELECT * FROM scan_run ORDER BY generation DESC LIMIT 1") suspend fun latest(): ScanRunEntity?
@@ -152,7 +157,7 @@ interface LocalNodeDao {
   @RawQuery suspend fun rows(query: SupportSQLiteQuery): List<LocalNodeRow>
 
   /**
-   * "Select all" rows: `SELECT entryId, sizeBytes, status, mimeType LIKE 'image/%' AS isImage`, scoped by
+   * "Select all" rows: `SELECT entryId, sizeBytes, status, COALESCE(<MediaKind.SQL_MEDIA>, 0) AS isMedia`, scoped by
    * [SnapshotStore]'s shared where-clause builder (contracts/cloudsync-mvp.md "listSelectableEntries").
    */
   @RawQuery suspend fun selectable(query: SupportSQLiteQuery): List<SelectableRow>
@@ -203,18 +208,77 @@ interface LocalNodeDao {
   )
   suspend fun decrementDescendantCounts(snapshotId: String, directoryIds: List<String>, status: String): Int
 
-  /** The document behind a `FILE` row, for local image handles; null for a directory or an unknown entry. */
+  /**
+   * Refresh re-check (research R5): the device folders `(sourceId, parentId)` of [snapshotId] that hold at least
+   * one re-checkable `FILE` ([RECHECKABLE_SQL]) and at least one `SYNCED` one, each with its number of
+   * re-checkable files. A `null` parent is the source root.
+   */
   @Query(
-    "SELECT documentUri, mimeType FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND kind = 'FILE'"
+    "SELECT r.sourceId AS sourceId, r.parentId AS parentId, COUNT(*) AS count FROM local_node r " +
+      "WHERE r.snapshotId = :snapshotId AND r.kind = 'FILE' AND " + RECHECKABLE_SQL +
+      " AND EXISTS (SELECT 1 FROM local_node s WHERE s.snapshotId = r.snapshotId AND s.sourceId = r.sourceId " +
+      "AND s.parentId IS r.parentId AND s.kind = 'FILE' AND s.status = 'SYNCED') " +
+      "GROUP BY r.sourceId, r.parentId"
   )
-  suspend fun imageEntry(snapshotId: String, entryId: String): ImageEntry?
+  suspend fun recheckableNeighbourFolders(snapshotId: String): List<NeighbourFolder>
+
+  /** Refresh re-check: the `SYNCED` files of [snapshotId] that share a device folder with a re-checkable one. */
+  @Query(
+    "SELECT s.sourceId AS sourceId, s.parentId AS parentId, s.name AS name, s.sizeBytes AS sizeBytes, " +
+      "s.modifiedUtcMillis AS modifiedUtcMillis FROM local_node s " +
+      "WHERE s.snapshotId = :snapshotId AND s.kind = 'FILE' AND s.status = 'SYNCED' " +
+      "AND EXISTS (SELECT 1 FROM local_node r WHERE r.snapshotId = s.snapshotId AND r.sourceId = s.sourceId " +
+      "AND r.parentId IS s.parentId AND r.kind = 'FILE' AND " + RECHECKABLE_SQL + ")"
+  )
+  suspend fun syncedNeighbours(snapshotId: String): List<SyncedNeighbour>
+
+  /**
+   * Refresh re-check counter: the `FILE`s re-checkable in [fromSnapshotId] that are `SYNCED` in [toSnapshotId],
+   * matched per `(sourceId, documentId)`.
+   */
+  @Query(
+    "SELECT COUNT(*) FROM local_node s JOIN local_node r ON r.snapshotId = :fromSnapshotId " +
+      "AND r.sourceId = s.sourceId AND r.documentId = s.documentId AND r.kind = 'FILE' " +
+      "WHERE s.snapshotId = :toSnapshotId AND s.kind = 'FILE' AND s.status = 'SYNCED' AND " + RECHECKABLE_SQL
+  )
+  suspend fun promotedCount(fromSnapshotId: String, toSnapshotId: String): Long
+
+  /**
+   * The document behind a media `FILE` row (an image or a video, [MediaKind.SQL_MEDIA]), for local image
+   * handles; null for a directory, a non-media file or an unknown entry.
+   */
+  @Query(
+    "SELECT documentUri, mimeType FROM local_node WHERE snapshotId = :snapshotId AND entryId = :entryId AND " +
+      MediaKind.SQL_MEDIA
+  )
+  suspend fun mediaEntry(snapshotId: String, entryId: String): MediaEntry?
 }
 
-/** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
-data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isImage: Boolean)
+/**
+ * A re-checkable `FILE` row aliased `r` (research R5): `UNSYNCED`, or `UNKNOWN` for a reason a server listing
+ * can change, so not `LOCAL_UNAVAILABLE` (the device) nor `REMOTE_MTIME_MISSING` (the server gave no time).
+ */
+const val RECHECKABLE_SQL =
+  "(r.status = 'UNSYNCED' OR (r.status = 'UNKNOWN' AND (r.issueCode IS NULL OR " +
+    "r.issueCode NOT IN ('LOCAL_UNAVAILABLE', 'REMOTE_MTIME_MISSING'))))"
 
-/** The local document of one `FILE` row. Never crosses the bridge. */
-data class ImageEntry(val documentUri: String, val mimeType: String?)
+/** A device folder holding re-checkable files next to backed-up ones, with the re-checkable count. */
+data class NeighbourFolder(val sourceId: String, val parentId: String?, val count: Long)
+
+/** A backed-up file in a [NeighbourFolder]: what its match key is computed from. */
+data class SyncedNeighbour(
+  val sourceId: String,
+  val parentId: String?,
+  val name: String,
+  val sizeBytes: Long?,
+  val modifiedUtcMillis: Long?,
+)
+
+/** One "Select all" row: the fields a selection keeps, nothing that locates the document. */
+data class SelectableRow(val entryId: String, val sizeBytes: Long?, val status: String, val isMedia: Boolean)
+
+/** The local document of one media `FILE` row. Never crosses the bridge. */
+data class MediaEntry(val documentUri: String, val mimeType: String?)
 
 /** Scroll index: `FILE` rows per letter band (`#` or `a`…`z`). */
 data class LetterCount(val letter: String, val count: Int)
@@ -236,13 +300,13 @@ data class LocalNodeRow(
 
 /**
  * First-page counts (data-model.md "Read rules"): `FILE` rows of [snapshotId] by status, narrowed to
- * `image/` MIME types when [imagesOnly] (GALLERY) and to [sourceId] when given. Never narrowed by filter, parent
+ * media files ([MediaKind.SQL_MEDIA]) when [mediaOnly] (GALLERY) and to [sourceId] when given. Never narrowed by filter, parent
  * or search.
  */
-suspend fun LocalNodeDao.statusCounts(snapshotId: String, imagesOnly: Boolean, sourceId: String?): List<StatusCount> {
+suspend fun LocalNodeDao.statusCounts(snapshotId: String, mediaOnly: Boolean, sourceId: String?): List<StatusCount> {
   val args = mutableListOf<Any?>(snapshotId)
   val where = StringBuilder("snapshotId = ? AND kind = 'FILE'")
-  if (imagesOnly) where.append(" AND mimeType LIKE 'image/%'")
+  if (mediaOnly) where.append(" AND ${MediaKind.SQL_MEDIA}")
   if (sourceId != null) {
     where.append(" AND sourceId = ?")
     args += sourceId
@@ -251,6 +315,37 @@ suspend fun LocalNodeDao.statusCounts(snapshotId: String, imagesOnly: Boolean, s
     SimpleSQLiteQuery("SELECT status AS status, COUNT(*) AS count FROM local_node WHERE $where GROUP BY status", args.toTypedArray())
   )
 }
+
+/**
+ * Selection carry-over (009 research R9, data-model "Selection carry-over"): the query that pairs each `FILE` of
+ * [fromSnapshotId] among [entryIds] (at most [SnapshotStore.MAX_CARRY_IDS_PER_QUERY] per read) with the `FILE` of
+ * [toSnapshotId] that has the same `(sourceId, documentId)`, size and modified time (`IS`, so two nulls match). Its
+ * columns are `fromEntryId`, `toEntryId` and that row's `status`; never a document ID.
+ *
+ * The plan is pinned: `f` is read by its primary key (the `+` keeps SQLite off the `(snapshotId, kind, …)` indexes,
+ * which walk the whole snapshot) and `t` through the schema 6 `(snapshotId, sourceId, documentId)` index. Left to
+ * itself SQLite took ≈ 1.5 s for 50 000 IDs (SnapshotQueryPerformanceTest). [SnapshotStore.carrySelection] reads
+ * it through a plain cursor: a suspending DAO read per batch added ≈ 60 ms over 50 000 IDs.
+ */
+fun carryQuery(fromSnapshotId: String, toSnapshotId: String, entryIds: List<String>): SimpleSQLiteQuery {
+  require(entryIds.isNotEmpty() && entryIds.size <= SnapshotStore.MAX_CARRY_IDS_PER_QUERY) {
+    "1 to ${SnapshotStore.MAX_CARRY_IDS_PER_QUERY} IDs per read"
+  }
+  val sql =
+    "SELECT f.entryId AS fromEntryId, t.entryId AS toEntryId, t.status AS status FROM local_node f " +
+      "CROSS JOIN local_node t INDEXED BY $CARRY_INDEX " +
+      "WHERE f.entryId IN (${entryIds.joinToString(",") { "?" }}) AND +f.snapshotId = ? AND +f.kind = 'FILE' " +
+      "AND t.snapshotId = ? AND t.sourceId = f.sourceId AND t.documentId = f.documentId " +
+      "AND t.kind = 'FILE' AND t.sizeBytes IS f.sizeBytes AND t.modifiedUtcMillis IS f.modifiedUtcMillis"
+  val args = ArrayList<Any?>(entryIds.size + 2)
+  args.addAll(entryIds)
+  args += fromSnapshotId
+  args += toSnapshotId
+  return SimpleSQLiteQuery(sql, args.toTypedArray())
+}
+
+/** Room's name for `Index(snapshotId, sourceId, documentId)` on `local_node` (schema 6.json). */
+private const val CARRY_INDEX = "index_local_node_snapshotId_sourceId_documentId"
 
 @Dao
 interface RemoteNodeDao {
@@ -263,6 +358,13 @@ interface RemoteNodeDao {
 @Dao
 interface RemoteMatchKeyDao {
   @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAll(keys: List<RemoteMatchKeyEntity>)
+
+  /**
+   * The refresh re-check's one exception to ABORT (research R5): `INSERT OR IGNORE` on the unique
+   * `(snapshotId, name, sizeBytes, precisionMillis, bucket)`, so a key already there keeps its
+   * `duplicateCount` and `directories`.
+   */
+  @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertMissing(keys: List<RemoteMatchKeyEntity>)
 
   @Query("SELECT COUNT(*) FROM remote_match_key WHERE snapshotId = :snapshotId")
   suspend fun countFor(snapshotId: String): Long

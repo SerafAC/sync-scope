@@ -6,10 +6,11 @@ function items(
   return new Map(entries);
 }
 
-const syncedImage: SelectionItem = {sizeBytes: 70, status: 'SYNCED', isImage: true};
-const unsyncedImage: SelectionItem = {sizeBytes: 30, status: 'UNSYNCED', isImage: true};
-const unknownImage: SelectionItem = {sizeBytes: null, status: 'UNKNOWN', isImage: true};
-const syncedText: SelectionItem = {sizeBytes: 5, status: 'SYNCED', isImage: false};
+const syncedImage: SelectionItem = {sizeBytes: 70, status: 'SYNCED', isMedia: true};
+const unsyncedImage: SelectionItem = {sizeBytes: 30, status: 'UNSYNCED', isMedia: true};
+const unknownImage: SelectionItem = {sizeBytes: null, status: 'UNKNOWN', isMedia: true};
+const syncedVideo: SelectionItem = {sizeBytes: 40, status: 'SYNCED', isMedia: true};
+const syncedText: SelectionItem = {sizeBytes: 5, status: 'SYNCED', isMedia: false};
 
 describe('selectionSummary', () => {
   it('is all zero for an empty selection', () => {
@@ -26,7 +27,7 @@ describe('selectionSummary', () => {
       ['a', syncedImage],
       ['b', unsyncedImage],
       ['c', unknownImage],
-      ['d', {sizeBytes: 0, status: 'SYNCED', isImage: true}],
+      ['d', {sizeBytes: 0, status: 'SYNCED', isMedia: true}],
     ]);
 
     expect(selectionSummary(selection, 'LIST', 'ALL')).toEqual({
@@ -61,9 +62,10 @@ describe('selectionSummary', () => {
     },
   );
 
-  it('counts a non-image as hidden in gallery view only', () => {
+  it('counts a non-media file as hidden in gallery view only; a video is shown', () => {
     const selection = items([
       ['a', syncedImage],
+      ['v', syncedVideo],
       ['d', syncedText],
     ]);
 

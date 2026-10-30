@@ -1,15 +1,13 @@
-# Story 4 sc. 5: an update keeps the app's data. In release-smoke mode
-# (android-flow.sh step 7) this runs after the same signed APK is re-installed
-# in place with `adb install -r`; in the debug workspace it runs right after
-# mvp/90-release-smoke and proves the state survives a relaunch. Either way the
+# Story 4 sc. 5: the app keeps its data. It runs right after
+# mvp/90-standalone-setup and proves the state survives a relaunch: the
 # repository from 90 is still set up and its scan results are still in Files,
 # before any new scan.
 # Feature 007, Story 3 sc. 7, FR-013: the one remote folder 90 saved is the
 # only entry of the folder list, in Settings › Repository and in the form, and
 # a scan then runs against it with the same results.
-# Continues mvp/90-release-smoke: never clears state.
+# Continues mvp/90-standalone-setup: never clears state.
 appId: com.syncscope
-name: mvp/91-release-update
+name: mvp/91-relaunch-keeps-data
 ---
 - evalScript: "${output.folder = (SFTP_ROOT.endsWith('/') ? SFTP_ROOT.slice(0, -1) : SFTP_ROOT) + '/gallery'}"
 - launchApp

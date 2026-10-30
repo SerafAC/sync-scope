@@ -14,6 +14,8 @@ flows:
   - "polish/*"
   # Feature 008 regressions, appended after every original flow.
   - "performance/*"
+  # Feature 009 (contracts/maestro-tree-preview.md), after the 008 regressions.
+  - "tree/*"
 
 executionOrder:
   continueOnFailure: false
@@ -47,8 +49,8 @@ executionOrder:
     - mvp/03-first-run
     - mvp/04-select-size
     - mvp/05-delete-synced
-    - mvp/90-release-smoke
-    - mvp/91-release-update
+    - mvp/90-standalone-setup
+    - mvp/91-relaunch-keeps-data
     - polish/01-sort
     - polish/02-sort-persists
     - polish/03-fast-scroll
@@ -59,3 +61,10 @@ executionOrder:
     - polish/08-add-large-folder
     # Feature 008 (T034): appended after the 39 original flows, never instead.
     - performance/01-field-replacement
+    # Feature 009: appended after the 008 regressions, in the order of the
+    # contract table (contracts/maestro-tree-preview.md › Flows).
+    - tree/01-expand-collapse-sftp
+    - tree/02-filter-dimmed-ftp
+    - tree/03-preview-image-webdav
+    - tree/04-video-gallery-preview-sftp
+    - tree/05-tree-select-delete-ftp

@@ -4,8 +4,24 @@ import {
   STALE_REMOTE_LISTING_MILLIS,
   type ActiveSnapshotDto,
   type CloudSyncError,
+  type ScanPhase,
   type ScanRunDto,
 } from '../native/CloudSyncContracts';
+
+/** What each scan phase is called on the Scan tab's progress card. */
+export const PHASE_TEXT: Record<ScanPhase, string> = {
+  CONNECTING: 'Connecting to the server',
+  LISTING_REMOTE: 'Listing the backup',
+  COPYING_REMOTE: 'Reusing the last backup listing',
+  // LOCAL_REFRESH only (contract v7): the re-check of not-backed-up files (FR-003).
+  RECHECKING_REMOTE: 'Checking the server for new backups',
+  ENUMERATING_LOCAL: 'Checking the files on this device',
+  PUBLISHING: 'Saving the results',
+  PUBLISHED: 'Completed',
+  CANCELLED: 'Cancelled',
+  FAILED: 'Failed',
+  ABORTED: 'Stopped when the app closed',
+};
 
 /** How often `getScanState` is polled while a run is not terminal (research R9). */
 export const POLL_INTERVAL_MILLIS = 500;

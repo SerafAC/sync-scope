@@ -44,6 +44,15 @@
 # TwoFolders, Gallery, GalleryTwin, Delete, Recheck, Offline, Select,
 # Changed) is still re-created on every run.
 #
+# Feature 009 (T002, contracts/maestro-tree-preview.md › Fixtures) adds the
+# immutable `tree` set in SyncScopeE2E/ScanTree, the device side of the remote
+# scan/tree (fixture-images.sh defines both): Album/2024/a1-a5.jpg,
+# Album/2025/b1.jpg, new.jpg and clip.mp4, Album/Docs/doc.pdf, an empty
+# Empty/ and Loose.jpg, all with one fixed mtime. It is reused while it
+# validates (mtimes included); the workspace flow tree/05 deletes a1-a3 and
+# staged/10 touches a4, so a changed set is reseeded before the next API
+# level's workspace flows (this script runs once per API level, before them).
+#
 # Targets the device in ANDROID_SERIAL. Idempotent: directories use mkdir -p,
 # fixture files are overwritten, the mutable trees are regenerated from
 # scratch and an immutable set is kept only when it validates.
@@ -230,6 +239,22 @@ for name in Gallery Delete Recheck Offline Select Changed; do
 done
 adb_shell "mkdir -p $twin"
 push_png "$PNG_TWIN" "$twin/sunset.png"
+
+# The tree set (feature 009): one push per file from tree_fixture_files, then
+# one touch for the whole set. Every adb call reads /dev/null, because adb
+# shell forwards stdin and would drain the list.
+tree_set=$TREE_DEVICE_DIR
+tree_files=$(tree_fixture_files | wc -l | tr -d ' ')
+seed_tree() {
+  adb_shell "rm -rf $tree_set && mkdir -p $tree_set/Album/2024 $tree_set/Album/2025 $tree_set/Album/Docs $tree_set/$TREE_EMPTY_DIRS" </dev/null
+  tree_fixture_files | while read -r tree_path tree_variable; do
+    write_fixture "$(fixture_value "$tree_variable")" "$png_tmp"
+    timeout --signal=TERM --kill-after=10 60 \
+      "$ANDROID_HOME/platform-tools/adb" -s "$serial" push "$png_tmp" "$tree_set/$tree_path" >/dev/null </dev/null
+  done
+  adb_shell "cd $tree_set && find . -type f -exec touch -d @$TREE_MTIME {} +" </dev/null
+}
+immutable_set Tree "$tree_set" "files=$tree_files" mtime seed_tree
 
 # GalleryBulk: one adb shell loop copying the pushed harbor.png. Adding 10000
 # and stripping the leading 1 zero-pads the file numbers to g0000…g9999.
